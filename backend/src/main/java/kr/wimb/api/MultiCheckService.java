@@ -41,8 +41,14 @@ public class MultiCheckService {
         CONFIRMED,
         /** 후보가 여럿이라 사용자가 골라야 합니다. */
         AMBIGUOUS,
-        /** 찾은 책이 없습니다. 줄을 고칠 수 있게 해야 합니다. */
+        /** 물어봤는데 그런 책이 없습니다. 줄을 고칠 수 있게 해야 합니다. */
         NOT_FOUND,
+        /**
+         * 물어보지 못했습니다. <b>{@link #NOT_FOUND} 와 절대 섞으면 안 됩니다.</b>
+         * 앞은 "그런 책이 없다"이고 이것은 "알 수 없다"입니다. 정보나루가 응답하지 않을 때
+         * 이것을 결과 없음으로 표시하면, 멀쩡히 있는 책을 없다고 답하게 됩니다.
+         */
+        LOOKUP_FAILED,
         /** 줄 자체를 읽지 못했습니다. */
         UNREADABLE
     }
@@ -85,8 +91,15 @@ public class MultiCheckService {
         }
 
         // 해석 방법을 위에서부터 시도하고 결과가 나오면 멈춥니다.
+        boolean lookupFailed = false;
         for (LineParser.Attempt attempt : line.attempts()) {
-            List<BookSearchService.WorkResult> works = lookUp(attempt);
+            Outcome outcome = lookUp(attempt);
+            if (outcome.failed()) {
+                // 조회를 못 한 것과 결과가 없는 것을 구분해 둡니다.
+                lookupFailed = true;
+                continue;
+            }
+            List<BookSearchService.WorkResult> works = outcome.works();
             if (works.isEmpty()) continue;
 
             List<BookSearchService.WorkResult> ranked = rank(works, attempt);
@@ -99,17 +112,22 @@ public class MultiCheckService {
         }
 
         LineParser.Attempt last = line.attempts().get(line.attempts().size() - 1);
-        return new LineResult(line.lineNo(), line.raw(), LineStatus.NOT_FOUND,
+        // 한 번이라도 조회에 실패했다면 "그런 책이 없다"고 말할 수 없습니다.
+        return new LineResult(line.lineNo(), line.raw(),
+                lookupFailed ? LineStatus.LOOKUP_FAILED : LineStatus.NOT_FOUND,
                 last.explanation(), line.mergedFrom(), List.of());
     }
 
-    private List<BookSearchService.WorkResult> lookUp(LineParser.Attempt attempt) {
+    /** @param failed 조회 자체가 실패했는지. 빈 결과와 반드시 구분해야 합니다. */
+    private record Outcome(List<BookSearchService.WorkResult> works, boolean failed) {}
+
+    private Outcome lookUp(LineParser.Attempt attempt) {
         try {
-            return searchService.worksFor(toQuery(attempt));
+            return new Outcome(searchService.worksFor(toQuery(attempt)), false);
         } catch (RuntimeException e) {
             // 한 줄의 조회가 실패해도 나머지 줄은 답을 만들어야 합니다.
-            // 결과 없음으로 내려가고, 소장 단계에서 확인 불가로 드러납니다.
-            return List.of();
+            // 다만 그 줄을 결과 없음으로 내려보내면 안 됩니다.
+            return new Outcome(List.of(), true);
         }
     }
 

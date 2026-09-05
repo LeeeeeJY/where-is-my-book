@@ -155,8 +155,34 @@ class MultiCheckServiceTest {
         var response = service(transport).resolve(List.of("사피엔스", "코스모스"));
 
         assertEquals(2, response.lines().size());
-        assertEquals(MultiCheckService.LineStatus.NOT_FOUND, response.lines().get(0).status());
+        // 조회를 못 한 줄은 결과 없음이 아니라 확인 불가입니다.
+        assertEquals(MultiCheckService.LineStatus.LOOKUP_FAILED, response.lines().get(0).status());
         assertEquals(MultiCheckService.LineStatus.CONFIRMED, response.lines().get(1).status());
+    }
+
+    @Test
+    @DisplayName("정보나루가 응답하지 않으면 결과 없음이 아니라 확인 불가다")
+    void upstreamFailureIsNotAbsence() {
+        // 이 둘을 섞으면 멀쩡히 있는 책을 "그런 책이 없다"고 답하게 됩니다.
+        // 정보나루가 잠깐 흔들릴 때마다 사용자가 목록을 고치려 들게 되는 자리입니다.
+        var transport = new FakeD4L();
+        transport.answer = q -> { throw new IllegalStateException("정보나루가 응답하지 않습니다"); };
+
+        var line = service(transport).resolve(List.of("코스모스")).lines().get(0);
+
+        assertEquals(MultiCheckService.LineStatus.LOOKUP_FAILED, line.status());
+        assertNotEquals(MultiCheckService.LineStatus.NOT_FOUND, line.status());
+    }
+
+    @Test
+    @DisplayName("물어봤는데 없으면 그때는 결과 없음이다")
+    void emptyAnswerIsNotFound() {
+        var transport = new FakeD4L();
+        transport.answer = q -> docs();   // 정상 응답이고 내용이 비었습니다
+
+        var line = service(transport).resolve(List.of("있을 리 없는 책")).lines().get(0);
+
+        assertEquals(MultiCheckService.LineStatus.NOT_FOUND, line.status());
     }
 
     @Test

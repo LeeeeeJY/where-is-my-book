@@ -375,9 +375,14 @@ function Leftovers({ rows, selectedCount }: { rows: Row[]; selectedCount: number
   const withBook = rows.filter((row) => row.candidates.length > 0);
   const nowhere = withBook.filter((row) => toBookRow(row, selectedCount).state === 'none');
   const unknown = withBook.filter((row) => toBookRow(row, selectedCount).state === 'unknown');
-  const unresolved = rows.filter((row) => row.candidates.length === 0);
+  // 고칠 수 있는 줄과, 고칠 것이 없고 다시 해 보면 되는 줄을 갈라 놓습니다.
+  const fixable = rows.filter(
+    (row) => row.candidates.length === 0 && row.status !== 'LOOKUP_FAILED',
+  );
+  const notAsked = rows.filter((row) => row.status === 'LOOKUP_FAILED');
 
-  if (nowhere.length === 0 && unknown.length === 0 && unresolved.length === 0) return null;
+  if (nowhere.length === 0 && unknown.length === 0
+      && fixable.length === 0 && notAsked.length === 0) return null;
 
   return (
     <div className="leftovers">
@@ -396,11 +401,27 @@ function Leftovers({ rows, selectedCount }: { rows: Row[]; selectedCount: number
           <p className="muted">없다는 뜻이 아닙니다. 잠시 후 다시 확인해 주세요.</p>
         </div>
       )}
-      {unresolved.length > 0 && (
+      {notAsked.length > 0 && (
         <div className="leftover leftover--unknown">
-          <h3 className="section-title">읽지 못한 줄</h3>
+          <h3 className="section-title">확인하지 못한 줄</h3>
+          <ul>
+            {notAsked.map((row) => (
+              <li key={row.lineNo}>
+                {row.lineNo}줄 「{row.raw}」
+              </li>
+            ))}
+          </ul>
+          <p className="muted">
+            검색 자체가 되지 않았습니다. 그런 책이 없다는 뜻이 아니므로 줄을 고치지 마시고
+            잠시 후 다시 확인해 주세요.
+          </p>
+        </div>
+      )}
+      {fixable.length > 0 && (
+        <div className="leftover">
+          <h3 className="section-title">고쳐야 하는 줄</h3>
           <ul className="muted">
-            {unresolved.map((row) => (
+            {fixable.map((row) => (
               <li key={row.lineNo}>
                 {row.lineNo}줄 「{row.raw}」 — {row.explanation ?? '찾은 책이 없습니다.'}
               </li>
@@ -517,6 +538,7 @@ function StatusBadge({
   state: BookRow['state'] | null;
 }) {
   if (status === 'UNREADABLE') return <span className="badge badge--warn">읽지 못함</span>;
+  if (status === 'LOOKUP_FAILED') return <span className="badge badge--warn">확인 불가</span>;
   if (status === 'NOT_FOUND') return <span className="badge badge--warn">책을 찾지 못함</span>;
   if (status === 'AMBIGUOUS') return <span className="badge badge--warn">골라 주세요</span>;
   if (state === 'pending') return <span className="badge">확인 중</span>;

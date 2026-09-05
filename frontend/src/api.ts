@@ -80,7 +80,16 @@ export function libraryLink(libCode: string): string {
 // 소장은 책마다 따로 물어 도착하는 대로 채웁니다. 캐시가 빈 상태로 30권을 확인하면
 // 수십 초가 걸리는데, 그동안 빈 화면을 보여 주면 사용자는 이 도구를 다시 쓰지 않습니다.
 
-export type LineStatus = 'CONFIRMED' | 'AMBIGUOUS' | 'NOT_FOUND' | 'UNREADABLE';
+/**
+ * `NOT_FOUND` 는 "물어봤는데 그런 책이 없다", `LOOKUP_FAILED` 는 "물어보지 못했다"입니다.
+ * **절대 섞으면 안 됩니다.** 뒤를 결과 없음으로 그리면 멀쩡히 있는 책을 없다고 답하게 됩니다.
+ */
+export type LineStatus =
+  | 'CONFIRMED'
+  | 'AMBIGUOUS'
+  | 'NOT_FOUND'
+  | 'LOOKUP_FAILED'
+  | 'UNREADABLE';
 
 export type LineResult = {
   lineNo: number;

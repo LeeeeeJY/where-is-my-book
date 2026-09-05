@@ -53,7 +53,11 @@ cd frontend && npm run dev       # 화면 확인 (http://localhost:5173)
 
 배포는 `docs/배포.md` 를 보세요. **프론트만 Vercel 에 올리고 API 서버는 따로 둡니다.**
 정보나루에 등록할 고정 IP 가 API 서버에 붙어야 하는데, 서버리스는 나가는 IP 가 고정되지
-않아 조용히 1일 500건 한도가 적용됩니다.
+않아 조용히 1일 500건 한도가 적용됩니다. `backend/Dockerfile` 과 `backend/fly.toml` 이
+준비되어 있고, 배포 뒤 **`fly ips list` 로 나온 주소를 정보나루에 등록하는 것까지가 한 묶음**입니다.
+
+운영에서 쓰는 환경 변수는 `D4L_AUTH_KEY`(필수), `WIMB_CORS_ALLOWED_ORIGINS`,
+`WIMB_DATA4LIBRARY_DAILY_CALL_BUDGET` 입니다. 프론트는 `VITE_API_BASE` 로 API 주소를 받습니다.
 
 스키마에서 알아 둘 것:
 
@@ -144,6 +148,10 @@ cd frontend && npm run dev       # 화면 확인 (http://localhost:5173)
   미소장에 넣으면 없다고 답하는 것이고, 소장에 넣으면 있다고 답하는 것입니다. 둘 다 헛걸음입니다.
 - 「고른 도서관에 없는 책」과 「확인하지 못한 책」을 한 목록에 넣지 마세요. 앞은 서점으로
   넘어가야 하는 책이고 뒤는 다시 확인하면 있을 수 있는 책이라 행동이 다릅니다.
+- **줄 확정 단계에도 같은 구분이 있습니다.** `NOT_FOUND` 는 "물어봤는데 그런 책이 없다",
+  `LOOKUP_FAILED` 는 "물어보지 못했다"입니다. 정보나루가 흔들릴 때 뒤를 결과 없음으로
+  표시하면 사용자가 멀쩡한 줄을 고치려 들게 됩니다. 화면에서도 「고쳐야 하는 줄」과
+  「확인하지 못한 줄」로 갈라 놓습니다.
 
 줄 해석(`kr.wimb.query.LineParser`)에서 되풀이되는 실수:
 

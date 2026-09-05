@@ -15,6 +15,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Clock;
+import java.time.ZoneId;
 import java.time.Duration;
 import java.util.Map;
 
@@ -37,8 +38,11 @@ public class WimbConfiguration implements WebMvcConfigurer {
     public ApiBudget apiBudget() {
         // 재시작하면 잔량이 초기화됩니다. 운영에서는 api_budget 테이블을 쓰는 구현으로
         // 갈아 끼워야 그날 한도를 두 번 쓰는 일이 없습니다.
+        // 날짜 경계는 한국 시각입니다. UTC 로 두면 한도가 09:00 KST 에 초기화되어
+        // 정보나루의 하루와 어긋나고, 그 어긋난 구간에서 한도를 두 번 쓰게 됩니다.
         return new InMemoryApiBudget(
-                Map.of(Data4LibraryClient.SOURCE_CODE, dailyCallBudget), Clock.systemUTC());
+                Map.of(Data4LibraryClient.SOURCE_CODE, dailyCallBudget),
+                Clock.system(ZoneId.of("Asia/Seoul")));
     }
 
     @Bean

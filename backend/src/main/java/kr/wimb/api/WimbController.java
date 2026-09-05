@@ -32,6 +32,7 @@ public class WimbController {
     private final Data4LibraryClient client;
     private final BookSearchService searchService;
     private final MultiCheckService multiCheckService;
+    private final ApiBudget budget;
 
     /**
      * 도서관 마스터를 메모리에 담아 둡니다. 1,604건뿐이라 이걸로 충분하고,
@@ -40,10 +41,11 @@ public class WimbController {
     private final Map<String, LibraryInfo> catalog = new ConcurrentHashMap<>();
 
     public WimbController(Data4LibraryClient client, BookSearchService searchService,
-                          MultiCheckService multiCheckService) {
+                          MultiCheckService multiCheckService, ApiBudget budget) {
         this.client = client;
         this.searchService = searchService;
         this.multiCheckService = multiCheckService;
+        this.budget = budget;
     }
 
     /**
@@ -160,7 +162,7 @@ public class WimbController {
 
     /** 호출 예산이 얼마나 남았는지. 한도가 예상과 다른지 여기서 드러납니다. */
     @GetMapping("/status")
-    public Map<String, Object> status(ApiBudget budget) {
+    public Map<String, Object> status() {
         return Map.of(
                 "librariesLoaded", catalog.size(),
                 "callsUsedToday", budget.used(Data4LibraryClient.SOURCE_CODE),

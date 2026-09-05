@@ -1,0 +1,38 @@
+# Fly.io 배포 설정.
+#
+# **전용 IPv4 를 반드시 붙이고 그 주소를 정보나루 마이페이지에 등록하세요.**
+#   fly ips allocate-v4          # 월 약 2달러
+#   fly ips list                 # 나온 주소를 인증키 관리 > 서버IP 에 등록
+# 등록하지 않으면 1일 한도가 30,000건이 아니라 500건입니다. 그리고 그것이
+# 오류 없이 조용히 일어나기 때문에 원인을 찾기 어렵습니다.
+
+app = "where-is-my-books-api"
+primary_region = "nrt"          # 도쿄. 정보나루와 가장 가깝습니다.
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  # 30,000건 한도에 여유를 둡니다. 한도의 80%에서 배경 작업이 멈춥니다.
+  WIMB_DATA4LIBRARY_DAILY_CALL_BUDGET = "25000"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # 사람이 기다리는 요청을 처리하는 서버라 재우지 않습니다.
+  # 깨어나는 데 걸리는 시간이 여러 권 확인의 첫 응답에 그대로 얹힙니다.
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    grace_period = "30s"
+    interval = "30s"
+    method = "GET"
+    timeout = "5s"
+    path = "/api/status"
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1
