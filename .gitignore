@@ -28,3 +28,6 @@ dist/
 .vscode/
 *.iml
 .DS_Store
+
+# 0단계 검증 스크립트의 출력 (원본 응답과 curl 오류 메시지에 키가 섞일 수 있음)
+probe-out/
