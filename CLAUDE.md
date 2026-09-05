@@ -52,9 +52,12 @@ cd frontend && npm run dev       # 화면 확인 (http://localhost:5173)
 ```
 
 배포는 `docs/배포.md` 를 보세요. **프론트만 Vercel 에 올리고 API 서버는 따로 둡니다.**
-정보나루에 등록할 고정 IP 가 API 서버에 붙어야 하는데, 서버리스는 나가는 IP 가 고정되지
-않아 조용히 1일 500건 한도가 적용됩니다. `backend/Dockerfile` 과 `backend/fly.toml` 이
-준비되어 있고, 배포 뒤 **`fly ips list` 로 나온 주소를 정보나루에 등록하는 것까지가 한 묶음**입니다.
+정보나루에 등록해야 하는 것은 **나가는(egress) IP** 이고, 서버리스는 그것이 고정되지 않아
+조용히 1일 500건 한도가 적용됩니다. 들어오는 IP 와 혼동하지 마세요. VM 한 대(VPS,
+Oracle 프리 티어)를 권하는 이유가 IP 가 하나뿐이라 모호함이 없기 때문입니다.
+
+배포 단위는 `backend/Dockerfile` 하나이고, **등록 전에 `curl -s https://api.ipify.org` 로
+실제 나가는 주소를 눈으로 확인하는 것까지가 한 묶음**입니다.
 
 운영에서 쓰는 환경 변수는 `D4L_AUTH_KEY`(필수), `WIMB_CORS_ALLOWED_ORIGINS`,
 `WIMB_DATA4LIBRARY_DAILY_CALL_BUDGET` 입니다. 프론트는 `VITE_API_BASE` 로 API 주소를 받습니다.
