@@ -93,7 +93,71 @@ body {
 
 .placeholder { padding: 8px 0; display: grid; gap: 10px; }
 .placeholder p { margin: 0; }
-.share { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); display: grid; gap: 8px; }
+.share {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+  padding: 14px 16px; display: grid; gap: 8px;
+}
 .share p { margin: 0; font-size: 13px; }
 
 input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent); flex: none; }
+
+/* ── 책 검색 ───────────────────────────────────────────────────────── */
+
+.results-column { display: grid; gap: 16px; align-content: start; }
+
+.search-bar { display: flex; gap: 8px; margin: 12px 0; }
+.search-bar .text-input { flex: 1; min-width: 0; }
+
+.asof {
+  margin: 12px 0;
+  padding: 9px 11px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+
+.book-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
+
+.book {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  gap: 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.book:first-child { border-top: 0; padding-top: 0; }
+
+.book__cover {
+  width: 56px; height: 80px; object-fit: cover;
+  border: 1px solid var(--line); border-radius: 4px; background: var(--bg);
+}
+.book__cover--empty { display: block; }
+
+.book__body { min-width: 0; }
+.book__title { margin: 0 0 2px; font-size: 15px; line-height: 1.4; }
+.book__meta, .book__editions { margin: 0; font-size: 13px; }
+
+/*
+  소장 결과의 네 상태를 색과 문구 양쪽으로 구분합니다.
+  색만으로 구분하면 색을 구별하지 못하는 사용자에게 아무 정보도 남지 않습니다.
+*/
+.holding { margin: 8px 0 0; font-size: 14px; }
+.holding--held { color: var(--text); }
+.holding--none { color: var(--muted); }
+.holding--unknown {
+  padding: 8px 10px;
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-line);
+  border-radius: 7px;
+}
+
+.holding__count { margin: 0 0 6px; }
+.holding__count strong { color: var(--accent); }
+.holding__list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.holding__list li { font-size: 14px; }
+.holding__list a { color: var(--accent); text-underline-offset: 3px; }
+.holding__list span { font-size: 12px; }
+.holding__note { margin: 8px 0 0; font-size: 12px; }

@@ -1,43 +1,81 @@
 import { useCallback, useEffect, useState } from 'react';
+import { fetchLibraries } from './api';
+import { BookSearch } from './components/BookSearch';
 import { LibraryPicker } from './components/LibraryPicker';
 import { SAMPLE_LIBRARIES } from './data/sampleLibraries';
 import { loadSelection, saveSelection } from './domain/selectionStorage';
 import { paramsToSelection, selectionToParams } from './domain/selectionUrl';
-
-const LIBRARIES = SAMPLE_LIBRARIES;
+import type { Library } from './domain/types';
 
 /**
- * 처음 화면을 그릴 때의 선택 상태를 정합니다.
+ * 주소를 쓰기 전에 한 번만 붙잡아 둡니다.
  *
- * **URL 이 있으면 URL 이 이깁니다.** 공유받은 링크를 열었을 때 내 기존 선택으로 덮이면
- * 공유가 의미를 잃기 때문입니다.
+ * 도서관 목록이 늦게 도착하는데 그 사이에 주소를 손대면, 공유받은 링크의 선택이
+ * 복원되기도 전에 지워집니다.
  */
-function initialSelection(): Set<string> {
-  const fromUrl = paramsToSelection(new URLSearchParams(window.location.search), LIBRARIES);
-  if (fromUrl.size > 0) return fromUrl;
+const INITIAL_SEARCH = window.location.search;
 
-  const stored = loadSelection();
-  if (!stored) return new Set();
-  // 목록에서 사라진 도서관은 조용히 버립니다.
-  const known = new Set(LIBRARIES.map((l) => l.libCode));
-  return new Set(stored.filter((code) => known.has(code)));
-}
+type Catalog =
+  | { kind: 'loading' }
+  /** API 서버에서 받은 실제 도서관 목록. */
+  | { kind: 'api'; libraries: Library[] }
+  /** 서버가 없어 샘플로 화면만 확인하는 상태. 반드시 화면에 밝힙니다. */
+  | { kind: 'sample'; libraries: Library[] };
 
 export default function App() {
-  const [selected, setSelected] = useState<Set<string>>(initialSelection);
+  const [catalog, setCatalog] = useState<Catalog>({ kind: 'loading' });
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [restored, setRestored] = useState(false);
   const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchLibraries().then(
+      (libraries) => {
+        if (!cancelled) setCatalog({ kind: 'api', libraries });
+      },
+      () => {
+        // 서버가 없어도 선택 화면은 동작해야 합니다. 다만 샘플이라는 것을 숨기지 않습니다.
+        if (!cancelled) setCatalog({ kind: 'sample', libraries: SAMPLE_LIBRARIES });
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const libraries = catalog.kind === 'loading' ? [] : catalog.libraries;
+
+  // 목록이 도착한 뒤에야 번호를 도서관부호로 되돌릴 수 있습니다.
+  // **URL 이 있으면 URL 이 이깁니다.** 공유받은 링크가 내 기존 선택으로 덮이면
+  // 공유가 의미를 잃기 때문입니다.
+  useEffect(() => {
+    if (restored || libraries.length === 0) return;
+
+    const fromUrl = paramsToSelection(new URLSearchParams(INITIAL_SEARCH), libraries);
+    if (fromUrl.size > 0) {
+      setSelected(fromUrl);
+    } else {
+      const stored = loadSelection();
+      const known = new Set(libraries.map((l) => l.libCode));
+      // 목록에서 사라진 도서관은 조용히 버립니다.
+      if (stored) setSelected(new Set(stored.filter((code) => known.has(code))));
+    }
+    setRestored(true);
+  }, [libraries, restored]);
 
   // 선택이 바뀔 때마다 브라우저에 저장하고 주소에도 반영합니다.
   useEffect(() => {
+    if (!restored) return;
     saveSelection([...selected]);
 
     const url = new URL(window.location.href);
     url.searchParams.delete('libs');
     url.searchParams.delete('libsb');
-    const params = selectionToParams(selected, LIBRARIES);
+    const params = selectionToParams(selected, libraries);
     if (params) url.searchParams.set(params.key, params.value);
     window.history.replaceState(null, '', url);
-  }, [selected]);
+  }, [selected, libraries, restored]);
 
   const share = useCallback(() => {
     navigator.clipboard.writeText(window.location.href).then(
@@ -58,50 +96,38 @@ export default function App() {
         </p>
       </header>
 
-      <div className="banner banner--warn">
-        <strong>개발 중입니다.</strong> 지금 보이는 도서관 {LIBRARIES.length}곳은 화면 확인용
-        샘플입니다. 실제 목록(전국 1,604개관)과 책 검색은 공공데이터포털과 국립중앙도서관
-        인증키를 받은 뒤에 연결됩니다.
-      </div>
+      {catalog.kind === 'sample' && (
+        <div className="banner banner--warn">
+          <strong>API 서버에 연결하지 못했습니다.</strong> 지금 보이는 도서관{' '}
+          {catalog.libraries.length}곳은 화면 확인용 샘플이고, 책 검색도 동작하지 않습니다.
+          서버를 띄우면 전국 공공도서관 목록이 그 자리에 들어옵니다.
+        </div>
+      )}
 
-      <main className="layout">
-        <LibraryPicker libraries={LIBRARIES} selected={selected} onChange={setSelected} />
+      {catalog.kind === 'loading' ? (
+        <p className="muted">도서관 목록을 받는 중입니다.</p>
+      ) : (
+        <main className="layout">
+          <LibraryPicker libraries={libraries} selected={selected} onChange={setSelected} />
 
-        <section className="results">
-          <header className="picker__head">
-            <h2>책 검색</h2>
-          </header>
+          <div className="results-column">
+            <BookSearch libraries={libraries} selected={selected} />
 
-          <div className="placeholder">
-            <p>아직 검색할 수 있는 서지 데이터가 없습니다.</p>
-            <p className="muted">
-              국립중앙도서관 서지정보 API 로 2000년 이후 서지를 적재하면 이 자리에 검색창이
-              들어옵니다. 소장 여부는 검색 시점에 도서관 정보나루에 물어보고, 받은 결과를
-              캐시에 쌓아 둡니다.
-            </p>
-            <p className="muted">
-              대출 가능 여부는 표시하지 않습니다. 제공되는 값이 전날 기준이라 그것을 믿고
-              헛걸음하는 것이 이 도구를 못 쓰게 만드는 가장 큰 요인이기 때문입니다.
-              소장 여부까지만 보여 주고 대출은 도서관 페이지에서 확인하도록 넘깁니다.
-            </p>
+            {selected.size > 0 && (
+              <div className="share">
+                <button className="button" onClick={share}>
+                  {copied ? '주소를 복사했습니다' : '선택 상태 공유하기'}
+                </button>
+                <p className="muted">
+                  주소에 선택이 담겨 있어 다른 기기에서 열어도 그대로 복원됩니다.
+                </p>
+              </div>
+            )}
           </div>
+        </main>
+      )}
 
-          {selected.size > 0 && (
-            <div className="share">
-              <button className="button" onClick={share}>
-                {copied ? '주소를 복사했습니다' : '선택 상태 공유하기'}
-              </button>
-              <p className="muted">
-                주소에 선택이 담겨 있어 다른 기기에서 열어도 그대로 복원됩니다.
-              </p>
-            </div>
-          )}
-        </section>
-      </main>
-
-      <footer className="app__foot muted">
-        출처: 도서관 정보나루 · 국립중앙도서관 · 공공데이터포털
-      </footer>
+      <footer className="app__foot muted">출처: 도서관 정보나루 · 국립중앙도서관</footer>
     </div>
   );
 }

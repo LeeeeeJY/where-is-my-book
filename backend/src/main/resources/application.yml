@@ -1,0 +1,25 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: where-is-my-books
+  threads:
+    virtual:
+      enabled: true   # 소장 조회가 외부 호출을 여러 번 기다리므로 가상 스레드가 유리합니다
+
+wimb:
+  data4library:
+    # 키는 저장소에 두지 않습니다. .env 를 읽어 환경 변수로 넘기세요.
+    auth-key: ${D4L_AUTH_KEY:}
+    # 30,000 이 상한이지만 여유를 둡니다. 상한까지 쓰면 하루 마지막 조회가 실패합니다.
+    daily-call-budget: 25000
+    # 상대 서버에 대한 예의이자 차단을 피하는 장치입니다.
+    min-request-interval-ms: 120
+  cors:
+    # 로컬 개발용 프론트 주소입니다. 배포 시 실제 도메인으로 바꾸세요.
+    allowed-origins: http://localhost:5173,http://127.0.0.1:5173
+
+logging:
+  level:
+    kr.wimb: INFO

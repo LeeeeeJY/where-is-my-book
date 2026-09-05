@@ -1,8 +1,9 @@
-// 1단계에서는 순수 자바 라이브러리로 시작합니다.
-// 정규화와 동일성 판별은 Spring이 전혀 필요 없고, 의존성이 적을수록 테스트가 빨리 돕니다.
-// Spring Boot 플러그인은 어댑터와 API 서버 작업을 시작할 때 추가합니다.
+// 1~2단계는 순수 자바 라이브러리로 시작했고, API 서버를 붙이면서 Spring Boot 를 더했습니다.
+// 정규화와 군집화는 여전히 Spring 을 모릅니다. 테스트가 빨리 도는 편이 낫기 때문입니다.
 plugins {
     id 'java'
+    id 'org.springframework.boot' version '3.4.1'
+    id 'io.spring.dependency-management' version '1.1.7'
 }
 
 group = 'kr.wimb'
@@ -15,6 +16,9 @@ java {
 repositories { mavenCentral() }
 
 dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation platform('org.junit:junit-bom:5.11.4')
     testImplementation 'org.junit.jupiter:junit-jupiter'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
