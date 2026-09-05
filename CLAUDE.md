@@ -16,9 +16,21 @@
   돌려야 만들어지므로 지금은 `ASSUME_COMMON` 을 씁니다. 「J.D. 샐린저」와
   「제롬 데이비드 샐린저」가 갈리는 것이 그 때문이고, 빈도표가 생기면 해결됩니다.
 
+DB 스키마도 있습니다(`backend/src/main/resources/db/migration/`). 실제 PostgreSQL 에
+적용해 제약이 지켜지는지까지 확인했습니다.
+
 ```bash
-cd backend && ./gradlew test
+cd backend && ./gradlew test    # 정규화와 군집화
+./scripts/verify-schema.sh       # 마이그레이션과 스키마 제약 (루트가 아닌 계정으로)
 ```
+
+스키마에서 알아 둘 것:
+
+- `short_id` 를 바꾸려 하면 **트리거가 막습니다.** 규칙을 문서로만 두면 언젠가 어겨집니다.
+- 전문 검색 색인은 PGroonga 가 있으면 그것을, 없으면 자체 생성 바이그램을 씁니다.
+  `search_text` 와 `search_bigrams` 를 항상 함께 채우므로 전환이 색인 교체만으로 끝납니다.
+- 색인 전환은 `promote_search_doc('search_doc_vN')` 하나로 합니다.
+  **반드시 검증을 통과한 뒤에만** 부르세요.
 
 다음 작업은 계획서 13절의 **0단계 사전 검증**입니다. `docs/0단계-체크리스트.md` 를 보세요.
 인증키 승인이 크리티컬 패스이므로 신청을 먼저 걸어 두어야 합니다.
