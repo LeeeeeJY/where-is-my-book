@@ -29,6 +29,7 @@ fi
 
 : "${D4L_AUTH_KEY:?.env에 D4L_AUTH_KEY가 필요합니다}"
 : "${SEOJI_CERT_KEY:?.env에 SEOJI_CERT_KEY가 필요합니다}"
+DATA_GO_KR_SERVICE_KEY="${DATA_GO_KR_SERVICE_KEY:-}"   # 없으면 6번을 건너뜁니다
 
 mkdir -p "$OUT_DIR"
 : > "$REPORT"
@@ -219,15 +220,50 @@ note "- 세트 ISBN 필드(SET_ISBN 계열)가 있는지 확인하세요. bib_se
 note "- 일일 호출 한도가 문서에 명시되어 있는지 확인하고 여기에 적어 두세요."
 note ""
 
-# ---------- 6. 일일 한도 확인 ----------
+# ---------- 6. 공공데이터포털: 도서관 마스터 ----------
+# 도서관부호는 여기서만 나옵니다. 정보나루도 서지정보 API도 주지 않습니다.
+# 이 키가 없으면 1단계의 도서관 마스터를 만들 수 없습니다.
 
-say "[6/6] 정리"
-note "## 6. 남은 확인 항목 (수동)"
+say "[6/7] 공공데이터포털 도서관 정보 제공 서비스"
+note "## 6. 공공데이터포털 (도서관부호의 유일한 출처)"
+note ""
+if [ -n "$DATA_GO_KR_SERVICE_KEY" ]; then
+  m=$(fetch "06-libinfo.xml" \
+      "https://apis.data.go.kr/B551408/lib-info/getLibInfo?serviceKey=$DATA_GO_KR_SERVICE_KEY&pageNo=1&numOfRows=5")
+  note "- HTTP \`${m%% *}\`, 원본: \`$OUT_DIR/06-libinfo.xml\`"
+  note ""
+  note "응답 필드 이름:"
+  note ""
+  note '```'
+  grep -o '<[a-zA-Z_][a-zA-Z0-9_]*>' "$OUT_DIR/06-libinfo.xml" 2>/dev/null \
+    | sort -u | tr -d '<>' | tr '\n' ' ' | fold -w 100 -s >> "$REPORT"
+  note ""
+  note '```'
+  note ""
+  note "**엔드포인트 경로는 추정입니다.** 공공데이터포털의 활용신청 화면에 나오는"
+  note "실제 요청 주소로 바꿔서 다시 확인하고, 확인된 주소를 이 스크립트에 반영하세요."
+  note ""
+  note "확인할 것: 응답에 **도서관부호**가 있는지, 있다면 6자리 숫자인지."
+  note "3번에서 본 정보나루 코드와 같은 체계인지가 여기서 확정됩니다."
+else
+  note "\`DATA_GO_KR_SERVICE_KEY\` 가 비어 있어 건너뛰었습니다."
+  note ""
+  note "**이 키도 반드시 필요합니다.** 도서관부호는 정보나루도 서지정보 API도 주지 않고"
+  note "공공데이터포털의 도서관 정보 제공 서비스에만 있습니다. 도서관 마스터의 공통 키이므로"
+  note "이것이 없으면 1단계를 시작할 수 없습니다."
+fi
+note ""
+
+# ---------- 7. 남은 확인 항목 ----------
+
+say "[7/7] 정리"
+note "## 7. 남은 확인 항목 (수동)"
 note ""
 note "- [ ] 마이페이지에서 **서버 IP를 등록**했고 1일 한도가 30,000건으로 표시되는가"
 note "- [ ] 등록한 IP가 **실제 호출이 나가는 서버의 IP**와 같은가 (\`curl -s ifconfig.me\` 로 확인)"
 note "- [ ] 위 2번 판정이 \"보류\"로 나왔다면 응답 원본을 직접 열어 오류 메시지를 확인"
 note "- [ ] 지역 코드 목록을 확보했는가 (region=11 이 서울이 맞는지 포함)"
+note "- [ ] 전국도서관표준데이터를 파일로 받을 수 있는지, API 신청이 따로 필요한지"
 note ""
 note "---"
 note ""
