@@ -1,0 +1,99 @@
+:root {
+  --bg: #fbfaf8;
+  --surface: #ffffff;
+  --line: #e3e0da;
+  --text: #23201c;
+  --muted: #77716a;
+  --accent: #2f6f4f;
+  --warn-bg: #fdf6e3;
+  --warn-line: #e6d9b0;
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.6 -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Pretendard',
+    'Malgun Gothic', sans-serif;
+}
+
+.app { max-width: 1100px; margin: 0 auto; padding: 24px 16px 48px; }
+.app__head h1 { margin: 0 0 4px; font-size: 24px; letter-spacing: -0.02em; }
+.app__head p { margin: 0; }
+.app__foot { margin-top: 32px; font-size: 13px; }
+
+.muted { color: var(--muted); }
+
+.banner {
+  margin: 20px 0;
+  padding: 12px 14px;
+  border-radius: 8px;
+  font-size: 14px;
+  line-height: 1.55;
+}
+.banner--warn { background: var(--warn-bg); border: 1px solid var(--warn-line); }
+
+/* 좁은 화면에서는 세로로 쌓고, 넓은 화면에서만 좌우로 나눕니다. */
+.layout { display: grid; gap: 16px; }
+@media (min-width: 860px) {
+  .layout { grid-template-columns: minmax(300px, 380px) 1fr; align-items: start; }
+}
+
+.picker, .results {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px;
+}
+
+.picker__head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.picker__head h2 { margin: 0; font-size: 16px; }
+.picker__count { font-size: 13px; color: var(--accent); font-weight: 600; }
+
+.tabs { display: flex; gap: 4px; margin: 12px 0; border-bottom: 1px solid var(--line); }
+.tab {
+  appearance: none; background: none; border: 0; border-bottom: 2px solid transparent;
+  padding: 8px 10px; font: inherit; font-size: 14px; color: var(--muted); cursor: pointer;
+}
+.tab--active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+
+.tree, .flat-list { list-style: none; margin: 0; padding: 0; }
+.tree--nested { padding-left: 22px; }
+.tree__row { display: flex; align-items: center; gap: 8px; padding: 3px 0; min-height: 30px; }
+.tree__row label { cursor: pointer; }
+.tree__row--sido { font-weight: 600; }
+
+.tree__toggle {
+  appearance: none; background: none; border: 0; padding: 0; font: inherit;
+  display: flex; align-items: center; gap: 6px; cursor: pointer; color: inherit; text-align: left;
+}
+.caret { display: inline-block; transition: transform 0.12s ease; color: var(--muted); }
+.caret--open { transform: rotate(90deg); }
+
+.search-tab { display: grid; gap: 10px; }
+.text-input {
+  width: 100%; padding: 8px 10px; font: inherit;
+  border: 1px solid var(--line); border-radius: 6px; background: var(--surface);
+}
+
+.button {
+  appearance: none; padding: 9px 14px; font: inherit; font-weight: 600;
+  background: var(--accent); color: #fff; border: 0; border-radius: 6px; cursor: pointer;
+}
+.button:disabled { opacity: 0.6; cursor: default; }
+
+.link-button {
+  appearance: none; background: none; border: 0; padding: 8px 0 0;
+  font: inherit; font-size: 13px; color: var(--muted); cursor: pointer;
+  text-decoration: underline; text-underline-offset: 3px;
+}
+
+.placeholder { padding: 8px 0; display: grid; gap: 10px; }
+.placeholder p { margin: 0; }
+.share { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); display: grid; gap: 8px; }
+.share p { margin: 0; font-size: 13px; }
+
+input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent); flex: none; }

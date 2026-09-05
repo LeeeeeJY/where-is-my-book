@@ -17,6 +17,8 @@
 - **`kr.wimb.index`** — 색인 문서 생성과 전환 전 검증
 - **`kr.wimb.ingest`** — 어댑터 계약, 호출 예산 원장, HTTP 재시도와 간격 제어
 - **`db/migration`** — 실제 PostgreSQL 에 적용해 제약까지 확인한 스키마
+- **`frontend/`** — 도서관 선택 화면. 세 상태 체크박스, URL 인코딩, 로컬 저장이 동작합니다.
+  도서관 목록은 아직 `src/data/sampleLibraries.ts` 의 샘플 24곳입니다.
 
 - 정규화, ISBN 처리, 저자 대조, 판정 규칙(R0~R7)이 구현되어 있고 테스트가 붙어 있습니다.
 - `backend/src/test/resources/bib/golden-pairs.tsv` 가 「같은 책」의 실질적인 명세입니다.
@@ -26,9 +28,15 @@
   「제롬 데이비드 샐린저」가 갈리는 것이 그 때문이고, 빈도표가 생기면 해결됩니다.
 
 ```bash
-cd backend && ./gradlew test    # 정규화와 군집화
+cd backend && ./gradlew test     # 정규화, 군집화, 색인, 어댑터
+cd frontend && npm test          # 선택 상태 계산과 URL 인코딩
+cd frontend && npm run dev       # 화면 확인 (http://localhost:5173)
 ./scripts/verify-schema.sh       # 마이그레이션과 스키마 제약 (루트가 아닌 계정으로)
 ```
+
+배포는 `docs/배포.md` 를 보세요. **프론트만 Vercel 에 올리고 API 서버는 따로 둡니다.**
+정보나루에 등록할 고정 IP 가 API 서버에 붙어야 하는데, 서버리스는 나가는 IP 가 고정되지
+않아 조용히 1일 500건 한도가 적용됩니다.
 
 스키마에서 알아 둘 것:
 
