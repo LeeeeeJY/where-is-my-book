@@ -9,13 +9,13 @@ import java.util.concurrent.atomic.AtomicReference;
 /**
  * 저작의 ISBN 목록으로 소장 도서관을 찾습니다.
  *
- * <p><b>{@code region} 파라미터가 필수인지 아직 확인하지 못했습니다.</b> 문서를 열어 볼 수
- * 없는 상태라 답을 기다리는 대신, 처음 조회할 때 스스로 알아내고 기억하도록 만들었습니다.
- * 어느 쪽이든 동작하므로 확인 결과가 나오기 전에도 나머지를 진행할 수 있고, 나중에 정보나루가
- * 동작을 바꿔도 저절로 따라갑니다.
+ * <p><b>Open API Manual v20260210 의 13절에 따르면 {@code region} 은 필수입니다.</b>
+ * 전국을 한 번에 받는 방법이 없으므로 소장 조회는 선택한 도서관들이 걸친 시도 수만큼
+ * 호출이 곱해집니다. 기본값은 {@link RegionModeStore#documented()} 로 잡습니다.
  *
- * <p>호출량은 알아낸 방식에 따라 갈립니다. 전국을 한 번에 주면 ISBN 당 1회이고,
- * 지역별로만 주면 선택한 도서관이 걸친 시도 수만큼 곱해집니다.
+ * <p>그럼에도 탐색 로직을 남겨 둔 것은, 문서와 실제 동작이 다르거나 정보나루가 나중에
+ * 동작을 바꿨을 때 스스로 따라갈 수 있어야 하기 때문입니다. 문서를 믿되 그것만 믿지는
+ * 않습니다.
  */
 public final class HoldingsLookup {
 
@@ -36,7 +36,22 @@ public final class HoldingsLookup {
         void set(RegionMode mode);
 
         static RegionModeStore inMemory() {
-            AtomicReference<RegionMode> value = new AtomicReference<>(RegionMode.UNKNOWN);
+            return inMemory(RegionMode.UNKNOWN);
+        }
+
+        /**
+         * 매뉴얼(v20260210) 13절이 {@code region} 을 필수로 명시하므로 PER_REGION 으로
+         * 시작합니다. 탐색 비용을 치르지 않아도 됩니다.
+         *
+         * <p>탐색 로직은 그대로 남겨 둡니다. 정보나루가 나중에 동작을 바꾸거나, 문서와 실제가
+         * 다른 경우에 스스로 따라갈 수 있어야 하기 때문입니다.
+         */
+        static RegionModeStore documented() {
+            return inMemory(RegionMode.PER_REGION);
+        }
+
+        static RegionModeStore inMemory(RegionMode initial) {
+            AtomicReference<RegionMode> value = new AtomicReference<>(initial);
             return new RegionModeStore() {
                 public RegionMode get() { return value.get(); }
                 public void set(RegionMode mode) { value.set(mode); }
