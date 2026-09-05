@@ -1,0 +1,29 @@
+// 1단계에서는 순수 자바 라이브러리로 시작합니다.
+// 정규화와 동일성 판별은 Spring이 전혀 필요 없고, 의존성이 적을수록 테스트가 빨리 돕니다.
+// Spring Boot 플러그인은 어댑터와 API 서버 작업을 시작할 때 추가합니다.
+plugins {
+    id 'java'
+}
+
+group = 'kr.wimb'
+version = '0.1.0-SNAPSHOT'
+
+java {
+    toolchain { languageVersion = JavaLanguageVersion.of(21) }
+}
+
+repositories { mavenCentral() }
+
+dependencies {
+    testImplementation platform('org.junit:junit-bom:5.11.4')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+        exceptionFormat 'full'
+    }
+}
