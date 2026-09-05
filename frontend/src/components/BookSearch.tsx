@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { ApiUnavailable, libraryLink, searchBooks } from '../api';
 import type { SearchResponse, WorkResult } from '../api';
+import { holdingState } from '../domain/holdingState';
 import type { Library } from '../domain/types';
 
 type State =
@@ -209,35 +210,39 @@ function Holdings({
   byCode: Map<string, Library>;
   selectedCount: number;
 }) {
-  if (selectedCount === 0) {
+  // 판정은 holdingState 한 곳에서만 합니다. 화면마다 따로 판정하면 언젠가 한쪽이
+  // 확인 불가를 미소장으로 그리게 되고, 그때는 아무도 눈치채지 못합니다.
+  const state = holdingState(
+    {
+      libCodes: work.holdingLibCodes,
+      complete: work.holdingsComplete,
+      unreadable: work.holdingsUnreadable,
+    },
+    selectedCount,
+  );
+
+  if (state === 'pending') {
     // 노란 상자는 "확인 불가"에만 씁니다. 안내까지 같은 색으로 칠하면
     // 정작 확인하지 못한 책이 눈에 띄지 않습니다.
     return <p className="holding muted">도서관을 고르면 어디에 있는지 확인합니다.</p>;
   }
 
-  if (work.holdingsUnreadable) {
+  if (state === 'unknown') {
     return (
       <p className="holding holding--unknown">
-        <strong>확인 불가.</strong> 조회가 실패했습니다. 없다는 뜻이 아니라 알 수 없다는
-        뜻입니다.
+        <strong>확인 불가.</strong>{' '}
+        {work.holdingsUnreadable
+          ? '조회가 실패했습니다. 없다는 뜻이 아니라 알 수 없다는 뜻입니다.'
+          : '확인하지 못한 판본이 있어 미소장이라고 말할 수 없습니다.'}
       </p>
     );
   }
 
-  const held = work.holdingLibCodes;
-
-  if (held.length === 0 && !work.holdingsComplete) {
-    return (
-      <p className="holding holding--unknown">
-        <strong>확인 불가.</strong> 확인하지 못한 판본이 있어 미소장이라고 말할 수 없습니다.
-      </p>
-    );
-  }
-
-  if (held.length === 0) {
+  if (state === 'none') {
     return <p className="holding holding--none">고른 도서관에는 없습니다.</p>;
   }
 
+  const held = work.holdingLibCodes;
   return (
     <div className="holding holding--held">
       <p className="holding__count">
@@ -271,7 +276,15 @@ function Holdings({
 
 /** 저작에 묶인 판본을 빠짐없이 조회했는지. 조회를 아예 하지 않은 경우도 아닙니다. */
 function checkedEveryEdition(work: WorkResult, selectedCount: number): boolean {
-  return selectedCount > 0 && work.holdingsComplete && !work.holdingsUnreadable;
+  const state = holdingState(
+    {
+      libCodes: work.holdingLibCodes,
+      complete: work.holdingsComplete,
+      unreadable: work.holdingsUnreadable,
+    },
+    selectedCount,
+  );
+  return state === 'held' || state === 'none' ? work.holdingsComplete : false;
 }
 
 /** 표시는 전부 Asia/Seoul 기준입니다. */

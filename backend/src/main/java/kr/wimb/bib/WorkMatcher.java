@@ -168,7 +168,8 @@ public final class WorkMatcher {
     }
 
     /** 3글자 조각의 자카드 유사도. 짧은 문자열은 문자열 자체를 조각으로 씁니다. */
-    static double trigramSimilarity(String a, String b) {
+    /** 정규화된 문자열 사이의 3글자 조각 유사도. 후보 점수 계산도 이 함수를 씁니다. */
+    public static double trigramSimilarity(String a, String b) {
         if (a.isEmpty() || b.isEmpty()) return 0;
         if (a.equals(b)) return 1;
         Set<String> ga = trigrams(a);

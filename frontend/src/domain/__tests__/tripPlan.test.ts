@@ -1,0 +1,155 @@
+import { describe, expect, it } from 'vitest';
+import { countByState, planTrip, rankLibraries, toPlainText } from '../tripPlan';
+import type { BookRow } from '../tripPlan';
+import type { Library } from '../types';
+
+function library(libCode: string, name: string): Library {
+  return {
+    libCode,
+    shortId: Number(libCode),
+    name,
+    sido: '경기',
+    sigungu: '성남시',
+    latitude: null,
+    longitude: null,
+    homepageUrl: null,
+  };
+}
+
+const 중원 = library('141053', '성남시중원도서관');
+const 분당 = library('141054', '분당도서관');
+const 판교 = library('141055', '판교도서관');
+const LIBS = [중원, 분당, 판교];
+
+function held(key: string, title: string, ...libCodes: string[]): BookRow {
+  return { key, title, state: 'held', holdingLibCodes: libCodes };
+}
+
+function none(key: string, title: string): BookRow {
+  return { key, title, state: 'none', holdingLibCodes: [] };
+}
+
+function unknown(key: string, title: string): BookRow {
+  return { key, title, state: 'unknown', holdingLibCodes: [] };
+}
+
+describe('확인하지 못한 책을 집계에 넣지 않는다', () => {
+  it('확인 불가는 소장에도 미소장에도 들어가지 않는다', () => {
+    const rows = [held('a', '코스모스', 중원.libCode), unknown('b', '사피엔스')];
+    const ranks = rankLibraries(rows, LIBS);
+
+    const 중원순위 = ranks.find((r) => r.libCode === 중원.libCode)!;
+    expect(중원순위.held).toEqual(['코스모스']);
+    // 사피엔스는 확인하지 못했으므로 "이 도서관에 없는 책"이 아닙니다.
+    expect(중원순위.missing).toEqual([]);
+  });
+
+  it('조회가 도착하지 않은 책도 마찬가지다', () => {
+    const rows: BookRow[] = [
+      held('a', '코스모스', 중원.libCode),
+      { key: 'b', title: '총 균 쇠', state: 'pending', holdingLibCodes: [] },
+    ];
+    const 중원순위 = rankLibraries(rows, LIBS).find((r) => r.libCode === 중원.libCode)!;
+    expect(중원순위.missing).toEqual([]);
+  });
+
+  it('확인이 끝나고 없는 책만 미소장으로 센다', () => {
+    const rows = [held('a', '코스모스', 중원.libCode), none('b', '사피엔스')];
+    const 중원순위 = rankLibraries(rows, LIBS).find((r) => r.libCode === 중원.libCode)!;
+    expect(중원순위.missing).toEqual(['사피엔스']);
+  });
+
+  it('상태별 권수를 센다', () => {
+    const rows = [held('a', 'A', 중원.libCode), none('b', 'B'), unknown('c', 'C')];
+    expect(countByState(rows)).toEqual({ pending: 0, held: 1, none: 1, unknown: 1 });
+  });
+});
+
+describe('도서관 순위', () => {
+  it('소장 권수 내림차순으로 세운다', () => {
+    const rows = [
+      held('a', '코스모스', 중원.libCode, 분당.libCode),
+      held('b', '사피엔스', 중원.libCode),
+      held('c', '총 균 쇠', 중원.libCode, 판교.libCode),
+    ];
+    const ranks = rankLibraries(rows, LIBS);
+    expect(ranks.map((r) => r.name)).toEqual(['성남시중원도서관', '분당도서관', '판교도서관']);
+    expect(ranks[0].held).toHaveLength(3);
+  });
+
+  it('한 권도 없는 도서관은 순위에 넣지 않는다', () => {
+    const ranks = rankLibraries([held('a', '코스모스', 중원.libCode)], LIBS);
+    expect(ranks.map((r) => r.libCode)).toEqual([중원.libCode]);
+  });
+});
+
+describe('한 곳에서 다 빌리기', () => {
+  it('가장 많이 덮는 도서관부터 고른다', () => {
+    const rows = [
+      held('a', 'A', 중원.libCode, 분당.libCode),
+      held('b', 'B', 중원.libCode),
+      held('c', 'C', 중원.libCode),
+      held('d', 'D', 분당.libCode),
+      held('e', 'E', 판교.libCode),
+    ];
+    const plan = planTrip(rows, LIBS);
+
+    expect(plan[0].name).toBe('성남시중원도서관');
+    expect(plan[0].added).toBe(3);
+    expect(plan[0].cumulative).toBe(3);
+    // 그다음은 남은 D 와 E 를 각각 덮는 두 곳입니다.
+    expect(plan).toHaveLength(3);
+    expect(plan[plan.length - 1].cumulative).toBe(5);
+  });
+
+  it('한 곳으로 전부 덮이면 한 곳만 제안한다', () => {
+    const rows = [held('a', 'A', 중원.libCode), held('b', 'B', 중원.libCode)];
+    const plan = planTrip(rows, LIBS);
+    expect(plan).toHaveLength(1);
+    expect(plan[0].cumulative).toBe(2);
+  });
+
+  it('확인하지 못한 책은 계획에 넣지 않는다', () => {
+    const rows = [held('a', 'A', 중원.libCode), unknown('b', 'B')];
+    const plan = planTrip(rows, LIBS);
+    expect(plan[0].cumulative).toBe(1);
+  });
+
+  it('빌릴 수 있는 책이 없으면 빈 계획이다', () => {
+    expect(planTrip([none('a', 'A'), unknown('b', 'B')], LIBS)).toEqual([]);
+  });
+
+  it('동점이면 이름 순으로 정해 결과가 흔들리지 않는다', () => {
+    const rows = [held('a', 'A', 분당.libCode, 판교.libCode)];
+    expect(planTrip(rows, LIBS)[0].name).toBe('분당도서관');
+    // 도서관 순서를 바꿔도 같은 답이 나와야 합니다.
+    expect(planTrip(rows, [판교, 분당, 중원])[0].name).toBe('분당도서관');
+  });
+});
+
+describe('결과 복사', () => {
+  const rows = [
+    held('a', '코스모스', 중원.libCode),
+    none('b', '사피엔스'),
+    unknown('c', '총 균 쇠'),
+  ];
+
+  it('확인하지 못한 책을 없는 책과 따로 적는다', () => {
+    const text = toPlainText(rows, LIBS, '2026년 9월 5일');
+
+    expect(text).toContain('[고른 도서관에 없는 책]');
+    expect(text).toContain('사피엔스');
+    expect(text).toContain('[확인하지 못한 책]');
+    expect(text).toContain('없다는 뜻이 아닙니다');
+
+    // 총 균 쇠가 "없는 책" 칸에 들어가면 안 됩니다.
+    const 없는칸 = text.slice(text.indexOf('[고른 도서관에 없는 책]'), text.indexOf('[확인하지 못한 책]'));
+    expect(없는칸).not.toContain('총 균 쇠');
+  });
+
+  it('조회 시각과 출처를 남긴다', () => {
+    const text = toPlainText(rows, LIBS, '2026년 9월 5일');
+    expect(text).toContain('2026년 9월 5일 조회 기준');
+    expect(text).toContain('출처: 도서관 정보나루');
+  });
+});

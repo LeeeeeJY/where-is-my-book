@@ -11,6 +11,7 @@ import kr.wimb.ingest.ApiBudget;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -31,6 +32,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Service
 public class BookSearchService {
 
+    /** 표시는 전부 한국 시각 기준입니다. 저장은 UTC 이지만 사용자가 보는 날짜는 여기입니다. */
+    private static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
+
     /** 한 검색에서 정보나루로부터 받아 묶을 서지 수. 너무 크면 응답이 느려집니다. */
     private static final int FETCH_PAGES = 1;
 
@@ -49,31 +53,43 @@ public class BookSearchService {
      * @param selectedLibs 선택한 도서관부호
      */
     public SearchResponse search(String query, List<String> regionCodes, List<String> selectedLibs) {
-        List<BookInfo> books = fetchBooks(query);
-        if (books.isEmpty()) return new SearchResponse(List.of(), true, null);
+        List<WorkResult> works = worksFor(Data4LibraryClient.BookQuery.byTitle(query));
+        if (works.isEmpty()) return new SearchResponse(List.of(), true, null);
 
-        List<SearchDoc> docs = clusterIntoWorks(books);
-        Map<String, BookInfo> byIsbn = indexByIsbn(books);
-
-        List<WorkResult> results = new ArrayList<>(docs.size());
+        List<WorkResult> results = new ArrayList<>(works.size());
         boolean everythingChecked = true;
 
-        for (SearchDoc doc : docs) {
-            HoldingResult holdings = holdingsFor(doc, regionCodes, selectedLibs);
+        for (WorkResult work : works) {
+            HoldingResult holdings = holdingsOf(work.isbn13List(), regionCodes, selectedLibs);
             if (!holdings.complete()) everythingChecked = false;
-            results.add(WorkResult.of(doc, byIsbn, holdings));
+            results.add(work.withHoldings(holdings));
         }
 
         // 선택한 도서관에 있는 것을 위로 올립니다. 실제로 빌릴 수 있는 책이 먼저 보여야 합니다.
         results.sort((a, b) -> Integer.compare(b.holdingLibCodes().size(), a.holdingLibCodes().size()));
-        return new SearchResponse(results, everythingChecked, LocalDate.now().toString());
+        return new SearchResponse(results, everythingChecked, LocalDate.now(SEOUL).toString());
     }
 
-    private List<BookInfo> fetchBooks(String query) {
+    /**
+     * 서지를 받아 저작 단위로 묶습니다. <b>소장 조회는 하지 않습니다.</b>
+     *
+     * <p>여러 권 확인 화면이 이것을 먼저 부르고 화면을 그린 뒤, 소장 조회를 따로 부릅니다.
+     * 그래야 사용자가 빈 화면을 보며 기다리지 않습니다.
+     */
+    public List<WorkResult> worksFor(Data4LibraryClient.BookQuery query) {
+        List<BookInfo> books = fetchBooks(query);
+        if (books.isEmpty()) return List.of();
+
+        Map<String, BookInfo> byIsbn = indexByIsbn(books);
+        return clusterIntoWorks(books).stream()
+                .map(doc -> WorkResult.of(doc, byIsbn, HoldingResult.notRequested()))
+                .toList();
+    }
+
+    private List<BookInfo> fetchBooks(Data4LibraryClient.BookQuery query) {
         List<BookInfo> books = new ArrayList<>();
         for (int page = 1; page <= FETCH_PAGES; page++) {
-            var batch = client.searchBooks(
-                    Data4LibraryClient.BookQuery.byTitle(query), page, ApiBudget.Priority.USER);
+            var batch = client.searchBooks(query, page, ApiBudget.Priority.USER);
             books.addAll(batch);
             if (batch.isEmpty()) break;
         }
@@ -112,22 +128,26 @@ public class BookSearchService {
      * 화면이 그것을 "고른 도서관에는 없습니다"로 그리게 되어, 실제로 있는 책을 없다고
      * 답하게 됩니다.
      */
-    private HoldingResult holdingsFor(SearchDoc doc, List<String> regionCodes,
-                                      List<String> selectedLibs) {
+    public HoldingResult holdingsOf(List<String> isbn13List, List<String> regionCodes,
+                                    List<String> selectedLibs) {
         if (selectedLibs.isEmpty()) return HoldingResult.notRequested();
+        if (isbn13List.isEmpty()) {
+            // 조회할 판본이 하나도 없으면 확인한 것이 아닙니다.
+            return HoldingResult.cannotAsk();
+        }
         if (regionCodes.isEmpty()) {
             // 고른 도서관은 있는데 그 도서관들이 어느 시도에 있는지 하나도 알아내지 못한
             // 경우입니다. libSrchByBook 은 region 이 필수라 조회 자체를 시작할 수 없습니다.
             // 주소가 비어 있거나 도서관 마스터에 없는 부호가 넘어오면 여기에 걸립니다.
             return HoldingResult.cannotAsk();
         }
-        return lookupHoldings(doc, regionCodes, selectedLibs);
+        return lookupHoldings(isbn13List, regionCodes, selectedLibs);
     }
 
-    private HoldingResult lookupHoldings(SearchDoc doc, List<String> regionCodes,
+    private HoldingResult lookupHoldings(List<String> isbn13List, List<String> regionCodes,
                                          List<String> selectedLibs) {
         try {
-            var result = holdingsLookup.lookup(doc.isbn13List(), regionCodes);
+            var result = holdingsLookup.lookup(isbn13List, regionCodes);
             // 선택한 도서관과 교집합만 남깁니다.
             List<String> matched = selectedLibs.stream()
                     .filter(result.libCodes()::contains)
@@ -137,8 +157,7 @@ public class BookSearchService {
             // 던지지 않습니다. 그래서 "한 판본도 확인하지 못했는지"를 여기서 따로 봅니다.
             // 이것을 빠뜨리면 전부 실패한 조회가 unreadable=false 로 나가고,
             // 화면이 그것을 미소장으로 그립니다.
-            boolean nothingChecked =
-                    result.unresolvedIsbns().size() >= doc.isbn13List().size();
+            boolean nothingChecked = result.unresolvedIsbns().size() >= isbn13List.size();
             return new HoldingResult(matched, result.isComplete(), nothingChecked);
         } catch (RuntimeException e) {
             // 조회 실패는 미소장이 아닙니다. 화면에 "확인 불가"로 표시해야 합니다.
@@ -168,12 +187,12 @@ public class BookSearchService {
      */
     public record HoldingResult(List<String> libCodes, boolean complete, boolean unreadable) {
         /** 고른 도서관이 없어 물어볼 필요가 없었던 경우. 미소장이 아닙니다. */
-        static HoldingResult notRequested() {
+        public static HoldingResult notRequested() {
             return new HoldingResult(List.of(), true, false);
         }
 
         /** 물어보고 싶었지만 조회를 시작할 수조차 없었던 경우. 반드시 확인 불가입니다. */
-        static HoldingResult cannotAsk() {
+        public static HoldingResult cannotAsk() {
             return new HoldingResult(List.of(), false, true);
         }
     }
@@ -203,6 +222,12 @@ public class BookSearchService {
             return new WorkResult(doc.workId(), doc.titleDisplay(), doc.authorDisplay(),
                     doc.publisherDisplay(), cover, doc.isbn13List(), doc.editionLabels(),
                     holdings.libCodes(), holdings.complete(), holdings.unreadable());
+        }
+
+        /** 서지만 먼저 만들어 둔 뒤 소장 결과가 도착하면 덧붙입니다. */
+        public WorkResult withHoldings(HoldingResult holdings) {
+            return new WorkResult(workId, title, author, publisher, coverUrl, isbn13List,
+                    editionLabels, holdings.libCodes(), holdings.complete(), holdings.unreadable());
         }
     }
 

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { fetchLibraries } from './api';
 import { BookSearch } from './components/BookSearch';
+import { MultiCheck } from './components/MultiCheck';
 import { LibraryPicker } from './components/LibraryPicker';
 import { SAMPLE_LIBRARIES } from './data/sampleLibraries';
 import { loadSelection, saveSelection } from './domain/selectionStorage';
@@ -27,6 +28,8 @@ export default function App() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [restored, setRestored] = useState(false);
   const [copied, setCopied] = useState(false);
+  // 여러 권 확인이 이 도구를 실제로 쓰게 만드는 화면이라 기본으로 둡니다.
+  const [mode, setMode] = useState<'multi' | 'single'>('multi');
 
   useEffect(() => {
     let cancelled = false;
@@ -111,7 +114,30 @@ export default function App() {
           <LibraryPicker libraries={libraries} selected={selected} onChange={setSelected} />
 
           <div className="results-column">
-            <BookSearch libraries={libraries} selected={selected} />
+            <nav className="tabs tabs--mode" role="tablist">
+              {(
+                [
+                  ['multi', '여러 권 확인'],
+                  ['single', '한 권 검색'],
+                ] as const
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  role="tab"
+                  aria-selected={mode === key}
+                  className={mode === key ? 'tab tab--active' : 'tab'}
+                  onClick={() => setMode(key)}
+                >
+                  {label}
+                </button>
+              ))}
+            </nav>
+
+            {mode === 'multi' ? (
+              <MultiCheck libraries={libraries} selected={selected} />
+            ) : (
+              <BookSearch libraries={libraries} selected={selected} />
+            )}
 
             {selected.size > 0 && (
               <div className="share">

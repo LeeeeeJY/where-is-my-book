@@ -10,6 +10,8 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.net.URI;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -21,8 +23,15 @@ import java.util.concurrent.ConcurrentHashMap;
 @RequestMapping("/api")
 public class WimbController {
 
+    /** 한 요청에서 조회할 판본 수 상한. 한 요청이 예산을 통째로 쓰지 못하게 막습니다. */
+    private static final int MAX_EDITIONS_PER_LOOKUP = 20;
+
+    /** 표시는 전부 한국 시각 기준입니다. */
+    private static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
+
     private final Data4LibraryClient client;
     private final BookSearchService searchService;
+    private final MultiCheckService multiCheckService;
 
     /**
      * 도서관 마스터를 메모리에 담아 둡니다. 1,604건뿐이라 이걸로 충분하고,
@@ -30,9 +39,11 @@ public class WimbController {
      */
     private final Map<String, LibraryInfo> catalog = new ConcurrentHashMap<>();
 
-    public WimbController(Data4LibraryClient client, BookSearchService searchService) {
+    public WimbController(Data4LibraryClient client, BookSearchService searchService,
+                          MultiCheckService multiCheckService) {
         this.client = client;
         this.searchService = searchService;
+        this.multiCheckService = multiCheckService;
     }
 
     /**
@@ -61,17 +72,71 @@ public class WimbController {
         List<String> selected = libs == null ? List.of() : libs;
         if (catalog.isEmpty() && !selected.isEmpty()) loadCatalog();
 
-        // 선택한 도서관들이 어느 시도에 걸쳐 있는지 구합니다.
-        // libSrchByBook 의 region 이 필수라 이 목록만큼 호출이 곱해집니다.
-        List<String> regionCodes = selected.stream()
+        return searchService.search(q.trim(), regionsOf(selected), selected);
+    }
+
+    /**
+     * 선택한 도서관들이 어느 시도에 걸쳐 있는지 구합니다.
+     *
+     * <p>{@code libSrchByBook} 의 {@code region} 이 필수라 <b>이 목록의 크기만큼 호출이
+     * 곱해집니다.</b> 도서관 수가 아니라 시도 수라는 점이 중요합니다.
+     */
+    private List<String> regionsOf(List<String> selectedLibs) {
+        return selectedLibs.stream()
                 .map(catalog::get)
                 .filter(java.util.Objects::nonNull)
                 .map(LibraryInfo::region)
                 .flatMap(Optional::stream)
                 .map(RegionCode::code)
                 .distinct().toList();
+    }
 
-        return searchService.search(q.trim(), regionCodes, selected);
+    public record CheckRequest(List<String> lines) {}
+
+    public record HoldingsRequest(List<String> isbn13List, List<String> libs) {}
+
+    /**
+     * @param asOf 조회 시각. <b>화면에 반드시 표시합니다.</b>
+     */
+    public record HoldingsResponse(List<String> libCodes, boolean complete, boolean unreadable,
+                                   String asOf) {}
+
+    /**
+     * 붙여넣은 목록을 줄 단위로 해석하고 책을 확정합니다. <b>소장 조회는 하지 않습니다.</b>
+     *
+     * <p>화면은 이 응답만으로 목록을 즉시 그리고, 소장은 {@link #holdings} 로 한 권씩
+     * 채워 넣습니다. 그래야 캐시가 빈 상태에서도 빈 화면으로 기다리는 구간이 없습니다.
+     */
+    @PostMapping("/check/resolve")
+    public MultiCheckService.ResolveResponse resolve(@RequestBody CheckRequest request) {
+        if (request == null || request.lines() == null || request.lines().isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "확인할 목록이 비어 있습니다.");
+        }
+        return multiCheckService.resolve(request.lines());
+    }
+
+    /**
+     * 저작 하나의 소장 여부. 화면이 책마다 따로 부르고 도착하는 대로 채웁니다.
+     *
+     * <p>저작에 묶인 <b>모든 판본</b>을 함께 보내야 합니다. 판본 하나만 조회하면 도서관이
+     * 다른 판을 가지고 있어도 미소장으로 나옵니다.
+     */
+    @PostMapping("/holdings")
+    public HoldingsResponse holdings(@RequestBody HoldingsRequest request) {
+        if (request == null || request.isbn13List() == null || request.isbn13List().isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "조회할 ISBN 이 없습니다.");
+        }
+        if (request.isbn13List().size() > MAX_EDITIONS_PER_LOOKUP) {
+            // 한 요청이 하루치 예산을 통째로 쓰는 것을 막습니다.
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "한 번에 조회할 판본이 너무 많습니다.");
+        }
+        List<String> selected = request.libs() == null ? List.of() : request.libs();
+        if (catalog.isEmpty() && !selected.isEmpty()) loadCatalog();
+
+        var result = searchService.holdingsOf(request.isbn13List(), regionsOf(selected), selected);
+        return new HoldingsResponse(result.libCodes(), result.complete(), result.unreadable(),
+                LocalDate.now(SEOUL).toString());
     }
 
     /**
