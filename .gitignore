@@ -1,0 +1,30 @@
+# 비밀 정보
+.env
+.env.local
+.env.*.local
+
+# 내려받은 원본 데이터와 작업 산출물
+inbox/
+/data/
+*.csv
+*.csv.gz
+!src/**/*.csv
+!**/test/**/*.csv
+
+# Java / Gradle
+build/
+.gradle/
+*.class
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+
+# Node
+node_modules/
+dist/
+*.tsbuildinfo
+
+# 편집기와 운영체제
+.idea/
+.vscode/
+*.iml
+.DS_Store
