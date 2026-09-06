@@ -61,9 +61,15 @@ export function LibraryPicker({
       )}
 
       {selected.size > 0 && (
-        <button className="link-button" onClick={() => onChange(new Set())}>
-          선택 전체 해제
-        </button>
+        <>
+          <p className="picker__note muted">
+            선택은 이 브라우저에 저장되고 주소에도 담깁니다. 주소를 그대로 보내면 상대방
+            화면에서도 같은 선택으로 열립니다.
+          </p>
+          <button className="link-button" onClick={() => onChange(new Set())}>
+            선택 전체 해제
+          </button>
+        </>
       )}
     </section>
   );

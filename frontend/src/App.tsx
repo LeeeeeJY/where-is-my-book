@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { fetchLibraries } from './api';
 import { BookSearch } from './components/BookSearch';
 import { MultiCheck } from './components/MultiCheck';
@@ -27,9 +27,7 @@ export default function App() {
   const [catalog, setCatalog] = useState<Catalog>({ kind: 'loading' });
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [restored, setRestored] = useState(false);
-  const [copied, setCopied] = useState(false);
-  // 여러 권 확인이 이 도구를 실제로 쓰게 만드는 화면이라 기본으로 둡니다.
-  const [mode, setMode] = useState<'multi' | 'single'>('multi');
+  const [mode, setMode] = useState<'single' | 'multi'>('single');
 
   useEffect(() => {
     let cancelled = false;
@@ -80,16 +78,6 @@ export default function App() {
     window.history.replaceState(null, '', url);
   }, [selected, libraries, restored]);
 
-  const share = useCallback(() => {
-    navigator.clipboard.writeText(window.location.href).then(
-      () => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      },
-      () => setCopied(false),
-    );
-  }, []);
-
   return (
     <div className="app">
       <header className="app__head">
@@ -117,8 +105,8 @@ export default function App() {
             <nav className="tabs tabs--mode" role="tablist">
               {(
                 [
-                  ['multi', '여러 권 확인'],
                   ['single', '한 권 검색'],
+                  ['multi', '여러 권 확인'],
                 ] as const
               ).map(([key, label]) => (
                 <button
@@ -133,22 +121,12 @@ export default function App() {
               ))}
             </nav>
 
-            {mode === 'multi' ? (
-              <MultiCheck libraries={libraries} selected={selected} />
-            ) : (
+            {mode === 'single' ? (
               <BookSearch libraries={libraries} selected={selected} />
+            ) : (
+              <MultiCheck libraries={libraries} selected={selected} />
             )}
 
-            {selected.size > 0 && (
-              <div className="share">
-                <button className="button" onClick={share}>
-                  {copied ? '주소를 복사했습니다' : '선택 상태 공유하기'}
-                </button>
-                <p className="muted">
-                  주소에 선택이 담겨 있어 다른 기기에서 열어도 그대로 복원됩니다.
-                </p>
-              </div>
-            )}
           </div>
         </main>
       )}
