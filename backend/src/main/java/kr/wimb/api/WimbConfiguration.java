@@ -22,6 +22,17 @@ import java.util.Map;
 @Configuration
 public class WimbConfiguration implements WebMvcConfigurer {
 
+    /**
+     * 누구인지 밝히고 연락할 곳을 남깁니다. <b>ASCII 만 씁니다.</b>
+     *
+     * <p>HTTP 헤더 값에 ASCII 가 아닌 문자가 들어가면 자바가 요청을 만들다가
+     * {@link IllegalArgumentException} 을 던집니다. 그러면 요청이 나가지도 않은 채
+     * 실패하는데, 화면에는 그냥 "확인 불가"로 보여서 원인을 찾기 어렵습니다.
+     * 호출 예산은 요청을 만들기 전에 깎이므로 예산만 줄어듭니다.
+     */
+    static final String USER_AGENT =
+            "where-is-my-books/0.1 (personal project; +https://github.com/LeeeeeJY/where-is-my-book)";
+
     @Value("${wimb.data4library.auth-key:}")
     private String authKey;
 
@@ -88,7 +99,10 @@ public class WimbConfiguration implements WebMvcConfigurer {
             try {
                 var request = HttpRequest.newBuilder(uri)
                         .timeout(Duration.ofSeconds(15))
-                        .header("User-Agent", "where-is-my-books/0.1 (개인 프로젝트)")
+                        // HTTP 헤더 값은 ASCII 만 허용합니다. 한글을 넣으면 자바가 요청을
+                        // 만들다가 IllegalArgumentException 을 던지고, 그러면 요청이 나가지도
+                        // 않은 채 실패합니다. 예산만 깎이고 원인은 보이지 않습니다.
+                        .header("User-Agent", USER_AGENT)
                         .GET().build();
                 var response = http.send(request, HttpResponse.BodyHandlers.ofString());
                 if (response.statusCode() / 100 != 2) {

@@ -6,6 +6,9 @@ import kr.wimb.ingest.ApiBudget;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -45,11 +48,31 @@ public final class Data4LibraryClient {
     private final Transport transport;
     private final String authKey;
     private final ApiBudget budget;
+    private final Clock clock;
+
+    /**
+     * 인증 계열 오류를 만난 뒤 다시 부르기까지 기다리는 시간.
+     *
+     * <p>키가 없거나 활성화되지 않은 것은 <b>사람이 고쳐야 낫는 상태</b>라, 재시도해도
+     * 절대 성공하지 않습니다. 그런데 여러 권 확인은 한 번에 수십 번을 부르므로, 막지 않으면
+     * 실패할 것이 뻔한 요청으로 남의 서버를 수십 번 두드리게 됩니다.
+     */
+    private static final Duration AUTH_ERROR_BACKOFF = Duration.ofMinutes(5);
+
+    /** 인증 계열 오류를 만난 사실. 이 시각까지는 부르지 않고 바로 같은 오류를 돌려줍니다. */
+    private volatile AuthFailure authFailure;
+
+    private record AuthFailure(Data4LibraryResponse.ApiError error, Instant until) {}
 
     public Data4LibraryClient(Transport transport, String authKey, ApiBudget budget) {
+        this(transport, authKey, budget, Clock.systemUTC());
+    }
+
+    public Data4LibraryClient(Transport transport, String authKey, ApiBudget budget, Clock clock) {
         this.transport = transport;
         this.authKey = authKey;
         this.budget = budget;
+        this.clock = clock;
     }
 
     // ---------------------------------------------------------------
@@ -168,6 +191,12 @@ public final class Data4LibraryClient {
     // ---------------------------------------------------------------
 
     private String call(String endpoint, Map<String, String> params, ApiBudget.Priority priority) {
+        // 실패할 것이 뻔한 요청은 보내지 않습니다. 예산도 쓰지 않습니다.
+        AuthFailure known = authFailure;
+        if (known != null && clock.instant().isBefore(known.until())) {
+            throw new ApiErrorException(endpoint, known.error());
+        }
+
         if (!budget.tryAcquire(SOURCE_CODE, priority)) {
             throw new BudgetExhaustedException(
                     "정보나루의 오늘 호출 예산을 다 썼습니다. 남은 항목은 캐시로만 답해야 합니다.");
@@ -180,10 +209,22 @@ public final class Data4LibraryClient {
 
         // 정보나루는 오류도 HTTP 200 으로 돌려줍니다. 여기서 걸러 내지 않으면
         // 오류 본문이 "항목이 하나도 없는 정상 응답"으로 읽혀 화면에 미소장으로 나갑니다.
-        Data4LibraryResponse.errorOf(body).ifPresent(error -> {
+        var found = Data4LibraryResponse.errorOf(body);
+        if (found.isPresent()) {
+            var error = found.get();
+            if (isAuthClass(error)) {
+                authFailure = new AuthFailure(error, clock.instant().plus(AUTH_ERROR_BACKOFF));
+            }
             throw new ApiErrorException(endpoint, error);
-        });
+        }
+        // 한 번이라도 제대로 답을 받았으면 인증 문제는 풀린 것입니다.
+        authFailure = null;
         return body;
+    }
+
+    /** 사람이 고쳐야 낫는 오류인지. 그 밖의 오류는 일시적일 수 있으므로 막지 않습니다. */
+    private static boolean isAuthClass(Data4LibraryResponse.ApiError error) {
+        return "authErr".equals(error.code()) || "vitalizationErr".equals(error.code());
     }
 
     private static String encode(String value) {

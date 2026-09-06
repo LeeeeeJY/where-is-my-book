@@ -299,6 +299,88 @@ class Data4LibraryClientTest {
     }
 
     @Test
+    @DisplayName("인증 오류를 만나면 한동안 부르지 않는다")
+    void stopsCallingAfterAuthClassError() {
+        // 키가 없거나 활성화되지 않은 것은 사람이 고쳐야 낫는 상태라 재시도해도
+        // 절대 성공하지 않습니다. 여러 권 확인은 한 번에 수십 번을 부르므로,
+        // 막지 않으면 실패할 것이 뻔한 요청으로 남의 서버를 수십 번 두드립니다.
+        var transport = new RecordingTransport();
+        transport.response = REAL_NOT_ACTIVATED_XML;
+        var client = client(transport);
+
+        for (int i = 0; i < 10; i++) {
+            assertThrows(Data4LibraryClient.ApiErrorException.class,
+                    () -> client.libraries("11", ApiBudget.Priority.USER));
+        }
+        assertEquals(1, transport.requests.size(),
+                "첫 한 번만 부르고 나머지는 막아야 합니다: " + transport.requests.size() + "회");
+    }
+
+    @Test
+    @DisplayName("막힌 동안에는 호출 예산도 쓰지 않는다")
+    void blockedCallsDoNotSpendBudget() {
+        var transport = new RecordingTransport();
+        transport.response = REAL_AUTH_ERROR_XML;
+        var budget = budget();
+        var client = new Data4LibraryClient(transport, "테스트키", budget);
+
+        for (int i = 0; i < 5; i++) {
+            assertThrows(Data4LibraryClient.ApiErrorException.class,
+                    () -> client.libraries("11", ApiBudget.Priority.USER));
+        }
+        // 실제로 나간 요청 한 번만 예산에서 빠져야 합니다.
+        assertEquals(1, budget.used(Data4LibraryClient.SOURCE_CODE));
+    }
+
+    @Test
+    @DisplayName("시간이 지나면 다시 시도한다")
+    void retriesAfterTheBackoff() {
+        // 승인이 나면 다시 되어야 합니다. 영구히 막으면 사람이 고쳐도 살아나지 않습니다.
+        var transport = new RecordingTransport();
+        transport.response = REAL_NOT_ACTIVATED_XML;
+        var now = new java.util.concurrent.atomic.AtomicReference<>(
+                Instant.parse("2026-09-06T00:00:00Z"));
+        var moving = Clock.fixed(now.get(), ZoneId.of("UTC"));
+        var client = new Data4LibraryClient(transport, "테스트키", budget(), new Clock() {
+            public ZoneId getZone() { return moving.getZone(); }
+            public Clock withZone(ZoneId zone) { return this; }
+            public Instant instant() { return now.get(); }
+        });
+
+        assertThrows(Data4LibraryClient.ApiErrorException.class,
+                () -> client.libraries("11", ApiBudget.Priority.USER));
+        assertThrows(Data4LibraryClient.ApiErrorException.class,
+                () -> client.libraries("11", ApiBudget.Priority.USER));
+        assertEquals(1, transport.requests.size(), "막혀 있어야 합니다");
+
+        // 승인이 나고 시간이 지난 뒤입니다.
+        now.set(Instant.parse("2026-09-06T00:06:00Z"));
+        transport.response = LIB_XML;
+        assertEquals(2, client.libraries("11", ApiBudget.Priority.USER).size());
+        assertEquals(2, transport.requests.size(), "다시 불러야 합니다");
+
+        // 한 번 성공했으면 이후로는 막지 않습니다.
+        assertEquals(2, client.libraries("11", ApiBudget.Priority.USER).size());
+        assertEquals(3, transport.requests.size());
+    }
+
+    @Test
+    @DisplayName("인증 계열이 아닌 오류는 막지 않는다")
+    void otherErrorsAreNotLatched() {
+        // 일시적인 오류일 수 있으므로 다음 요청까지 막으면 안 됩니다.
+        var transport = new RecordingTransport();
+        transport.response = """
+            <response><errCode>someOtherErr</errCode><error>일시적인 오류</error></response>""";
+        var client = client(transport);
+
+        for (int i = 0; i < 3; i++) {
+            assertThrows(Data4LibraryClient.ApiErrorException.class,
+                    () -> client.libraries("11", ApiBudget.Priority.USER));
+        }
+        assertEquals(3, transport.requests.size(), "매번 시도해야 합니다");
+    }
+
+    @Test
     @DisplayName("지역 코드는 매뉴얼의 17개 시도를 모두 담는다")
     void regionCodesCoverAllSido() {
         assertEquals(17, RegionCode.values().length);
