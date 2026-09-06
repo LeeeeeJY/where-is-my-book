@@ -27,6 +27,11 @@ USER wimb
 
 EXPOSE 8080
 
+# 힙을 절반으로 잡습니다. 75% 로 두면 메모리 1GB 짜리 기계(Google 무료 등급 e2-micro)에서
+# 힙 750MB 에 JVM 자체가 쓰는 200MB 남짓이 더해져 1GB 를 넘고, OOM 킬러가 컨테이너를
+# 조용히 죽입니다. 이 서버는 도서관 1,604건을 메모리에 두는 정도라 힙이 클 필요가 없습니다.
+ENV JAVA_OPTS="-XX:MaxRAMPercentage=50"
+
 # D4L_AUTH_KEY 는 이미지에 굽지 않고 실행할 때 환경 변수로 넣습니다.
 # 비어 있으면 서버가 그 사실을 말하고 뜨지 않습니다.
-ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-jar", "/app/app.jar"]
+ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar /app/app.jar"]

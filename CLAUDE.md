@@ -66,7 +66,16 @@ IP 가 하나뿐이라 모호함이 없기 때문입니다. Cloud Run 과 App En
 실제 나가는 주소를 눈으로 확인하는 것까지가 한 묶음**입니다.
 
 운영에서 쓰는 환경 변수는 `D4L_AUTH_KEY`(필수), `WIMB_CORS_ALLOWED_ORIGINS`,
-`WIMB_DATA4LIBRARY_DAILY_CALL_BUDGET` 입니다. 프론트는 `VITE_API_BASE` 로 API 주소를 받습니다.
+`WIMB_DATA4LIBRARY_DAILY_CALL_BUDGET` 입니다. 프론트는 `VITE_API_BASE` 로 API 주소를 받는데,
+**Vite 의 `VITE_*` 는 빌드할 때 코드에 박히므로 값을 바꾸면 반드시 다시 배포해야 합니다.**
+값만 넣고 재배포하지 않으면 번들에 예전 주소가 남아 화면이 바뀌지 않습니다.
+
+메모리 1GB 짜리 기계(Google 무료 등급 e2-micro)에서 알아 둘 것이 둘 있습니다.
+
+- **힙은 메모리의 50% 입니다**(`JAVA_OPTS`). 75% 로 올리면 JVM 자체가 쓰는 몫이 더해져
+  한도를 넘고 OOM 킬러가 컨테이너를 조용히 죽입니다.
+- **`docker build` 전에 스왑을 잡아야 합니다.** 안에서 Gradle 이 도는데 컴파일만으로 1GB 를
+  넘겨 빌드가 죽습니다.
 
 스키마에서 알아 둘 것:
 
