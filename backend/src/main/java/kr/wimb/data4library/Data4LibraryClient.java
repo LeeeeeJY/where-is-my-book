@@ -176,7 +176,14 @@ public final class Data4LibraryClient {
                 .append("?authKey=").append(encode(authKey));
         params.forEach((key, value) ->
                 url.append('&').append(key).append('=').append(encode(value)));
-        return transport.get(URI.create(url.toString()));
+        String body = transport.get(URI.create(url.toString()));
+
+        // 정보나루는 오류도 HTTP 200 으로 돌려줍니다. 여기서 걸러 내지 않으면
+        // 오류 본문이 "항목이 하나도 없는 정상 응답"으로 읽혀 화면에 미소장으로 나갑니다.
+        Data4LibraryResponse.errorOf(body).ifPresent(error -> {
+            throw new ApiErrorException(endpoint, error);
+        });
+        return body;
     }
 
     private static String encode(String value) {
@@ -189,5 +196,30 @@ public final class Data4LibraryClient {
      */
     public static class BudgetExhaustedException extends RuntimeException {
         public BudgetExhaustedException(String message) { super(message); }
+    }
+
+    /**
+     * 정보나루가 본문에 오류를 담아 보낸 경우.
+     *
+     * <p><b>이것을 빈 결과로 바꾸면 안 됩니다.</b> 부르는 쪽은 이 예외를 잡아
+     * "확인 불가"로 답해야 합니다. 미소장으로 표시하면 실제로 있는 책을 없다고
+     * 답하게 됩니다.
+     */
+    public static class ApiErrorException extends RuntimeException {
+        private final Data4LibraryResponse.ApiError error;
+
+        ApiErrorException(String endpoint, Data4LibraryResponse.ApiError error) {
+            super("정보나루 %s 가 오류를 돌려주었습니다: %s (%s)"
+                    .formatted(endpoint, error.message(), error.code()));
+            this.error = error;
+        }
+
+        public Data4LibraryResponse.ApiError error() { return error; }
+
+        /** 인증키가 아직 활성화되지 않았습니다. 신청 승인을 기다려야 합니다. */
+        public boolean isNotActivated() { return "vitalizationErr".equals(error.code()); }
+
+        /** 인증키가 틀렸습니다. */
+        public boolean isAuthFailure() { return "authErr".equals(error.code()); }
     }
 }

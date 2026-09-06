@@ -230,6 +230,74 @@ class Data4LibraryClientTest {
         assertEquals(List.of("111001", "141053"), codes);
     }
 
+    /**
+     * 아래 두 응답은 <b>2026-09-06 에 실제 정보나루에서 받은 본문 그대로입니다.</b>
+     * 손으로 지어낸 것이 아닙니다.
+     */
+    private static final String REAL_NOT_ACTIVATED_XML =
+            """
+            <?xml version="1.0" encoding="UTF-8" standalone="no"?><response><errCode>            vitalizationErr</errCode><error>API 활성화 상태가아닙니다.</error></response>""";
+
+    private static final String REAL_NOT_ACTIVATED_JSON =
+            """
+            {"response":{"errCode":"vitalizationErr","error":"API 활성화 상태가아닙니다."}}""";
+
+    private static final String REAL_AUTH_ERROR_XML =
+            """
+            <?xml version="1.0" encoding="UTF-8" standalone="no"?><response><errCode>            authErr</errCode><error>인증정보가 일치하지 않습니다.</error></response>""";
+
+    @Test
+    @DisplayName("오류를 HTTP 200 으로 받아도 빈 결과로 넘기지 않는다")
+    void bodyLevelErrorIsNotAnEmptyResult() {
+        // 이것이 이 프로젝트에서 가장 위험한 실패입니다. 오류 본문에는 lib 도 doc 도 없어서
+        // 그대로 파싱하면 "항목이 하나도 없는 정상 응답"이 되고, 화면은 그것을 미소장으로
+        // 그립니다. 멀쩡히 있는 책을 없다고 답하게 됩니다.
+        var transport = new RecordingTransport();
+        transport.response = REAL_NOT_ACTIVATED_XML;
+        var client = client(transport);
+
+        var thrown = assertThrows(Data4LibraryClient.ApiErrorException.class,
+                () -> client.libraries("11", ApiBudget.Priority.USER));
+        assertTrue(thrown.isNotActivated(), thrown.getMessage());
+        assertFalse(thrown.isAuthFailure());
+    }
+
+    @Test
+    @DisplayName("오류가 JSON 으로 와도 알아본다")
+    void jsonShapedErrorIsDetected() {
+        // 실제로 libSrch 는 XML, srchBooks 는 JSON 으로 오류를 돌려주었습니다.
+        // 한쪽만 보면 다른 쪽이 빈 결과로 새어 나갑니다.
+        var transport = new RecordingTransport();
+        transport.response = REAL_NOT_ACTIVATED_JSON;
+        var client = client(transport);
+
+        assertThrows(Data4LibraryClient.ApiErrorException.class,
+                () -> client.searchBooks(
+                        Data4LibraryClient.BookQuery.byTitle("코스모스"), 1, ApiBudget.Priority.USER));
+    }
+
+    @Test
+    @DisplayName("인증 실패와 미활성을 구분한다")
+    void distinguishesAuthFailureFromInactiveKey() {
+        // 고쳐야 할 것이 다릅니다. 앞은 키가 틀린 것이고 뒤는 승인을 기다리는 것입니다.
+        var transport = new RecordingTransport();
+        transport.response = REAL_AUTH_ERROR_XML;
+        var client = client(transport);
+
+        var thrown = assertThrows(Data4LibraryClient.ApiErrorException.class,
+                () -> client.libraries("11", ApiBudget.Priority.USER));
+        assertTrue(thrown.isAuthFailure());
+        assertFalse(thrown.isNotActivated());
+    }
+
+    @Test
+    @DisplayName("정상 응답을 오류로 오해하지 않는다")
+    void normalResponseIsNotMistakenForAnError() {
+        var transport = new RecordingTransport();
+        transport.response = LIB_XML;
+        assertEquals(2, client(transport).libraries("11", ApiBudget.Priority.USER).size());
+    }
+
     @Test
     @DisplayName("지역 코드는 매뉴얼의 17개 시도를 모두 담는다")
     void regionCodesCoverAllSido() {

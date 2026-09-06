@@ -56,7 +56,15 @@ public class WimbController {
      */
     @GetMapping("/libraries")
     public List<LibraryDto> libraries() {
-        if (catalog.isEmpty()) loadCatalog();
+        if (catalog.isEmpty()) {
+            try {
+                loadCatalog();
+            } catch (RuntimeException e) {
+                // 우리 서버가 고장 난 것이 아니라 정보나루가 답을 주지 않은 것이므로
+                // 503 으로 내고 이유를 밝힙니다.
+                throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, e.getMessage(), e);
+            }
+        }
         return catalog.values().stream()
                 .map(LibraryDto::from)
                 .sorted(Comparator.comparing(LibraryDto::sido).thenComparing(LibraryDto::name))
@@ -72,9 +80,20 @@ public class WimbController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "검색어가 비어 있습니다.");
         }
         List<String> selected = libs == null ? List.of() : libs;
-        if (catalog.isEmpty() && !selected.isEmpty()) loadCatalog();
+        // 마스터를 못 받아도 여기서 멈추지 않습니다. 시도를 알 수 없으면 소장 조회가
+        // "확인 불가"로 나가고, 책 정보는 그대로 보여 줄 수 있습니다.
+        loadCatalogQuietly(selected);
 
-        return searchService.search(q.trim(), regionsOf(selected), selected);
+        try {
+            return searchService.search(q.trim(), regionsOf(selected), selected);
+        } catch (ResponseStatusException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            // 검색 자체를 못 한 것을 500 으로 내면 "우리 서버가 고장"이라는 뜻이 됩니다.
+            // 실제로는 물어보지 못한 것이므로 503 과 이유를 함께 냅니다.
+            // 화면은 이것을 "결과 없음"이 아니라 "확인하지 못했다"로 그립니다.
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, e.getMessage(), e);
+        }
     }
 
     /**
@@ -134,7 +153,7 @@ public class WimbController {
                     "한 번에 조회할 판본이 너무 많습니다.");
         }
         List<String> selected = request.libs() == null ? List.of() : request.libs();
-        if (catalog.isEmpty() && !selected.isEmpty()) loadCatalog();
+        loadCatalogQuietly(selected);
 
         var result = searchService.holdingsOf(request.isbn13List(), regionsOf(selected), selected);
         return new HoldingsResponse(result.libCodes(), result.complete(), result.unreadable(),
@@ -151,7 +170,7 @@ public class WimbController {
      */
     @GetMapping("/go/{libCode}")
     public ResponseEntity<Void> go(@PathVariable String libCode) {
-        if (catalog.isEmpty()) loadCatalog();
+        loadCatalogQuietly(List.of(libCode));
         LibraryInfo library = catalog.get(libCode);
         if (library == null || library.homepage() == null || library.homepage().isBlank()) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "홈페이지 주소가 없습니다.");
@@ -167,6 +186,22 @@ public class WimbController {
                 "librariesLoaded", catalog.size(),
                 "callsUsedToday", budget.used(Data4LibraryClient.SOURCE_CODE),
                 "callsRemaining", budget.remaining(Data4LibraryClient.SOURCE_CODE));
+    }
+
+    /**
+     * 마스터를 받아 보되 실패해도 예외를 올리지 않습니다.
+     *
+     * <p>여기서 500 을 내면 "우리 서버가 고장 났다"는 뜻이 되는데, 실제로는 정보나루에
+     * 물어보지 못한 것입니다. 마스터가 비면 시도를 알 수 없어 소장 조회가
+     * <b>"확인 불가"</b>로 나가는데, 그것이 정확한 표현입니다.
+     */
+    private void loadCatalogQuietly(List<String> selectedLibs) {
+        if (!catalog.isEmpty() || selectedLibs.isEmpty()) return;
+        try {
+            loadCatalog();
+        } catch (RuntimeException e) {
+            // 삼키되 결과가 확인 불가로 나가므로 사용자를 속이지는 않습니다.
+        }
     }
 
     private synchronized void loadCatalog() {
