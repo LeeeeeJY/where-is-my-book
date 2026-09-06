@@ -10,6 +10,9 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.net.URI;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
@@ -17,11 +20,15 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 @RestController
 @RequestMapping("/api")
 public class WimbController {
+
+    /** 실패한 시도를 다시 받기까지 기다리는 시간. 계속 실패하는 지역을 매번 두드리지 않습니다. */
+    private static final Duration CATALOG_RETRY_AFTER = Duration.ofMinutes(5);
 
     /** 한 요청에서 조회할 판본 수 상한. 한 요청이 예산을 통째로 쓰지 못하게 막습니다. */
     private static final int MAX_EDITIONS_PER_LOOKUP = 20;
@@ -40,12 +47,31 @@ public class WimbController {
      */
     private final Map<String, LibraryInfo> catalog = new ConcurrentHashMap<>();
 
+    /**
+     * 이미 받아 둔 시도. <b>실패한 시도는 여기에 없으므로 다음 기회에 다시 받습니다.</b>
+     * 이것이 없으면 시도 하나가 잠깐 실패했을 때 그 지역 도서관이 영영 목록에 나타나지
+     * 않고, 사용자에게는 "그런 도서관이 없다"로 보입니다.
+     */
+    private final Set<String> loadedRegions = ConcurrentHashMap.newKeySet();
+
+    /** 실패한 시도를 다시 받아 볼 시각. 계속 실패하는 지역을 매 요청마다 두드리지 않습니다. */
+    private volatile Instant nextRetry = Instant.EPOCH;
+
+    private final Clock clock;
+
     public WimbController(Data4LibraryClient client, BookSearchService searchService,
                           MultiCheckService multiCheckService, ApiBudget budget) {
+        this(client, searchService, multiCheckService, budget, Clock.systemUTC());
+    }
+
+    /** 재시도 시각을 시험할 수 있도록 시계를 받는 생성자입니다. */
+    WimbController(Data4LibraryClient client, BookSearchService searchService,
+                   MultiCheckService multiCheckService, ApiBudget budget, Clock clock) {
         this.client = client;
         this.searchService = searchService;
         this.multiCheckService = multiCheckService;
         this.budget = budget;
+        this.clock = clock;
     }
 
     /**
@@ -56,7 +82,7 @@ public class WimbController {
      */
     @GetMapping("/libraries")
     public List<LibraryDto> libraries() {
-        if (catalog.isEmpty()) {
+        if (!isComplete()) {
             try {
                 loadCatalog();
             } catch (RuntimeException e) {
@@ -196,7 +222,7 @@ public class WimbController {
      * <b>"확인 불가"</b>로 나가는데, 그것이 정확한 표현입니다.
      */
     private void loadCatalogQuietly(List<String> selectedLibs) {
-        if (!catalog.isEmpty() || selectedLibs.isEmpty()) return;
+        if (isComplete() || selectedLibs.isEmpty()) return;
         try {
             loadCatalog();
         } catch (RuntimeException e) {
@@ -204,16 +230,47 @@ public class WimbController {
         }
     }
 
+    /**
+     * 도서관 마스터를 시도별로 받습니다.
+     *
+     * <p><b>시도 하나가 실패해도 나머지로 목록을 만듭니다.</b> 17곳을 한 덩어리로 다루면
+     * 한 곳이 잠깐 흔들릴 때 전국 목록을 통째로 못 쓰게 되는데, 그것은 부분 실패를 전체
+     * 실패로 만드는 것입니다.
+     *
+     * <p>대신 실패한 시도를 성공으로 기억하지 않습니다. 그러지 않으면 그 지역 도서관이
+     * 영영 목록에 나타나지 않고, 사용자에게는 <b>"그런 도서관이 없다"로 보입니다.</b>
+     *
+     * @throws ResponseStatusException 한 시도도 받지 못한 경우. 빈 목록을 정상인 척
+     *                                 돌려주면 화면이 도서관이 없는 것으로 그립니다.
+     */
     private synchronized void loadCatalog() {
-        if (!catalog.isEmpty()) return;
-        List<LibraryInfo> all = new ArrayList<>();
+        if (isComplete()) return;
+        if (clock.instant().isBefore(nextRetry) && !catalog.isEmpty()) return;
+
+        int failures = 0;
         // 시도별로 나눠 받습니다. region 없이 전부 받으면 한 번에 오는 양이 커집니다.
         for (RegionCode region : RegionCode.values()) {
-            all.addAll(client.libraries(region.code(), ApiBudget.Priority.BACKGROUND));
+            if (loadedRegions.contains(region.code())) continue;
+            try {
+                for (LibraryInfo library : client.libraries(region.code(), ApiBudget.Priority.BACKGROUND)) {
+                    if (library.libCode() != null) catalog.put(library.libCode(), library);
+                }
+                loadedRegions.add(region.code());
+            } catch (RuntimeException e) {
+                // 이 시도만 빼고 계속합니다. 성공으로 기억하지 않으므로 다음에 다시 받습니다.
+                failures++;
+            }
         }
-        all.forEach(library -> {
-            if (library.libCode() != null) catalog.put(library.libCode(), library);
-        });
+
+        if (failures > 0) nextRetry = clock.instant().plus(CATALOG_RETRY_AFTER);
+        if (catalog.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                    "도서관 목록을 한 곳도 받지 못했습니다. 정보나루가 답하지 않습니다.");
+        }
+    }
+
+    private boolean isComplete() {
+        return loadedRegions.size() == RegionCode.values().length;
     }
 
     /**
