@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { fetchLibraries } from './api';
 import { BookSearch } from './components/BookSearch';
+import { BrandMark } from './components/Brand';
 import { MultiCheck } from './components/MultiCheck';
 import { LibraryPicker } from './components/LibraryPicker';
 import { SAMPLE_LIBRARIES } from './data/sampleLibraries';
@@ -81,7 +82,14 @@ export default function App() {
   return (
     <div className="app">
       <header className="app__head">
-        <h1>내 책 어디 있지</h1>
+        <div className="brand">
+          <BrandMark />
+          {/* 약어만 두면 무엇을 하는 곳인지 알 수 없으므로 풀이를 같은 제목 안에 둡니다. */}
+          <h1 className="brand__title">
+            <span className="brand__mark">WIMB</span>
+            <span className="brand__name">Where Is My Book</span>
+          </h1>
+        </div>
         <p className="muted">
           자주 가는 도서관을 골라 두면, 읽고 싶은 책이 그중 어디에 있는지 알려 줍니다.
         </p>

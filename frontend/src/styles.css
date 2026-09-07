@@ -21,8 +21,25 @@ body {
 }
 
 .app { max-width: 1100px; margin: 0 auto; padding: 24px 16px 48px; }
-.app__head h1 { margin: 0 0 4px; font-size: 24px; letter-spacing: -0.02em; }
-.app__head p { margin: 0; }
+.app__head p { margin: 8px 0 0; }
+
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand__symbol { flex: none; display: block; }
+/* 책등 색을 CSS 에 두어, 강조색을 바꿀 때 고칠 곳이 여기 하나로 모이게 합니다. */
+.brand__spine { fill: #cdc6bb; }
+.brand__spine--found { fill: var(--accent); }
+/* 책장은 책등보다 진하게 둡니다. 같은 색이면 셋이 한 덩어리로 뭉쳐 보입니다. */
+.brand__shelf { fill: #a8a196; }
+.brand__title {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-weight: 600;
+}
+.brand__mark { font-size: 24px; letter-spacing: 0.03em; }
+.brand__name { font-size: 14px; font-weight: 500; color: var(--muted); letter-spacing: 0.01em; }
 .app__foot { margin-top: 32px; font-size: 13px; }
 
 .muted { color: var(--muted); }
