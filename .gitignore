@@ -16,7 +16,11 @@ build/
 .gradle/
 *.class
 *.jar
-!gradle/wrapper/gradle-wrapper.jar
+# 패턴 중간에 "/" 가 있으면 이 파일이 놓인 디렉터리(저장소 최상위)에 고정되므로,
+# "!gradle/wrapper/..." 로는 backend/gradle/wrapper/... 에 닿지 않습니다. "**/" 가 필요합니다.
+# 래퍼 JAR 이 빠지면 clone 한 곳에서 ./gradlew 가 죽습니다. 여기서는 되는데
+# 서버에서만 빌드가 실패하는 형태로 나타나 원인을 찾기 어렵습니다.
+!**/gradle/wrapper/gradle-wrapper.jar
 
 # Node
 node_modules/
