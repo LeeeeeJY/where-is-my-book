@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { fetchLibraries } from './api';
+import { ApiUnavailable, fetchLibraries } from './api';
 import { BookSearch } from './components/BookSearch';
 import { BrandMark } from './components/Brand';
 import { MultiCheck } from './components/MultiCheck';
@@ -21,8 +21,14 @@ type Catalog =
   | { kind: 'loading' }
   /** API 서버에서 받은 실제 도서관 목록. */
   | { kind: 'api'; libraries: Library[] }
-  /** 서버가 없어 샘플로 화면만 확인하는 상태. 반드시 화면에 밝힙니다. */
-  | { kind: 'sample'; libraries: Library[] };
+  /**
+   * 실제 목록을 받지 못해 샘플로 화면만 확인하는 상태. 반드시 화면에 밝힙니다.
+   *
+   * `reason` 을 두는 이유는 사람이 할 일이 다르기 때문입니다. `unreachable` 은 서버를
+   * 띄우거나 주소를 고쳐야 하고, `upstream` 은 서버는 멀쩡하니 정보나루 인증키를 봐야
+   * 합니다. 둘을 같은 문구로 말하면 멀쩡한 서버를 다시 띄우게 됩니다.
+   */
+  | { kind: 'sample'; libraries: Library[]; reason: 'unreachable' | 'upstream' };
 
 export default function App() {
   const [catalog, setCatalog] = useState<Catalog>({ kind: 'loading' });
@@ -36,9 +42,14 @@ export default function App() {
       (libraries) => {
         if (!cancelled) setCatalog({ kind: 'api', libraries });
       },
-      () => {
+      (error) => {
         // 서버가 없어도 선택 화면은 동작해야 합니다. 다만 샘플이라는 것을 숨기지 않습니다.
-        if (!cancelled) setCatalog({ kind: 'sample', libraries: SAMPLE_LIBRARIES });
+        if (cancelled) return;
+        setCatalog({
+          kind: 'sample',
+          libraries: SAMPLE_LIBRARIES,
+          reason: error instanceof ApiUnavailable ? 'unreachable' : 'upstream',
+        });
       },
     );
     return () => {
@@ -97,9 +108,20 @@ export default function App() {
 
       {catalog.kind === 'sample' && (
         <div className="banner banner--warn">
-          <strong>API 서버에 연결하지 못했습니다.</strong> 지금 보이는 도서관{' '}
-          {catalog.libraries.length}곳은 화면 확인용 샘플이고, 책 검색도 동작하지 않습니다.
-          서버를 띄우면 전국 공공도서관 목록이 그 자리에 들어옵니다.
+          {catalog.reason === 'unreachable' ? (
+            <>
+              <strong>API 서버에 연결하지 못했습니다.</strong> 지금 보이는 도서관{' '}
+              {catalog.libraries.length}곳은 화면 확인용 샘플이고, 책 검색도 동작하지 않습니다.
+              서버를 띄우면 전국 공공도서관 목록이 그 자리에 들어옵니다.
+            </>
+          ) : (
+            <>
+              <strong>도서관 목록을 받지 못했습니다.</strong> 서버는 응답했지만 정보나루에서
+              목록을 가져오지 못했습니다. 인증키가 아직 활성화되지 않았을 수 있습니다. 지금
+              보이는 도서관 {catalog.libraries.length}곳은 화면 확인용 샘플이고, 책 검색도
+              동작하지 않습니다.
+            </>
+          )}
         </div>
       )}
 
@@ -139,7 +161,19 @@ export default function App() {
         </main>
       )}
 
-      <footer className="app__foot muted">출처: 도서관 정보나루 · 국립중앙도서관</footer>
+      {/*
+        정보나루는 국립중앙도서관이 운영하는 서비스입니다. 가운뎃점으로 이으면 서로 다른 두
+        곳에서 데이터를 받아 오는 것처럼 읽히는데, 지금 쓰는 출처는 정보나루 하나뿐입니다.
+        국립중앙도서관 ISBN 서지정보 API 는 별도 서비스이고 아직 붙이지 않았습니다.
+        그것을 붙이면 그때 출처를 하나 더 적습니다.
+      */}
+      <footer className="app__foot muted">
+        출처:{' '}
+        <a href="https://www.data4library.kr" target="_blank" rel="noreferrer noopener">
+          도서관 정보나루
+        </a>{' '}
+        (국립중앙도서관)
+      </footer>
     </div>
   );
 }

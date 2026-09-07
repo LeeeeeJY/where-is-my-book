@@ -34,7 +34,22 @@ type LibraryDto = {
   homepageUrl: string | null;
 };
 
+/** 서버에 닿지도 못한 경우. 서버가 안 떠 있거나 주소가 틀린 것입니다. */
 export class ApiUnavailable extends Error {}
+
+/**
+ * 서버는 답했지만 우리가 원하는 것을 주지 못한 경우(503 등).
+ *
+ * <p><b>{@link ApiUnavailable} 과 섞지 마세요.</b> 앞은 "서버가 없다", 이것은 "서버는 있는데
+ * 정보나루에 물어보지 못했다"입니다. 사람이 할 일이 서로 다릅니다. 앞은 서버를 띄워야 하고,
+ * 뒤는 인증키를 확인해야 합니다. 화면이 둘을 같은 문구로 말하면 멀쩡한 서버를 다시 띄우게
+ * 됩니다.
+ */
+export class ApiUnreadable extends Error {
+  constructor(readonly status: number) {
+    super(`API 오류 ${status}`);
+  }
+}
 
 async function get<T>(path: string): Promise<T> {
   let response: Response;
@@ -45,7 +60,7 @@ async function get<T>(path: string): Promise<T> {
     throw new ApiUnavailable('API 서버에 연결하지 못했습니다.');
   }
   if (!response.ok) {
-    throw new Error(`API 오류 ${response.status}`);
+    throw new ApiUnreadable(response.status);
   }
   return (await response.json()) as T;
 }
@@ -126,7 +141,7 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   } catch {
     throw new ApiUnavailable('API 서버에 연결하지 못했습니다.');
   }
-  if (!response.ok) throw new Error(`API 오류 ${response.status}`);
+  if (!response.ok) throw new ApiUnreadable(response.status);
   return (await response.json()) as T;
 }
 
