@@ -4,6 +4,7 @@ import kr.wimb.data4library.Data4LibraryClient;
 import kr.wimb.data4library.LibraryInfo;
 import kr.wimb.data4library.RegionCode;
 import kr.wimb.ingest.ApiBudget;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -59,6 +60,14 @@ public class WimbController {
 
     private final Clock clock;
 
+    /**
+     * <b>{@code @Autowired} 를 지우지 마세요.</b> Spring 이 생성자를 알아서 고르는 것은
+     * 생성자가 하나일 때뿐입니다. 아래에 시계를 받는 생성자가 있으므로 둘이 되고, 표시가
+     * 없으면 Spring 이 기본 생성자를 찾다가 실패해 <b>서버가 아예 뜨지 못합니다.</b>
+     * 실제로 그 상태로 배포되어 컨테이너가 시작하다 죽었고, 단위 테스트는 전부 통과했습니다.
+     * {@code WimbStartupTest} 가 이제 그것을 잡습니다.
+     */
+    @Autowired
     public WimbController(Data4LibraryClient client, BookSearchService searchService,
                           MultiCheckService multiCheckService, ApiBudget budget) {
         this(client, searchService, multiCheckService, budget, Clock.systemUTC());
