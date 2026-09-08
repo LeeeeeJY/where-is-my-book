@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { ApiUnavailable, fetchHoldings, libraryLink, resolveLines } from '../api';
 import { linkLabel } from '../domain/opacLink';
 import type { LineResult, WorkResult } from '../api';
@@ -46,6 +46,20 @@ export function MultiCheck({
   const [rows, setRows] = useState<Row[]>([]);
   const [asOf, setAsOf] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  /**
+   * 지금 들고 있는 소장 결과가 **어느 도서관 선택 기준인지**.
+   *
+   * <p>이것을 안 들고 다니면 선택이 바뀐 뒤에도 예전 답을 그대로 보여 주게 됩니다.
+   * 방금 체크를 푼 도서관이 소장 목록에 남고, 새로 고른 도서관은 물어본 적이 없는데도
+   * 「없음」으로 나옵니다. 뒤엣것이 특히 나쁩니다. 실제로 있는 책을 없다고 답하는 것이라
+   * 헛걸음을 만듭니다.
+   */
+  const [checkedKey, setCheckedKey] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
+  const running = useRef<{ cancelled: boolean } | null>(null);
+
+  // Set 은 렌더마다 새 객체로 올 수 있어 그대로 비교하면 늘 달라 보입니다.
+  const selectedKey = useMemo(() => [...selected].sort().join(','), [selected]);
 
   const selectedLibraries = useMemo(
     () => libraries.filter((l) => selected.has(l.libCode)),
@@ -83,43 +97,80 @@ export function MultiCheck({
     setRows(initial);
     setPhase({ kind: 'ready', truncated: resolved.truncated });
 
-    void loadHoldings(initial);
+    void loadHoldings(initial, selectedKey);
   }
 
-  /** 확정된 줄부터 소장을 물어보고, 답이 오는 대로 그 줄만 갱신합니다. */
-  async function loadHoldings(current: Row[]) {
-    if (selected.size === 0) return;
-    const libCodes = [...selected];
+  /**
+   * 확정된 줄부터 소장을 물어보고, 답이 오는 대로 그 줄만 갱신합니다.
+   *
+   * <p>**도서관을 체크할 때마다 부르지 않습니다.** 30권이면 체크 한 번에 30회가 나가고,
+   * 열 곳을 고르는 동안 300회입니다. 화면은 계속 버벅이고 하루 호출 예산도 그만큼
+   * 새어 나갑니다. 목록을 확인할 때 한 번 부르고, 그 뒤로 선택이 바뀌면 누를 때만 부릅니다.
+   */
+  async function loadHoldings(current: Row[], key: string) {
+    if (running.current) running.current.cancelled = true;
+    const token = { cancelled: false };
+    running.current = token;
+
+    setCheckedKey(key);
+    const libCodes = key === '' ? [] : key.split(',');
+    if (libCodes.length === 0) return;
 
     const jobs = current
       .map((row, index) => ({ row, index }))
       .filter(({ row }) => row.candidates.length > 0);
 
+    setChecking(true);
     let next = 0;
     const workers = Array.from({ length: Math.min(CONCURRENCY, jobs.length) }, async () => {
-      while (next < jobs.length) {
+      while (next < jobs.length && !token.cancelled) {
         const { row, index } = jobs[next++];
         const work = row.candidates[row.chosen] ?? row.candidates[0];
         try {
           const holdings = await fetchHoldings(work.isbn13List, libCodes);
+          if (token.cancelled) return;
           setAsOf(holdings.asOf);
           setRows((prev) => replace(prev, index, { holdings, failed: false }));
         } catch {
           // 한 권의 조회가 실패해도 나머지는 계속합니다.
           // 실패한 줄은 확인 불가로 남고, 미소장으로 섞이지 않습니다.
+          if (token.cancelled) return;
           setRows((prev) => replace(prev, index, { holdings: null, failed: true }));
         }
       }
     });
     await Promise.all(workers);
+    if (!token.cancelled) setChecking(false);
   }
+
+  /** 지금 고른 도서관 기준으로 처음부터 다시 물어봅니다. */
+  function recheck() {
+    const cleared = rows.map((row) => ({ ...row, holdings: null, failed: false }));
+    setRows(cleared);
+    void loadHoldings(cleared, selectedKey);
+  }
+
+  /** 들고 있는 답이 예전 선택 기준인지. 그러면 그대로 보여 주면 안 됩니다. */
+  const stale = checkedKey !== null && checkedKey !== selectedKey;
+  /** 고른 도서관은 있는데 그 기준으로 아직 확인하지 않은 상태. */
+  const needsCheck =
+    phase.kind === 'ready' && selected.size > 0 && !checking
+    && (checkedKey === null || checkedKey !== selectedKey);
+
+  // 기준이 다른 답은 없는 것으로 칩니다. 화면 곳곳에서 따로 판단하면 언젠가 한 곳이
+  // 예전 답을 그대로 그리게 되고, 그때는 아무도 눈치채지 못합니다.
+  const shown: Row[] = useMemo(
+    () => (stale ? rows.map((row) => ({ ...row, holdings: null, failed: false })) : rows),
+    [rows, stale],
+  );
 
   function choose(index: number, candidate: number) {
     setRows((prev) => replace(prev, index, { chosen: candidate, holdings: null, failed: false }));
-    // 고른 책이 바뀌었으므로 그 줄만 다시 물어봅니다.
+    // 고른 책이 바뀌었으므로 그 줄만 다시 물어봅니다. 다만 도서관 선택이 이미 어긋나
+    // 있으면 지금 물어봐야 그 줄만 기준이 달라집니다. 그때는 「다시 확인」에 맡깁니다.
     const row = rows[index];
     const work = row?.candidates[candidate];
-    if (!work || selected.size === 0) return;
+    if (!work || selected.size === 0 || stale) return;
     fetchHoldings(work.isbn13List, [...selected]).then(
       (holdings) => {
         setAsOf(holdings.asOf);
@@ -130,13 +181,13 @@ export function MultiCheck({
   }
 
   const bookRows: BookRow[] = useMemo(
-    () => rows.filter((row) => row.candidates.length > 0).map((row) => toBookRow(row, selected.size)),
-    [rows, selected.size],
+    () => shown.filter((row) => row.candidates.length > 0).map((row) => toBookRow(row, selected.size)),
+    [shown, selected.size],
   );
   const counts = countByState(bookRows);
   const ranks = useMemo(() => rankLibraries(bookRows, selectedLibraries), [bookRows, selectedLibraries]);
   const plan = useMemo(() => planTrip(bookRows, selectedLibraries), [bookRows, selectedLibraries]);
-  const stillChecking = counts.pending > 0 && selected.size > 0;
+  const stillChecking = checking;
 
   function copy() {
     navigator.clipboard
@@ -200,6 +251,18 @@ export function MultiCheck({
 
           <Progress counts={counts} total={bookRows.length} asOf={asOf} checking={stillChecking} />
 
+          {/*
+            도서관을 체크할 때마다 부르지 않습니다. 30권이면 체크 한 번에 30회이고
+            열 곳을 고르는 동안 300회입니다. 누를 때만 부릅니다.
+          */}
+          {needsCheck && (
+            <p className="recheck">
+              <button type="button" className="button button--quiet" onClick={recheck}>
+                고른 도서관 {selected.size}곳에서 확인
+              </button>
+            </p>
+          )}
+
           {plan.length > 0 && (
             <TripPanel
               plan={plan}
@@ -213,11 +276,11 @@ export function MultiCheck({
             <LibraryRanks ranks={ranks} checking={stillChecking} byCode={byCode} />
           )}
 
-          <Leftovers rows={rows} selectedCount={selected.size} />
+          <Leftovers rows={shown} selectedCount={selected.size} />
 
           <h3 className="section-title">넣은 목록을 이렇게 읽었습니다</h3>
           <ul className="line-list">
-            {rows.map((row, index) => (
+            {shown.map((row, index) => (
               <LineRow
                 key={row.lineNo}
                 row={row}
@@ -225,6 +288,7 @@ export function MultiCheck({
                 selectedCount={selected.size}
                 byCode={byCode}
                 onChoose={choose}
+                checking={checking}
               />
             ))}
           </ul>
@@ -435,13 +499,14 @@ function Leftovers({ rows, selectedCount }: { rows: Row[]; selectedCount: number
 }
 
 function LineRow({
-  row, index, selectedCount, byCode, onChoose,
+  row, index, selectedCount, byCode, onChoose, checking,
 }: {
   row: Row;
   index: number;
   selectedCount: number;
   byCode: Map<string, Library>;
   onChoose: (index: number, candidate: number) => void;
+  checking: boolean;
 }) {
   const state = row.candidates.length > 0 ? toBookRow(row, selectedCount).state : null;
   const chosen = row.candidates[row.chosen];
@@ -476,26 +541,39 @@ function LineRow({
       )}
 
       {chosen && (
-        <LineHoldings row={row} work={chosen} selectedCount={selectedCount} byCode={byCode} />
+        <LineHoldings
+          row={row}
+          work={chosen}
+          selectedCount={selectedCount}
+          byCode={byCode}
+          checking={checking}
+        />
       )}
     </li>
   );
 }
 
 function LineHoldings({
-  row, work, selectedCount, byCode,
+  row, work, selectedCount, byCode, checking,
 }: {
   row: Row;
   work: WorkResult;
   selectedCount: number;
   byCode: Map<string, Library>;
+  checking: boolean;
 }) {
   const state = toBookRow(row, selectedCount).state;
 
   if (state === 'pending') {
+    // 고르지 않은 것과, 기다리는 중인 것과, 선택이 바뀌어 아직 안 물어본 것은
+    // 사용자가 할 일이 서로 다릅니다. 하나로 뭉치면 눌러야 하는데 기다리게 만듭니다.
     return (
       <p className="holding muted">
-        {selectedCount === 0 ? '도서관을 고르면 어디에 있는지 확인합니다.' : '확인 중입니다.'}
+        {selectedCount === 0
+          ? '도서관을 고르면 어디에 있는지 확인합니다.'
+          : checking
+            ? '확인 중입니다.'
+            : '위의 「확인」을 누르면 알려 드립니다.'}
       </p>
     );
   }
