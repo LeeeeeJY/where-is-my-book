@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Library } from '../domain/types';
 import {
   buildRegionTree,
@@ -235,6 +235,45 @@ function SearchTab({
   );
 }
 
+/**
+ * 위치를 잡는 동안의 상태.
+ *
+ * <p>예전에는 {@code 'denied'} 하나로 뭉뚱그렸는데, 실패 이유마다 사용자가 할 일이
+ * 다릅니다. 권한이 막힌 것은 브라우저 설정을 바꿔야 낫고, 기기가 못 잡은 것은 잠시 뒤
+ * 다시 누르면 됩니다. 같은 문구로 말하면 고칠 수 있는 것을 못 고칩니다.
+ */
+type LocateStatus =
+  | { kind: 'idle' }
+  | { kind: 'asking' }
+  | { kind: 'failed'; reason: string }
+  | { kind: 'same' };
+
+/** 브라우저가 아무 답도 주지 않을 때 우리가 포기하는 시각. */
+const LOCATE_GIVE_UP_MS = 12_000;
+
+function reasonOf(e: GeolocationPositionError): string {
+  if (e.code === e.PERMISSION_DENIED) {
+    return '브라우저가 위치 사용을 막고 있습니다. 주소창의 자물쇠나 위치 아이콘에서 허용으로 바꿔 주세요.';
+  }
+  if (e.code === e.POSITION_UNAVAILABLE) {
+    return '기기가 지금 위치를 알아내지 못했습니다. 잠시 뒤 다시 눌러 보세요.';
+  }
+  return '시간 안에 위치를 잡지 못했습니다. 잠시 뒤 다시 눌러 보세요.';
+}
+
+/** 다시 잡은 값이 앞과 사실상 같은지. 1e-6도는 10cm 남짓이라 같은 자리로 봅니다. */
+function samePlace(
+  before: { lat: number; lon: number; accuracyM: number } | null,
+  after: { lat: number; lon: number; accuracyM: number },
+): boolean {
+  if (before === null) return false;
+  return (
+    Math.abs(before.lat - after.lat) < 1e-6 &&
+    Math.abs(before.lon - after.lon) < 1e-6 &&
+    Math.abs(before.accuracyM - after.accuracyM) < 1
+  );
+}
+
 function NearbyTab({
   libraries,
   selected,
@@ -247,7 +286,13 @@ function NearbyTab({
   const [position, setPosition] = useState<{ lat: number; lon: number; accuracyM: number } | null>(
     null,
   );
-  const [status, setStatus] = useState<'idle' | 'asking' | 'denied'>('idle');
+  const [status, setStatus] = useState<LocateStatus>({ kind: 'idle' });
+  const timerRef = useRef<number | null>(null);
+
+  // 탭을 옮기면 이 컴포넌트가 사라지는데, 시계가 남아 있으면 없어진 것에 상태를 씁니다.
+  useEffect(() => () => {
+    if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+  }, []);
 
   /**
    * 위치를 잡습니다. **처음 잡을 때와 다시 잡을 때가 같은 코드입니다.**
@@ -256,24 +301,57 @@ function NearbyTab({
    * 일이 생깁니다. 옵션이 특히 중요한데, 그냥 부르면 브라우저가 가장 싸고 거친 방법을
    * 쓰고 캐시된 예전 위치를 그대로 주기도 합니다. 회사에서 눌렀는데 집 근처 도서관이
    * 나오는 것이 그것입니다.
+   *
+   * <b>브라우저에 준 {@code timeout} 만 믿으면 안 됩니다.</b> 그 시계는 권한을 얻은 뒤에야
+   * 돌기 시작해서, 권한이 막혀 있거나 사용자가 물음에 답하지 않으면 <b>성공도 실패도
+   * 돌아오지 않습니다.</b> 실제로 눌러 보니 「다시 잡는 중입니다」에서 15초가 지나도 그대로였고,
+   * 버튼이 잠긴 채라 다시 누를 수도 없었습니다. 사용자에게는 그것이 「아무리 눌러도 안 잡힌다」로
+   * 보입니다. 그래서 <b>우리 쪽에서도 시계를 겁니다.</b>
    */
   const locate = useCallback(() => {
-    setStatus('asking');
+    setStatus({ kind: 'asking' });
+    let settled = false;
+    if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+    timerRef.current = window.setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      setStatus({
+        kind: 'failed',
+        reason:
+          '브라우저가 응답하지 않습니다. 위치 사용을 묻는 중이거나 막고 있을 수 있으니 ' +
+          '주소창의 자물쇠나 위치 아이콘을 확인해 주세요.',
+      });
+    }, LOCATE_GIVE_UP_MS);
+
     navigator.geolocation.getCurrentPosition(
       (p) => {
-        setPosition({
+        if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+        const next = {
           lat: p.coords.latitude,
           lon: p.coords.longitude,
           // 브라우저가 알려 주는 오차 반경(미터). 이걸 화면에 밝히지 않으면
           // 20km 떨어진 곳을 「가까운 도서관」이라고 내놓게 됩니다.
           accuracyM: p.coords.accuracy,
-        });
-        setStatus('idle');
+        };
+        // 포기한 뒤에 늦게 도착해도 위치 자체는 쓸모가 있으므로 받아 둡니다.
+        setPosition(next);
+        settled = true;
+        // **값이 그대로면 그 사실을 말해야 합니다.** 아무 표시도 없으면 사용자는 자기가
+        // 누른 것이 먹히지 않았다고 읽고 같은 자리를 계속 누릅니다.
+        setStatus(samePlace(position, next) ? { kind: 'same' } : { kind: 'idle' });
       },
-      () => setStatus('denied'),
+      (e) => {
+        if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+        // 이미 포기했으면 덧쓰지 않습니다. 안내가 두 번 바뀌면 더 헷갈립니다.
+        if (settled) return;
+        settled = true;
+        setStatus({ kind: 'failed', reason: reasonOf(e) });
+      },
       { enableHighAccuracy: true, maximumAge: 0, timeout: 10_000 },
     );
-  }, []);
+  }, [position]);
+
+  const asking = status.kind === 'asking';
 
   // 위경도가 없는 도서관은 거리를 잴 수 없어 여기에 나오지 않습니다.
   // 이름 검색과 지역 계층에서는 정상적으로 찾히므로 사라지는 것이 아닙니다.
@@ -288,12 +366,12 @@ function NearbyTab({
   if (!position) {
     return (
       <div className="search-tab">
-        <button className="button" disabled={status === 'asking'} onClick={locate}>
-          {status === 'asking' ? '위치를 잡는 중입니다' : '현재 위치로 가까운 도서관 찾기'}
+        <button className="button" disabled={asking} onClick={locate}>
+          {asking ? '위치를 잡는 중입니다' : '현재 위치로 가까운 도서관 찾기'}
         </button>
-        {status === 'denied' && (
+        {status.kind === 'failed' && (
           <p className="muted">
-            위치를 사용할 수 없습니다. 지역 탭이나 이름 검색으로 골라 주세요.
+            {status.reason} 지역 탭이나 이름 검색으로도 고를 수 있습니다.
           </p>
         )}
       </div>
@@ -318,15 +396,15 @@ function NearbyTab({
             위치를 잡아 수 킬로미터가 어긋나는데, 한 번 더 부르면 Wi-Fi 나 GPS 로 잡혀 훨씬
             좁혀지는 경우가 많습니다.
           */}
-          <button className="link-button" onClick={locate} disabled={status === 'asking'}>
-            {status === 'asking' ? '다시 잡는 중입니다' : '내 위치 다시 잡기'}
+          <button className="link-button" onClick={locate} disabled={asking}>
+            {asking ? '다시 잡는 중입니다' : '내 위치 다시 잡기'}
           </button>
         </p>
       ) : (
         <p className="muted nearby__accuracy">
           지금 위치가 약 {Math.round(position.accuracyM)}m 오차로 잡혔습니다.{' '}
-          <button className="link-button" onClick={locate} disabled={status === 'asking'}>
-            {status === 'asking' ? '다시 잡는 중입니다' : '내 위치 다시 잡기'}
+          <button className="link-button" onClick={locate} disabled={asking}>
+            {asking ? '다시 잡는 중입니다' : '내 위치 다시 잡기'}
           </button>
         </p>
       )}
@@ -334,9 +412,15 @@ function NearbyTab({
         **다시 잡다가 실패한 것을 조용히 넘기지 마세요.** 앞의 위치가 그대로 남아 있어서
         새로 잡힌 것처럼 보이는데, 실제로는 예전 값입니다.
       */}
-      {status === 'denied' && (
+      {status.kind === 'failed' && (
         <p className="muted">
-          위치를 다시 잡지 못했습니다. 아래 목록은 <strong>앞서 잡은 위치</strong> 기준입니다.
+          {status.reason} 아래 목록은 <strong>앞서 잡은 위치</strong> 기준입니다.
+        </p>
+      )}
+      {status.kind === 'same' && (
+        <p className="muted">
+          다시 잡았지만 <strong>앞과 같은 위치</strong>입니다. 기기가 Wi-Fi 나 GPS 를 쓸 수 없으면
+          여러 번 눌러도 같은 값이 나옵니다. 그럴 때는 지역 탭이나 이름 검색이 더 빠릅니다.
         </p>
       )}
       {/*
