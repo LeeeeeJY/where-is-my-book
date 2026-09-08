@@ -353,8 +353,8 @@ function SearchState({
     );
   }
 
-  const { works, totalWorks, foundBooks, droppedNoIsbn, droppedBooks, alsoSearchedTitles,
-    recoveredByAuthor } = state.response;
+  const { works, totalWorks, foundBooks, droppedNoIsbn, droppedBooks,
+    alsoSearchedTitles } = state.response;
   if (works.length === 0) {
     return (
       <div className="banner banner--warn">
@@ -396,23 +396,17 @@ ISBN 을 알 수 없어 소장을 확인하지 못하는 자료가 {droppedNoIsb
   return (
     <>
       {/*
-        함께 찾아본 표기와 저자로 되찾은 사실을 반드시 밝힙니다. 넣은 것과 다른 표기의 책이
-        목록에 섞여 있는 것이라, 말하지 않으면 검색이 엉뚱한 것을 가져왔다고 읽힙니다.
+        함께 찾아본 표기는 반드시 밝힙니다. 넣은 것과 다른 표기의 책이 목록에 섞여 있는
+        것이라, 말하지 않으면 검색이 엉뚱한 것을 가져왔다고 읽힙니다.
+
+        저자로 되찾은 사실은 밝히지 않습니다. 되찾기는 표기가 아니라 우리 내부의 회전이라
+        사용자가 목록에서 확인할 방법이 없고, 화면에서 할 일도 없습니다. 응답의
+        `recoveredByAuthor` 는 서버 쪽 진단에 그대로 두었습니다.
       */}
-      {(alsoSearchedTitles.length > 0 || recoveredByAuthor) && (
+      {alsoSearchedTitles.length > 0 && (
         <div className="banner banner--info">
-          {alsoSearchedTitles.length > 0 && (
-            <>
-              띄어쓰기가 다른 <strong>{quoteAll(alsoSearchedTitles)}</strong> 표기로도 함께
-              찾았습니다.
-            </>
-          )}
-          {alsoSearchedTitles.length > 0 && recoveredByAuthor && ' '}
-          {recoveredByAuthor && (
-            <>
-              제목으로는 걸리지 않던 판을 <strong>같은 저자의 책</strong>에서 더 찾았습니다.
-            </>
-          )}
+          띄어쓰기가 다른 <strong>{quoteAll(alsoSearchedTitles)}</strong> 표기로도 함께
+          찾았습니다.
         </div>
       )}
       <p className="asof">
@@ -430,7 +424,7 @@ ISBN 을 알 수 없어 소장을 확인하지 못하는 자료가 {droppedNoIsb
               못했다」이므로 판본이라고 단정하지 않습니다.
             */}
             <strong>일부를 확인하지 못했습니다.</strong> 확인하지 못한 판본이나 도서관이
-            있습니다. 확인하지 못한 것을 미소장으로 세지 않았습니다.
+            있습니다.
           </>
         )}
       </p>
