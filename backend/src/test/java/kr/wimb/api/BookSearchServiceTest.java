@@ -155,6 +155,50 @@ class BookSearchServiceTest {
         </response>
         """;
 
+    /** 낱권 표제가 모두 같고 권차만 vol 로 따로 오는 실제 모양입니다. */
+    private static final String VOLUMES = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <response>
+          <docs>
+            <doc>
+              <bookname><![CDATA[레미제라블]]></bookname>
+              <authors><![CDATA[빅토르 위고 지음 ; 정기수 옮김]]></authors>
+              <publisher><![CDATA[민음사]]></publisher>
+              <publication_year>2012</publication_year>
+              <isbn13>9788937462511</isbn13>
+              <vol>1</vol>
+            </doc>
+            <doc>
+              <bookname><![CDATA[레미제라블]]></bookname>
+              <authors><![CDATA[빅토르 위고 지음 ; 정기수 옮김]]></authors>
+              <publisher><![CDATA[민음사]]></publisher>
+              <publication_year>2012</publication_year>
+              <isbn13>9788937462528</isbn13>
+              <vol>2</vol>
+            </doc>
+          </docs>
+        </response>
+        """;
+
+    @Test
+    @DisplayName("표제가 같아도 권차가 다르면 다른 책으로 둔다")
+    void volumesAreDifferentWorks() {
+        // 정보나루는 권차를 vol 로 따로 줍니다. 표제에는 안 들어 있는 경우가 많아서,
+        // 그 값을 버리면 「레미제라블」 1~5권이 표제가 같아 한 저작으로 합쳐집니다.
+        // 화면에는 하나만 나와 낱권을 고를 수 없고, 그 하나의 ISBN 목록에 다섯 권이
+        // 다 들어가므로 1권만 있는 도서관이 「레미제라블 있음」으로 나옵니다.
+        var response = service(VOLUMES, NEVER_CALLED).search("레미제라블");
+
+        assertEquals(2, response.works().size(), "1권과 2권은 다른 책입니다");
+        // 갈라 놓아도 표제가 같으면 화면에서 구별할 수 없습니다.
+        var titles = response.works().stream().map(BookSearchService.WorkResult::title).sorted().toList();
+        assertEquals(List.of("레미제라블 1권", "레미제라블 2권"), titles);
+        // 그리고 소장 조회에 서로의 ISBN 이 섞이면 안 됩니다.
+        for (var work : response.works()) {
+            assertEquals(1, work.isbn13List().size(), "한 권의 ISBN 만 들고 있어야 합니다");
+        }
+    }
+
     @Test
     @DisplayName("물어볼 수 없었던 도서관이 있으면 빠짐없이 확인했다고 하지 않는다")
     void aLibraryWeCouldNotAskIsNotAbsence() {

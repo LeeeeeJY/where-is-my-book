@@ -34,8 +34,15 @@ public final class SearchDocBuilder {
     ) {
         public static BookRecord of(String isbn13, String rawTitle, String rawAuthors,
                                     String publisher, LocalDate pubDate, Integer price) {
+            return of(isbn13, rawTitle, rawAuthors, publisher, pubDate, price, null);
+        }
+
+        /** @param volNo 소스가 따로 준 권차. 표제에서 뽑지 못했을 때만 씁니다. */
+        public static BookRecord of(String isbn13, String rawTitle, String rawAuthors,
+                                    String publisher, LocalDate pubDate, Integer price,
+                                    Integer volNo) {
             return new BookRecord(isbn13,
-                    BibNormalizer.parseTitle(rawTitle),
+                    BibNormalizer.parseTitle(rawTitle).withVolNo(volNo),
                     BibNormalizer.parseContributors(rawAuthors),
                     publisher, pubDate, price);
         }
@@ -80,7 +87,7 @@ public final class SearchDocBuilder {
 
         return new SearchDoc(
                 workId,
-                representative.title().titleProper(),
+                displayTitle(representative.title()),
                 representative.authorDisplay(),
                 representative.publisherRaw(),
                 representative.pubDate(),
@@ -117,6 +124,25 @@ public final class SearchDocBuilder {
         if (book.price() != null) score++;
         if (book.title().subtitle() != null) score++;
         return score;
+    }
+
+    /**
+     * 화면에 보여 줄 표제. <b>권차가 표제에 없으면 붙여 줍니다.</b>
+     *
+     * <p>정보나루가 권차를 {@code vol} 로 따로 주는 책은 표제가 다섯 권 모두 「레미제라블」로
+     * 똑같습니다. 저작은 권차로 갈라 놓았는데 표제가 같으면, 화면에는 구별할 수 없는 줄이
+     * 다섯 개 늘어서고 사용자는 어느 것이 몇 권인지 모릅니다. 갈라 놓은 보람이 없습니다.
+     *
+     * <p>표제 끝이 이미 그 숫자로 끝나면 붙이지 않습니다. 「미움받을 용기 2」가
+     * 「미움받을 용기 2 2권」이 되면 안 됩니다.
+     */
+    private static String displayTitle(TitleParts title) {
+        Integer vol = title.volNo();
+        String proper = title.titleProper() == null ? "" : title.titleProper().trim();
+        if (vol == null || proper.isEmpty() || proper.endsWith(String.valueOf(vol))) {
+            return title.titleProper();
+        }
+        return proper + " " + vol + "권";
     }
 
     /** 「특별판 (2010)」처럼 어떤 판본들이 있는지 보여 줍니다. */

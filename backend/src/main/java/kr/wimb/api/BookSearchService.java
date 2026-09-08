@@ -195,9 +195,14 @@ public class BookSearchService {
         List<WorkClusterer.Input> inputs = books.stream()
                 .map(book -> new WorkClusterer.Input(
                         book.canonicalIsbn13().orElseThrow(),
+                        // **권차를 반드시 함께 넘깁니다.** 정보나루는 이것을 vol 로 따로
+                        // 주는데, 빠뜨리면 「레미제라블」 1~5권이 표제가 같아 한 저작으로
+                        // 합쳐집니다. 그러면 낱권을 고를 수 없고, 1권만 있는 도서관이
+                        // 「레미제라블 있음」으로 나옵니다.
                         WorkMatcher.Candidate.of(book.bookname(), book.authors(),
                                 book.publisher(), publicationYear(book),
-                                book.canonicalIsbn13().orElse(null)),
+                                book.canonicalIsbn13().orElse(null),
+                                book.volumeNumber().orElse(null)),
                         null))
                 .toList();
 
@@ -207,7 +212,7 @@ public class BookSearchService {
                 .map(book -> SearchDocBuilder.BookRecord.of(
                         book.canonicalIsbn13().orElseThrow(),
                         book.bookname(), book.authors(), book.publisher(),
-                        null, null))
+                        null, null, book.volumeNumber().orElse(null)))
                 .toList();
         return SearchDocBuilder.build(records, clustered.workIdByRecord());
     }

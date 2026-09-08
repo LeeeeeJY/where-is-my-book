@@ -42,7 +42,17 @@ public final class WorkMatcher {
 
         public static Candidate of(String rawTitle, String rawAuthors,
                                    String rawPublisher, Integer pubYear, String isbn13) {
-            TitleParts parts = BibNormalizer.parseTitle(rawTitle);
+            return of(rawTitle, rawAuthors, rawPublisher, pubYear, isbn13, null);
+        }
+
+        /**
+         * @param volNo 소스가 따로 준 권차. 표제에서 뽑지 못했을 때만 씁니다.
+         *              <b>이것을 빠뜨리면 「레미제라블」 1~5권이 한 저작으로 합쳐집니다.</b>
+         */
+        public static Candidate of(String rawTitle, String rawAuthors,
+                                   String rawPublisher, Integer pubYear, String isbn13,
+                                   Integer volNo) {
+            TitleParts parts = BibNormalizer.parseTitle(rawTitle).withVolNo(volNo);
             // 저자 필드가 비어 있으면 표제에 섞여 들어온 책임표시를 씁니다.
             String authors = (rawAuthors == null || rawAuthors.isBlank())
                     ? parts.statementOfResponsibility() : rawAuthors;

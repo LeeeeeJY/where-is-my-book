@@ -34,4 +34,27 @@ public record TitleParts(
         String titleKeyFull,
         List<String> aliasKeys,
         String statementOfResponsibility
-) {}
+) {
+
+    /**
+     * 바깥에서 알아낸 권차를 채워 넣은 사본.
+     *
+     * <p><b>정보나루는 권차를 {@code vol} 로 따로 줍니다.</b> 표제에는 안 들어 있는 경우가
+     * 많아서, 표제만 보면 「레미제라블」 1권부터 5권까지가 전부 같은 표제로 옵니다. 그러면
+     * 권차가 모두 {@code null} 이 되어 <b>다섯 권이 한 저작으로 합쳐집니다.</b>
+     *
+     * <p>합쳐지면 두 가지가 한꺼번에 무너집니다. 화면에는 하나만 나와서 <b>낱권을 고를 수
+     * 없고</b>, 그 하나의 ISBN 목록에 다섯 권이 다 들어가므로 <b>1권만 있는 도서관이
+     * 「레미제라블 있음」으로 나옵니다.</b> 찾는 권이 없는데 있다고 답하는 것입니다.
+     *
+     * <p>표제 꼬리에서 이미 권차를 뽑았으면 그대로 둡니다. {@code vol} 이 없을 때 표제에서
+     * 뽑은 값을 쓰는 것이 아니라, 그 반대로 <b>표제에서 못 뽑았을 때만</b> 이 값을 씁니다.
+     * 표제에 적힌 「미움받을 용기 2」의 2가 더 믿을 만한 자리이기 때문입니다.
+     */
+    public TitleParts withVolNo(Integer fromApi) {
+        if (volNo != null || fromApi == null) return this;
+        return new TitleParts(titleProper, subtitle, parallelTitle, seriesTitle, fromApi,
+                editionTokens, adaptationTokens, titleKeyCore, titleKeyFull, aliasKeys,
+                statementOfResponsibility);
+    }
+}
