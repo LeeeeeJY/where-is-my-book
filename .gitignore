@@ -35,3 +35,6 @@ dist/
 
 # 0단계 검증 스크립트의 출력 (원본 응답과 curl 오류 메시지에 키가 섞일 수 있음)
 probe-out/
+
+# 개인 설정 덮어쓰기 (.claude/settings.json 은 훅이 들어 있으므로 커밋합니다)
+.claude/settings.local.json
