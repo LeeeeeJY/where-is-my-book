@@ -311,9 +311,21 @@ public class BookSearchService {
                 .toList();
     }
 
-    /** 작을수록 검색어에 잘 맞습니다. */
+    /**
+     * 작을수록 검색어에 잘 맞습니다.
+     *
+     * <p><b>권차를 떼고 견줍니다.</b> 표제에는 권차를 붙여 주는데(갈라 놓은 저작을 표제에
+     * 드러내야 하므로 {@code displayTitle} 이 「레 미제라블 1권」을 만듭니다), 그 표제를
+     * 그대로 견주면 낱권이 전부 「제목이 덜 맞는 것」으로 밀립니다. 실제로 「레미제라블」을
+     * 찾았을 때 <b>민음사 낱권이 62~67위였고</b>, 후보 목록에 아예 들지 못했습니다.
+     * 권차 없는 판들이 앞자리를 다 차지한 것입니다.
+     *
+     * <p>규칙 둘이 부딪친 자리입니다. 「갈라 놓았으면 표제에 드러내라」와 「제목이 맞는 것을
+     * 위로 올려라」가 같은 문자열을 서로 다르게 봅니다. <b>표제는 사람이 읽는 것이고 순위는
+     * 기계가 견주는 것이므로, 견줄 때는 키를 씁니다.</b>
+     */
     private static int titleTier(String queryKey, String title) {
-        String titleKey = BibNormalizer.normalizeKey(title == null ? "" : title);
+        String titleKey = BibNormalizer.parseTitle(title == null ? "" : title).titleKeyCore();
         if (titleKey.equals(queryKey)) return 0;   // 「코스모스」 -> 「코스모스」
         if (titleKey.startsWith(queryKey)) return 1; // 「코스모스 : 특별판」
         if (titleKey.contains(queryKey)) return 2;   // 「뽐내는 코스모스」

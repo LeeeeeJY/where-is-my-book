@@ -511,6 +511,28 @@ class BookSearchServiceTest {
     }
 
     /**
+     * <b>낱권이 순위에서 밀리면 후보 목록에 들지 못합니다.</b> 표제에 권차를 붙이는 것과
+     * 제목이 맞는 것을 위로 올리는 것이 부딪쳐, 실제로 「레미제라블」을 찾았을 때 민음사
+     * 낱권이 62~67위였습니다. 후보를 스물넷까지 늘려도 들어오지 못합니다.
+     */
+    @Test
+    @DisplayName("권차가 붙은 낱권도 제목이 맞는 것으로 센다")
+    void volumesRankAsExactTitleMatch() {
+        var one = new BookSearchService.WorkResult(
+                1, "레 미제라블 1권", "빅토르 위고", "민음사", null, null, List.of("9788937463013"), List.of());
+        var other = new BookSearchService.WorkResult(
+                2, "레 미제라블", "빅토르 위고", "삼성출판사", null, null, List.of("9788915030688"), List.of());
+        var unrelated = new BookSearchService.WorkResult(
+                3, "레미제라블 읽기의 즐거움", "윤순식", "살림", null, null, List.of("9788952204134"), List.of());
+
+        var ranked = BookSearchService.rank("레미제라블", List.of(unrelated, one, other));
+
+        assertEquals(3, ranked.get(2).workId(), "제목이 덜 맞는 것이 뒤로 가야 합니다");
+        assertTrue(ranked.get(0).workId() != 3 && ranked.get(1).workId() != 3,
+                "낱권과 권차 없는 판이 나란히 앞자리에 와야 합니다");
+    }
+
+    /**
      * <b>여러 권 확인도 같은 되찾기를 거쳐야 합니다.</b> 예전에는 되찾기가 {@code search}
      * 안에만 있고 {@code worksFor} 는 그냥 받아 왔습니다. 그래서 같은 「레미제라블」인데
      * 한 권 검색에서는 민음사 낱권이 나오고 여러 권 확인에서는 한 권도 나오지 않았습니다.
