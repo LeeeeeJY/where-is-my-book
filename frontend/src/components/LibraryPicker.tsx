@@ -2,9 +2,10 @@ import { useMemo, useState } from 'react';
 import type { Library } from '../domain/types';
 import {
   buildRegionTree,
-  byDistanceFrom,
   groupState,
   haversineKm,
+  nearbyLibraries,
+  NEARBY_RADIUS_KM,
   toggleGroup,
   toggleOne,
 } from '../domain/selection';
@@ -241,15 +242,15 @@ function NearbyTab({
   );
   const [status, setStatus] = useState<'idle' | 'asking' | 'denied'>('idle');
 
-  const nearby = useMemo(() => {
-    if (!position) return [];
-    // 위경도가 없는 도서관은 거리를 잴 수 없어 목록 끝으로 갑니다.
-    // 표준데이터 대조에 실패한 경우이고, 이름 검색과 지역 계층에서는 정상적으로 찾힙니다.
-    return [...libraries]
-      .filter((l) => l.latitude !== null)
-      .sort(byDistanceFrom(position.lat, position.lon))
-      .slice(0, 20);
-  }, [libraries, position]);
+  // 위경도가 없는 도서관은 거리를 잴 수 없어 여기에 나오지 않습니다.
+  // 이름 검색과 지역 계층에서는 정상적으로 찾히므로 사라지는 것이 아닙니다.
+  const nearby = useMemo(
+    () =>
+      position === null
+        ? null
+        : nearbyLibraries(libraries, position.lat, position.lon),
+    [libraries, position],
+  );
 
   if (!position) {
     return (
@@ -305,8 +306,19 @@ function NearbyTab({
           잡혔습니다. 아래 순서가 실제와 다를 수 있으니 지역 탭이나 이름 검색을 함께 써 주세요.
         </p>
       )}
+      {/*
+        반경을 넘겨 보여 주는 중이면 반드시 밝힙니다. 잠자코 넓히면 사용자는 30km 떨어진
+        곳을 「내 주변」으로 읽고, 다녀와서야 멀다는 것을 압니다.
+      */}
+      {nearby !== null && nearby.widened && (
+        <p className="muted">
+          {nearby.withinRadius === 0
+            ? `반경 ${NEARBY_RADIUS_KM}km 안에는 공공도서관이 없어 가까운 순으로 보여 줍니다.`
+            : `반경 ${NEARBY_RADIUS_KM}km 안에는 ${nearby.withinRadius}곳뿐이라 더 먼 곳까지 보여 줍니다.`}
+        </p>
+      )}
       <ul className="flat-list">
-      {nearby.map((library) => {
+      {(nearby?.libraries ?? []).map((library) => {
         const km = haversineKm(position.lat, position.lon, library);
         return (
           <li key={library.libCode} className="tree__row">

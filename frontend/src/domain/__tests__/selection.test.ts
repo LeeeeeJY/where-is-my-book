@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { buildRegionTree, groupState, haversineKm, toggleGroup, toggleOne } from '../selection';
+import {
+  buildRegionTree,
+  groupState,
+  haversineKm,
+  nearbyLibraries,
+  NEARBY_RADIUS_KM,
+  toggleGroup,
+  toggleOne,
+} from '../selection';
 import type { Library } from '../types';
 
 const lib = (
@@ -108,5 +116,74 @@ describe('지역 트리에 자리가 없는 도서관', () => {
 
     expect(tree).toHaveLength(1);
     expect(tree[0].libraryCount).toBe(1);
+  });
+});
+
+describe('내 주변', () => {
+  // 서울시청 근처를 기준점으로 삼고, 거리에 맞춰 북쪽으로 좌표를 흩뜨립니다.
+  // 위도 1도는 2πR/360 = 111.195km 이고, haversineKm 이 쓰는 R 과 같은 값이라
+  // 아래 km 가 그대로 haversineKm 의 결과가 됩니다.
+  const KM_PER_DEGREE = (2 * Math.PI * 6371) / 360;
+  const HERE = { lat: 37.5665, lon: 126.978 };
+  const at = (km: number, name: string): Library => ({
+    ...lib(`x${km}${name}`, 900 + Math.round(km * 10), '서울특별시', '중구', name),
+    latitude: HERE.lat + km / KM_PER_DEGREE,
+    longitude: HERE.lon,
+  });
+
+  it('반경 안이 넉넉하면 그것만 보여 주고 넓혔다고 하지 않는다', () => {
+    const result = nearbyLibraries(
+      [at(1, '가'), at(2, '나'), at(3, '다'), at(30, '먼곳')],
+      HERE.lat,
+      HERE.lon,
+    );
+    expect(result.libraries.map((l) => l.name)).toEqual(['가', '나', '다']);
+    expect(result.widened).toBe(false);
+    expect(result.withinRadius).toBe(3);
+  });
+
+  it('가까운 순으로 나온다', () => {
+    const result = nearbyLibraries([at(3, '다'), at(1, '가'), at(2, '나')], HERE.lat, HERE.lon);
+    expect(result.libraries.map((l) => l.name)).toEqual(['가', '나', '다']);
+  });
+
+  it('반경 안이 모자라면 넓히되 넓혔다고 알린다', () => {
+    // 빈 목록을 주면 사용자는 「우리 동네에 도서관이 없다」가 아니라
+    // 「이 도구가 고장났다」로 읽습니다.
+    const result = nearbyLibraries([at(1, '하나'), at(20, '멀리'), at(40, '더멀리')], HERE.lat, HERE.lon);
+    expect(result.widened).toBe(true);
+    expect(result.withinRadius).toBe(1);
+    expect(result.libraries.map((l) => l.name)).toEqual(['하나', '멀리', '더멀리']);
+  });
+
+  it('반경 안에 하나도 없어도 빈 목록을 주지 않는다', () => {
+    const result = nearbyLibraries([at(30, '멀리')], HERE.lat, HERE.lon);
+    expect(result.widened).toBe(true);
+    expect(result.withinRadius).toBe(0);
+    expect(result.libraries).toHaveLength(1);
+  });
+
+  it('위경도가 없는 도서관은 거리를 잴 수 없어 빠진다', () => {
+    // 목록에서 사라지는 것이 아니라 이 탭에만 안 나옵니다.
+    // 이름 검색과 지역 계층에서는 그대로 찾힙니다.
+    const result = nearbyLibraries([SEOUL_A, at(1, '가'), at(2, '나'), at(3, '다')], HERE.lat, HERE.lon);
+    expect(result.libraries.map((l) => l.name)).toEqual(['가', '나', '다']);
+  });
+
+  it('반경 바로 안쪽은 넣고 바로 바깥쪽은 뺀다', () => {
+    const result = nearbyLibraries(
+      [at(NEARBY_RADIUS_KM - 0.1, '안쪽'), at(NEARBY_RADIUS_KM + 0.1, '바깥쪽'), at(1, '가'), at(2, '나')],
+      HERE.lat,
+      HERE.lon,
+    );
+    expect(result.withinRadius).toBe(3);
+    expect(result.widened).toBe(false);
+    expect(result.libraries.map((l) => l.name)).toEqual(['가', '나', '안쪽']);
+  });
+
+  it('아무것도 없으면 넓혔다고 하지 않는다', () => {
+    const result = nearbyLibraries([], HERE.lat, HERE.lon);
+    expect(result.libraries).toEqual([]);
+    expect(result.widened).toBe(false);
   });
 });

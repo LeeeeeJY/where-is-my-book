@@ -99,3 +99,55 @@ export function haversineKm(lat: number, lon: number, library: Library): number 
     Math.cos(toRad(lat)) * Math.cos(toRad(library.latitude)) * Math.sin(dLon / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(a));
 }
+
+/**
+ * 「내 주변」의 반경(km).
+ *
+ * <p>도서관은 멀리 다니지 않으므로 좁게 잡습니다. 다만 3km 로 내리면 서울 도심 말고는
+ * 대부분 0~1곳이 나오고, 그러면 아래의 「더 먼 곳까지 보여 줍니다」 안내가 기본 상태가
+ * 됩니다. 매번 보이는 안내는 아무도 읽지 않게 되어, 정작 넓혔을 때 그 사실이 묻힙니다.
+ */
+export const NEARBY_RADIUS_KM = 5;
+
+/** 반경 안에 이만큼도 없으면 반경을 무시하고 가까운 곳들을 보여 줍니다. */
+const NEARBY_MIN = 3;
+/** 반경을 무시할 때 보여 줄 개수. */
+const NEARBY_WIDENED = 5;
+/** 반경 안이 아무리 많아도 여기까지만 보여 줍니다. */
+const NEARBY_MAX = 20;
+
+export type NearbyResult = {
+  libraries: Library[];
+  /** 반경 안이 너무 적어서 더 먼 곳까지 보여 주고 있는지. 화면에 반드시 밝힙니다. */
+  widened: boolean;
+  /** 반경 안에 실제로 몇 곳이 있었는지. 0곳과 1곳은 사용자에게 다른 뜻입니다. */
+  withinRadius: number;
+};
+
+/**
+ * 위치에서 가까운 도서관을 고릅니다.
+ *
+ * <p>빈 목록을 돌려주지 않는 것이 중요합니다. 사용자는 빈 화면을 「우리 동네에 도서관이
+ * 없다」가 아니라 「이 도구가 고장났다」로 읽습니다. 그래서 반경 안이 비면 넓히되,
+ * 넓혔다는 사실을 함께 돌려줍니다.
+ */
+export function nearbyLibraries(libraries: Library[], lat: number, lon: number): NearbyResult {
+  const sorted = libraries
+    .map((library) => ({ library, km: haversineKm(lat, lon, library) }))
+    .filter((entry): entry is { library: Library; km: number } => entry.km !== null)
+    .sort((a, b) => a.km - b.km);
+
+  const withinRadius = sorted.filter((entry) => entry.km <= NEARBY_RADIUS_KM).length;
+  if (withinRadius >= NEARBY_MIN) {
+    return {
+      libraries: sorted.slice(0, Math.min(withinRadius, NEARBY_MAX)).map((e) => e.library),
+      widened: false,
+      withinRadius,
+    };
+  }
+  return {
+    libraries: sorted.slice(0, NEARBY_WIDENED).map((e) => e.library),
+    widened: sorted.length > 0,
+    withinRadius,
+  };
+}
