@@ -16,7 +16,7 @@ set -euo pipefail
 # GitHub 에서 이름이 바뀌어 clone 한 디렉터리가 where-is-my-book 일 수도
 # where-is-my-books 일 수도 있는데, 하드코딩하면 그 차이로 조용히 실패합니다.
 REPO="${WIMB_REPO:-$(cd "$(dirname "$0")/../.." && pwd)}"
-BRANCH="${WIMB_BRANCH:-claude/library-search-planning-6qkxh1}"
+BRANCH="${WIMB_BRANCH:-main}"
 ENV_FILE="${WIMB_ENV_FILE:-$HOME/wimb.env}"
 IMAGE="${WIMB_IMAGE:-ghcr.io/leeeeejy/where-is-my-book:latest}"
 
