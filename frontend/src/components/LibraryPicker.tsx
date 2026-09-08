@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import type { Library } from '../domain/types';
 import {
   buildRegionTree,
@@ -249,6 +249,32 @@ function NearbyTab({
   );
   const [status, setStatus] = useState<'idle' | 'asking' | 'denied'>('idle');
 
+  /**
+   * 위치를 잡습니다. **처음 잡을 때와 다시 잡을 때가 같은 코드입니다.**
+   *
+   * 갈라 놓으면 한쪽에만 옵션을 주게 되어, 다시 잡을 때 오히려 더 거친 값이 들어오는
+   * 일이 생깁니다. 옵션이 특히 중요한데, 그냥 부르면 브라우저가 가장 싸고 거친 방법을
+   * 쓰고 캐시된 예전 위치를 그대로 주기도 합니다. 회사에서 눌렀는데 집 근처 도서관이
+   * 나오는 것이 그것입니다.
+   */
+  const locate = useCallback(() => {
+    setStatus('asking');
+    navigator.geolocation.getCurrentPosition(
+      (p) => {
+        setPosition({
+          lat: p.coords.latitude,
+          lon: p.coords.longitude,
+          // 브라우저가 알려 주는 오차 반경(미터). 이걸 화면에 밝히지 않으면
+          // 20km 떨어진 곳을 「가까운 도서관」이라고 내놓게 됩니다.
+          accuracyM: p.coords.accuracy,
+        });
+        setStatus('idle');
+      },
+      () => setStatus('denied'),
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 10_000 },
+    );
+  }, []);
+
   // 위경도가 없는 도서관은 거리를 잴 수 없어 여기에 나오지 않습니다.
   // 이름 검색과 지역 계층에서는 정상적으로 찾히므로 사라지는 것이 아닙니다.
   const nearby = useMemo(
@@ -262,34 +288,8 @@ function NearbyTab({
   if (!position) {
     return (
       <div className="search-tab">
-        <button
-          className="button"
-          disabled={status === 'asking'}
-          onClick={() => {
-            setStatus('asking');
-            navigator.geolocation.getCurrentPosition(
-              (p) => {
-                setPosition({
-                  lat: p.coords.latitude,
-                  lon: p.coords.longitude,
-                  // 브라우저가 알려 주는 오차 반경(미터). 이걸 화면에 밝히지 않으면
-                  // 20km 떨어진 곳을 「가까운 도서관」이라고 내놓게 됩니다.
-                  accuracyM: p.coords.accuracy,
-                });
-                setStatus('idle');
-              },
-              () => setStatus('denied'),
-              {
-                // 옵션 없이 부르면 브라우저가 가장 싸고 거친 방법을 쓰고, 캐시된 예전 위치를
-                // 그대로 주기도 합니다. 회사에서 눌렀는데 집 근처 도서관이 나오는 것이 그것입니다.
-                enableHighAccuracy: true,
-                maximumAge: 0,
-                timeout: 10_000,
-              },
-            );
-          }}
-        >
-          현재 위치로 가까운 도서관 찾기
+        <button className="button" disabled={status === 'asking'} onClick={locate}>
+          {status === 'asking' ? '위치를 잡는 중입니다' : '현재 위치로 가까운 도서관 찾기'}
         </button>
         {status === 'denied' && (
           <p className="muted">
@@ -307,10 +307,36 @@ function NearbyTab({
         후자는 수 킬로미터가 어긋납니다. 그 사실을 감추면 사용자는 엉뚱한 목록을 보고
         「이 도구가 틀렸다」고 생각합니다.
       */}
-      {position.accuracyM > 2000 && (
+      {position.accuracyM > 2000 ? (
         <p className="muted">
           지금 위치가 <strong>약 {Math.round(position.accuracyM / 1000)}km</strong> 오차로
-          잡혔습니다. 아래 순서가 실제와 다를 수 있으니 지역 탭이나 이름 검색을 함께 써 주세요.
+          잡혔습니다. 아래 순서가 실제와 다를 수 있으니 지역 탭이나 이름 검색을 함께 써
+          주세요.{' '}
+          {/*
+            **오차를 알려 주면 다시 잡을 방법도 함께 주어야 합니다.** 예전에는 사실만 말하고
+            끝내서, 사용자가 할 수 있는 일이 탭을 바꾸는 것뿐이었습니다. 유선 데스크톱은 IP 로
+            위치를 잡아 수 킬로미터가 어긋나는데, 한 번 더 부르면 Wi-Fi 나 GPS 로 잡혀 훨씬
+            좁혀지는 경우가 많습니다.
+          */}
+          <button className="link-button" onClick={locate} disabled={status === 'asking'}>
+            {status === 'asking' ? '다시 잡는 중입니다' : '내 위치 다시 잡기'}
+          </button>
+        </p>
+      ) : (
+        <p className="muted nearby__accuracy">
+          지금 위치가 약 {Math.round(position.accuracyM)}m 오차로 잡혔습니다.{' '}
+          <button className="link-button" onClick={locate} disabled={status === 'asking'}>
+            {status === 'asking' ? '다시 잡는 중입니다' : '내 위치 다시 잡기'}
+          </button>
+        </p>
+      )}
+      {/*
+        **다시 잡다가 실패한 것을 조용히 넘기지 마세요.** 앞의 위치가 그대로 남아 있어서
+        새로 잡힌 것처럼 보이는데, 실제로는 예전 값입니다.
+      */}
+      {status === 'denied' && (
+        <p className="muted">
+          위치를 다시 잡지 못했습니다. 아래 목록은 <strong>앞서 잡은 위치</strong> 기준입니다.
         </p>
       )}
       {/*

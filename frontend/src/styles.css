@@ -64,6 +64,37 @@ body {
   .layout { grid-template-columns: minmax(300px, 380px) 1fr; align-items: start; }
 
   /*
+    **넓은 화면에서는 페이지 자체를 스크롤하지 않습니다.** 도서관 목록과 검색 결과가
+    각각 길어서, 페이지가 통째로 늘어나면 한쪽을 보려고 내리는 동안 다른 쪽이 사라집니다.
+    머리말과 탭은 늘 제자리에 두고 **두 칸이 각자 자기 안에서** 스크롤합니다.
+
+    min-height: 0 이 빠지면 flex 자식이 내용 높이만큼 부풀어 스크롤이 생기지 않습니다.
+    좁은 화면에는 걸지 않습니다. 위아래로 쌓이는 배치에서 높이를 묶으면 좁은 칸 안에서
+    한 번 더 스크롤하게 되어 오히려 답답합니다.
+  */
+  html, body { height: 100%; overflow: hidden; }
+  #root { height: 100%; }
+  .app { height: 100%; display: flex; flex-direction: column; padding-bottom: 16px; }
+  .app__head, .app > .banner { flex: none; }
+  /*
+    **`grid-template-rows: minmax(0, 1fr)` 가 핵심입니다.** 이것이 없으면 격자 행이 내용
+    높이만큼 늘어나 두 칸이 화면 밖으로 밀려나는데, 페이지 스크롤을 없앤 뒤라서 **넘친
+    부분을 아예 볼 수 없게 됩니다.** 실제로 결과 칸이 2,394px 로 부풀어 스크롤도 생기지
+    않았습니다. `1fr` 만으로는 부족합니다. 격자 아이템의 최소 크기가 기본값 auto 라
+    내용보다 작아지지 않기 때문입니다.
+  */
+  .layout { flex: 1; min-height: 0; grid-template-rows: minmax(0, 1fr); }
+  .results-column {
+    height: 100%;
+    min-height: 0;
+    overflow-y: auto;
+    /* 스크롤바가 카드 테두리를 덮지 않게 안쪽으로 살짝 물립니다. */
+    margin: 0 -4px;
+    padding: 0 4px;
+  }
+  .app__foot { flex: none; margin-top: 12px; }
+
+  /*
     **도서관 선택 칸을 화면 높이에 맞춰 세워 둡니다.** 1,619곳이라 시도를 몇 개만 펼쳐도
     목록이 화면보다 훨씬 길어지는데, 그대로 두면 결과를 보려고 내리는 동안 선택 칸이
     통째로 위로 사라집니다. 고르다 말고 다시 올라와야 하니 고르는 일 자체가 번거로워집니다.
@@ -75,14 +106,12 @@ body {
     한 번 더 스크롤하게 되어 오히려 답답합니다.
   */
   .picker {
-    position: sticky;
-    top: 16px;
     /*
-      max-height 가 아니라 height 입니다. 최대치만 정해 두면 접힌 상태에서 칸이 짧아지고,
-      그러면 붙어 있을 구간 자체가 없어 페이지를 내릴 때 그대로 위로 사라집니다.
-      높이를 화면에 맞춰 두면 결과가 짧은 날에도 선택 칸이 자리를 지킵니다.
+      페이지가 스크롤되지 않으므로 sticky 가 필요 없습니다. layout 이 남은 높이를
+      정해 주고, 이 칸은 그것을 그대로 채웁니다.
     */
-    height: calc(100vh - 32px);
+    height: 100%;
+    min-height: 0;
     display: flex;
     flex-direction: column;
   }
@@ -360,3 +389,6 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
   font-size: 0.92em;
   line-height: 1.5;
 }
+
+/* 오차가 작을 때의 안내. 있는 듯 없는 듯 두되 다시 잡는 길은 항상 열어 둡니다. */
+.nearby__accuracy { margin: 0 0 8px; font-size: 12px; }
