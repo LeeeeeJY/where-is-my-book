@@ -6,7 +6,9 @@ Description=WIMB API 서버 자동 배포
 
 [Service]
 Type=oneshot
-# 빌드가 10분쯤 걸리는데 타이머는 5분마다 깨웁니다. systemd 는 같은 서비스를 겹쳐 돌리지
-# 않으므로, 앞의 배포가 끝나기 전에 다음 것이 시작되지 않습니다.
-TimeoutStartSec=30min
+# 이미지를 받아서 갈아 끼우는 데 1분 안쪽입니다. 그래도 여유를 두는 것은 서버가 뜨기를
+# 기다리는 시간(최대 5분)과 무료 등급 VM 이 느려질 때를 감안한 것입니다.
+# systemd 는 같은 서비스를 겹쳐 돌리지 않으므로, 앞의 배포가 끝나기 전에
+# 다음 것이 시작되지 않습니다.
+TimeoutStartSec=10min
 ExecStart=%h/where-is-my-book/scripts/vm/deploy.sh

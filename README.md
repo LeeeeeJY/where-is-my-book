@@ -218,19 +218,22 @@ API 서버는 `backend/Dockerfile` 하나로 올립니다. 처음 만드는 절�
 
 ### 서버에 새 코드를 올릴 때
 
-키는 서버의 `~/wimb.env` 에 한 번만 넣어 두고(`chmod 600`), 그다음부터는 이 네 줄입니다.
+**아무것도 안 하셔도 됩니다.** 푸시하면 GitHub Actions 가 테스트를 돌리고 이미지를 만들어
+올리고, VM 이 2분마다 확인해서 새 것이 있으면 갈아 끼웁니다. 켜는 절차와 원리는
+[`scripts/vm/README.md`](scripts/vm/README.md) 에 있습니다.
+
+**이미지를 VM 에서 만들지 않는 것이 핵심입니다.** 무료 등급 e2-micro 는 기본 CPU 가 코어의
+0.25개이고 표준 영구 디스크가 30GB 에서 쓰기 45 IOPS 라, 자바를 컴파일하면 10~15분이
+걸렸습니다. 파일 하나 복사하는 데 26초가 걸린 적도 있습니다. 러너에서는 같은 일이 2~3분입니다.
+
+키는 서버의 `~/wimb.env` 에 한 번만 넣어 둡니다(`chmod 600`). 이 파일은 VM 에만 있고
+이미지에도 저장소에도 들어가지 않습니다.
+
+손으로 돌려야 할 때는 이 한 줄입니다.
 
 ```bash
-cd ~/where-is-my-book && git pull
-cd backend && docker build -t wimb-api .     # e2-micro 에서 10분쯤 걸립니다
-docker rm -f wimb-api
-docker run -d --name wimb-api --restart unless-stopped \
-  -p 127.0.0.1:8080:8080 --env-file ~/wimb.env wimb-api
+~/where-is-my-book*/scripts/vm/deploy.sh
 ```
-
-`docker run` 은 **이미 만들어져 있는 이미지**를 씁니다. 코드를 고쳐도 `docker build` 를 다시
-하지 않으면 예전 것이 그대로 돕니다. 그리고 `docker rm -f` 만 하고 `docker run` 을 잊으면
-사이트가 통째로 죽으니 네 줄을 한 묶음으로 다루세요.
 
 떴는지는 이 한 줄로 확인합니다.
 

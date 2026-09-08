@@ -1,0 +1,68 @@
+# 푸시되면 API 서버 이미지를 만들어 GitHub 컨테이너 레지스트리에 올립니다.
+#
+# **VM 에서 만들지 않는 이유가 있습니다.** 무료 등급 e2-micro 는 기본 CPU 가 코어의 0.25개이고
+# 표준 영구 디스크가 30GB 에서 쓰기 45 IOPS 라, 자바를 컴파일하면 10~15분이 걸립니다. 파일
+# 하나 복사하는 데 26초가 걸린 적도 있습니다. 러너에서는 같은 일이 2~3분입니다.
+#
+# **여기서 정보나루를 부르지 않습니다.** 러너 IP 는 고정되지 않아 한도가 조용히 500건으로
+# 떨어지기 때문입니다(CLAUDE.md). 이미지를 만드는 일은 정보나루를 부르지 않으므로 무관합니다.
+name: API 이미지 만들기
+
+on:
+  push:
+    branches: [claude/library-search-planning-6qkxh1]
+    # 문서만 고친 푸시로 배포를 돌릴 이유가 없습니다.
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'frontend/**'
+      - 'scripts/hooks/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      # **테스트를 통과해야 이미지가 올라갑니다.** VM 이 5분마다 새 이미지를 물어 가므로,
+      # 깨진 것을 올리면 그대로 서비스에 나갑니다. 자동화가 만든 위험이라 여기서 막습니다.
+      - name: 백엔드 테스트
+        working-directory: backend
+        run: ./gradlew test
+
+      - name: 이미지 이름 정하기
+        id: name
+        # 레지스트리는 소문자만 받는데 저장소 이름에는 대문자가 있습니다.
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: 만들어 올리기
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          push: true
+          # latest 는 VM 이 물어 가는 것이고, 커밋 해시는 어느 코드가 돌고 있는지
+          # 나중에 되짚기 위한 것입니다.
+          tags: |
+            ${{ steps.name.outputs.image }}:latest
+            ${{ steps.name.outputs.image }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

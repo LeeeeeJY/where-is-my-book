@@ -3,7 +3,9 @@ Description=WIMB 새 코드가 올라왔는지 주기적으로 확인
 
 [Timer]
 OnBootSec=3min
-OnUnitActiveSec=5min
+# 예전에는 5분이었습니다. 그때는 확인 뒤에 10분짜리 빌드가 따라왔지만, 이제는 레지스트리에
+# 새 이미지가 있는지만 물어보므로 자주 깨워도 하는 일이 거의 없습니다.
+OnUnitActiveSec=2min
 # 여러 대가 동시에 깨어나 저장소를 두드리지 않게 흩뜨립니다.
 RandomizedDelaySec=60
 

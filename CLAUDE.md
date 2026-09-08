@@ -97,6 +97,16 @@ IP 가 하나뿐이라 모호함이 없기 때문입니다. Cloud Run 과 App En
 배포 단위는 `backend/Dockerfile` 하나이고, **등록 전에 `curl -s https://api.ipify.org` 로
 실제 나가는 주소를 눈으로 확인하는 것까지가 한 묶음**입니다.
 
+**이미지는 GitHub Actions 가 만들고 VM 은 받기만 합니다.** 무료 등급 VM 에서 컴파일하면
+10~15분이 걸립니다(기본 CPU 가 코어의 0.25개, 표준 영구 디스크 30GB 에서 쓰기 45 IOPS).
+러너에서는 2~3분이고 VM 은 `docker pull` 만 합니다. **이것은 「Actions 에서 정보나루를
+부르지 마라」와 다른 이야기입니다.** 그 규칙은 러너 IP 가 고정되지 않아 한도가 500건으로
+떨어지기 때문인데, 이미지를 만드는 일은 정보나루를 부르지 않습니다.
+
+**테스트를 통과해야 이미지가 올라갑니다.** VM 이 2분마다 새 이미지를 물어 가므로 깨진
+것을 올리면 그대로 서비스에 나갑니다. 자동화가 만든 위험이라 러너에서 막습니다.
+`.github/workflows/build-image.yml` 의 테스트 단계를 빼지 마세요.
+
 운영에서 쓰는 환경 변수는 `D4L_AUTH_KEY`(필수), `WIMB_CORS_ALLOWED_ORIGINS`,
 `WIMB_DATA4LIBRARY_DAILY_CALL_BUDGET` 입니다. 프론트는 `VITE_API_BASE` 로 API 주소를 받는데,
 **Vite 의 `VITE_*` 는 빌드할 때 코드에 박히므로 값을 바꾸면 반드시 다시 배포해야 합니다.**
