@@ -109,6 +109,27 @@ public final class WorkMatcher {
             return new Decision(Verdict.REJECT, "R2_LANGUAGE", 0);
         }
 
+        // R2. 출판사가 서로 다르면 다른 판입니다. <b>번역서에서 이것이 결정적입니다.</b>
+        //
+        //     표제가 「마의 산」이고 저자가 「토마스 만」이면 아래 R3 이 전부 한 저작으로
+        //     합칩니다. 그런데 실제로 받아 보니 범우사, 을유문화사, 열린책들, 동서문화사,
+        //     지식을만드는지식의 <b>서로 다른 번역 열 판</b>이 그렇게 묶였습니다. 번역이
+        //     다르면 읽는 사람에게는 다른 책입니다.
+        //
+        //     합쳐 놓으면 두 가지가 함께 무너집니다. 화면에는 대표 하나의 출판사만 남아
+        //     <b>나머지 판을 찾는 사람에게 「그 책이 없다」로 보이고</b>, 소장 조회는 묶인
+        //     ISBN 전체로 나가므로 <b>범우사 판만 있는 도서관이 「열린책들 마의 산 있음」으로
+        //     나옵니다.</b> 뒤엣것이 더 나쁩니다. 찾는 판이 없는데 있다고 답해 헛걸음을
+        //     만들기 때문입니다. 낱권을 권차로 갈라 놓아야 했던 것과 같은 이유입니다.
+        //
+        //     <b>한쪽이라도 출판사를 모르면 갈라 놓지 않습니다.</b> 모르는 것을 근거로
+        //     쪼개면 같은 책이 흩어지고, 소장 조회가 물어보는 ISBN 이 그만큼 줄어듭니다.
+        //     같은 ISBN 은 위의 R0 이 이미 병합했으므로 여기까지 오지 않습니다.
+        if (!a.publisherNorm().isEmpty() && !b.publisherNorm().isEmpty()
+                && !a.publisherNorm().equals(b.publisherNorm())) {
+            return new Decision(Verdict.REJECT, "R2_PUBLISHER_DIFF", 0);
+        }
+
         AuthorTokens.Compatibility compat =
                 AuthorTokens.compare(a.authorTokens(), b.authorTokens(), df);
 

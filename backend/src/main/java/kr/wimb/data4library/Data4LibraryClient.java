@@ -155,10 +155,20 @@ public final class Data4LibraryClient {
      * @param author     저자명
      * @param publisher  출판사
      * @param isbn13     13자리 ISBN
-     * @param exactMatch 일치 검색 여부
+     * @param keyword    키워드. <b>매뉴얼 16절이 {@code title} 과 별개로 두고 있는 항목입니다.</b>
+     *                   세미콜론으로 나누어 여러 개를 줄 수 있고, 그때는 <b>일치 검색만
+     *                   제공된다</b>고 적혀 있습니다. {@code title} 과 어떻게 다른지는 실제로
+     *                   불러 보기 전에는 알 수 없으므로, 우선 넘길 수 있게만 열어 둡니다.
+     * @param exactMatch 일치 검색 여부. 주지 않으면 정보나루는 일치 검색이 아닌 결과를 줍니다.
      */
     public record BookQuery(String title, String author, String publisher,
-                            String isbn13, boolean exactMatch) {
+                            String isbn13, String keyword, boolean exactMatch) {
+
+        /** keyword 가 없던 시절의 호출부를 그대로 두기 위한 생성자입니다. */
+        public BookQuery(String title, String author, String publisher,
+                         String isbn13, boolean exactMatch) {
+            this(title, author, publisher, isbn13, null, exactMatch);
+        }
 
         public static BookQuery byTitle(String title) {
             return new BookQuery(title, null, null, null, false);
@@ -170,7 +180,7 @@ public final class Data4LibraryClient {
 
         /** 제목만 바꾼 사본. 띄어쓰기를 달리해 다시 찾아볼 때 씁니다. */
         public BookQuery withTitle(String newTitle) {
-            return new BookQuery(newTitle, author, publisher, isbn13, exactMatch);
+            return new BookQuery(newTitle, author, publisher, isbn13, keyword, exactMatch);
         }
 
         Map<String, String> toParams() {
@@ -179,6 +189,7 @@ public final class Data4LibraryClient {
             putIfPresent(params, "author", author);
             putIfPresent(params, "publisher", publisher);
             putIfPresent(params, "isbn13", isbn13);
+            putIfPresent(params, "keyword", keyword);
             if (exactMatch) params.put("exactMatch", "true");
             if (params.isEmpty()) {
                 // 조건이 하나도 없으면 전체 대출데이터를 훑게 되어 의미 없는 호출이 됩니다.

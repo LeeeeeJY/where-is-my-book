@@ -146,6 +146,13 @@ public class WimbController {
      *
      * <p>조건을 하나도 주지 않으면 정보나루는 전체 대출데이터를 훑습니다. 아무 뜻도 없는
      * 결과에 호출만 쓰게 되므로 여기서 막습니다.
+     *
+     * <p><b>{@code keyword} 는 아직 화면이 쓰지 않습니다. 실측용으로 열어 둔 것입니다.</b>
+     * 매뉴얼 16절이 {@code title} 과 별개의 항목으로 두고 있는데, 둘이 어떻게 다른지는
+     * 적혀 있지 않습니다. 「레미제라블」로는 민음사 낱권이 한 건도 걸리지 않고 「레 미제라블」로는
+     * 여섯 저작이 걸리는 것을 확인했으므로, <b>정보나루의 제목 매칭이 공백을 어떻게 다루는지
+     * 알아내야 합니다.</b> 등록된 IP 에서만 물어볼 수 있는 질문이라 서버에 통로를 냅니다.
+     * 추측으로 정하지 말고 이것으로 불러 보고 정하세요.
      */
     @GetMapping("/search")
     public BookSearchService.SearchResponse search(
@@ -153,16 +160,19 @@ public class WimbController {
             @RequestParam(required = false) String author,
             @RequestParam(required = false) String publisher,
             @RequestParam(required = false) String isbn,
+            @RequestParam(required = false) String keyword,
             @RequestParam(required = false) List<String> libs) {
 
         String title = trimToNull(q);
         String byAuthor = trimToNull(author);
         String byPublisher = trimToNull(publisher);
+        String byKeyword = trimToNull(keyword);
         // ISBN 은 사람이 하이픈이나 공백을 섞어 옮겨 적습니다. 그대로 넘기면 0건이 나오고
         // 사용자는 그것을 「이 책이 없다」로 읽습니다. 숫자와 X 만 남깁니다.
         String byIsbn = trimToNull(
                 isbn == null ? null : isbn.replaceAll("[^0-9Xx]", "").toUpperCase());
-        if (title == null && byAuthor == null && byPublisher == null && byIsbn == null) {
+        if (title == null && byAuthor == null && byPublisher == null && byIsbn == null
+                && byKeyword == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "검색 조건이 비어 있습니다.");
         }
         // 고른 도서관은 소장 조회에만 쓰이는데 그것은 /api/holdings 가 따로 답합니다.
@@ -171,7 +181,7 @@ public class WimbController {
 
         try {
             return searchService.search(new Data4LibraryClient.BookQuery(
-                    title, byAuthor, byPublisher, byIsbn, false));
+                    title, byAuthor, byPublisher, byIsbn, byKeyword, false));
         } catch (ResponseStatusException | Data4LibraryClient.ApiErrorException
                  | Data4LibraryClient.BudgetExhaustedException e) {
             // **감싸지 않고 그대로 올립니다.** 감싸면 정보나루가 준 errCode 가 사라져서,
