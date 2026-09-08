@@ -101,6 +101,12 @@ body {
   background: var(--accent); color: #fff; border: 0; border-radius: 6px; cursor: pointer;
 }
 .button:disabled { opacity: 0.6; cursor: default; }
+/* 되짚어 확인하라는 권유입니다. 검색만큼 눈에 띄면 검색을 가립니다. */
+.button--quiet {
+  background: var(--surface); color: var(--accent);
+  border: 1px solid var(--accent); font-weight: 600;
+}
+.recheck { margin: 0 0 12px; }
 
 
 .placeholder { padding: 8px 0; display: grid; gap: 10px; }

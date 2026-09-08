@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiUnavailable, fetchHoldings, fetchLoanStatus, libraryLink, searchBooks } from '../api';
 import type { LoanStatus } from '../api';
 import { anyHomepageOnly, linkBadge, linkLabel } from '../domain/opacLink';
@@ -33,40 +33,60 @@ export function BookSearch({
 }) {
   const [query, setQuery] = useState('');
   const [state, setState] = useState<State>({ kind: 'idle' });
-  // workId 마다 도착한 소장 결과. **키가 없으면 아직 안 물어본 것입니다.**
-  // 실패는 unreadable 로 넣어 두어야 「확인 중」에 영영 머무르지 않습니다.
-  const [holdings, setHoldings] = useState<Map<number, HoldingFacts>>(new Map());
+  /**
+   * 도착한 소장 결과와 **그것이 어느 선택 기준인지**.
+   *
+   * <p>키를 함께 들고 다니는 것이 핵심입니다. 도서관 선택이 바뀌면 이 결과는 예전 선택으로
+   * 낸 답이 되므로 그대로 보여 주면 안 됩니다. 방금 체크를 푼 도서관이 「여기 있습니다」에
+   * 남아 있게 됩니다. 키가 다르면 아예 쓰지 않습니다.
+   */
+  const [checked, setChecked] = useState<{ key: string; facts: Map<number, HoldingFacts> } | null>(
+    null,
+  );
+  const [checking, setChecking] = useState(false);
   const [asOf, setAsOf] = useState<string | null>(null);
+  const running = useRef<{ cancelled: boolean } | null>(null);
 
   // Set 은 렌더마다 새 객체로 올 수 있어 그대로 의존성에 쓰면 조회가 되풀이됩니다.
   const selectedKey = useMemo(() => [...selected].sort().join(','), [selected]);
 
   /**
-   * 검색이 끝나면 저작마다 소장을 따로 물어 도착하는 대로 채웁니다.
+   * 저작마다 소장을 따로 물어 도착하는 대로 채웁니다.
    *
-   * **검색 응답에 소장을 함께 실으면 안 됩니다.** 예전에는 서버가 저작마다 조회를 돌리고
+   * <p>**검색 응답에 소장을 함께 실으면 안 됩니다.** 예전에는 서버가 저작마다 조회를 돌리고
    * 한꺼번에 답했는데, 저작이 스무 개면 그만큼 순서대로 기다려야 해서 검색이 수십 초가
    * 됐습니다. 사용자는 그것을 「검색이 안 된다」로 읽습니다.
+   *
+   * <p>**그리고 도서관을 체크할 때마다 부르지 않습니다.** 체크 한 번에 스무 권을 다시
+   * 묻게 되는데, 도서관을 열 곳 고르는 동안 200번이 나갑니다. 화면은 계속 버벅이고
+   * 하루 호출 예산도 그만큼 새어 나갑니다. 검색할 때 한 번 부르고, 그 뒤로 선택이
+   * 바뀌면 사용자가 누를 때만 다시 부릅니다.
    */
-  useEffect(() => {
-    setHoldings(new Map());
-    if (state.kind !== 'done') return;
-    const works = state.response.works;
-    const libCodes = selectedKey === '' ? [] : selectedKey.split(',');
+  const check = useCallback(async (works: WorkResult[], key: string) => {
+    if (running.current) running.current.cancelled = true;
+    const token = { cancelled: false };
+    running.current = token;
+
+    const libCodes = key === '' ? [] : key.split(',');
+    setChecked({ key, facts: new Map() });
     if (libCodes.length === 0 || works.length === 0) return;
 
-    let cancelled = false;
-    let next = 0;
+    setChecking(true);
     const record = (workId: number, facts: HoldingFacts) => {
-      if (cancelled) return;
-      setHoldings((prev) => new Map(prev).set(workId, facts));
+      if (token.cancelled) return;
+      setChecked((prev) =>
+        prev === null || prev.key !== key
+          ? prev
+          : { key, facts: new Map(prev.facts).set(workId, facts) },
+      );
     };
+    let next = 0;
     const workers = Array.from({ length: Math.min(CONCURRENCY, works.length) }, async () => {
-      while (next < works.length && !cancelled) {
+      while (next < works.length && !token.cancelled) {
         const work = works[next++];
         try {
           const result = await fetchHoldings(work.isbn13List, libCodes);
-          if (!cancelled) setAsOf(result.asOf);
+          if (!token.cancelled) setAsOf(result.asOf);
           record(work.workId, result);
         } catch {
           // 한 권이 실패해도 나머지는 계속합니다. 실패는 확인 불가로 남기고
@@ -75,11 +95,23 @@ export function BookSearch({
         }
       }
     });
-    void Promise.all(workers);
-    return () => {
-      cancelled = true;
-    };
-  }, [state, selectedKey]);
+    await Promise.all(workers);
+    if (!token.cancelled) setChecking(false);
+  }, []);
+
+  // 다른 검색어로 넘어가면 예전 결과를 들고 있을 이유가 없습니다.
+  useEffect(() => {
+    if (state.kind !== 'done') {
+      if (running.current) running.current.cancelled = true;
+      setChecked(null);
+      setChecking(false);
+    }
+  }, [state]);
+
+  /** 지금 고른 도서관 기준으로 확인된 것만 씁니다. 기준이 다르면 없는 것으로 칩니다. */
+  const facts = checked !== null && checked.key === selectedKey ? checked.facts : null;
+  /** 고른 도서관은 있는데 그 기준으로 아직 확인하지 않은 상태. */
+  const needsCheck = selected.size > 0 && facts === null && !checking;
 
   const byCode = useMemo(() => {
     const map = new Map<string, Library>();
@@ -96,6 +128,9 @@ export function BookSearch({
     try {
       const response = await searchBooks(trimmed, [...selected]);
       setState({ kind: 'done', query: trimmed, response });
+      // 검색은 「이 책 어디 있나」를 묻는 것이므로 그 자리에서 한 번 확인합니다.
+      // 되풀이해서 부르지 않는 것과 아예 안 부르는 것은 다릅니다.
+      void check(response.works, selectedKey);
     } catch (error) {
       if (error instanceof ApiUnavailable) setState({ kind: 'offline' });
       else setState({ kind: 'error', message: (error as Error).message });
@@ -134,7 +169,12 @@ export function BookSearch({
         state={state}
         byCode={byCode}
         selectedCount={selected.size}
-        holdings={holdings}
+        facts={facts}
+        checking={checking}
+        needsCheck={needsCheck}
+        onCheck={() => {
+          if (state.kind === 'done') void check(state.response.works, selectedKey);
+        }}
         asOf={asOf}
       />
     </section>
@@ -145,13 +185,20 @@ function SearchState({
   state,
   byCode,
   selectedCount,
-  holdings,
+  facts,
+  checking,
+  needsCheck,
+  onCheck,
   asOf,
 }: {
   state: State;
   byCode: Map<string, Library>;
   selectedCount: number;
-  holdings: Map<number, HoldingFacts>;
+  /** 지금 고른 도서관 기준으로 확인된 결과. 기준이 다르거나 아직 안 물어봤으면 null. */
+  facts: Map<number, HoldingFacts> | null;
+  checking: boolean;
+  needsCheck: boolean;
+  onCheck: () => void;
   asOf: string | null;
 }) {
   if (state.kind === 'idle') {
@@ -198,14 +245,14 @@ function SearchState({
   return (
     <>
       <p className="asof">
-        {selectedCount > 0 && holdings.size < works.length ? (
+        {checking ? (
           <>
-            소장 확인 중 {holdings.size}/{works.length} · 출처: 도서관 정보나루
+            소장 확인 중 {facts?.size ?? 0}/{works.length} · 출처: 도서관 정보나루
           </>
         ) : (
           <>소장 정보 {formatAsOf(asOf ?? state.response.asOf)} 조회 기준 · 출처: 도서관 정보나루</>
         )}
-        {[...holdings.values()].some((facts) => !facts.complete) && (
+        {facts !== null && [...facts.values()].some((f) => !f.complete) && (
           <>
             <br />
             <strong>일부 판본을 확인하지 못했습니다.</strong> 확인하지 못한 것을 미소장으로
@@ -213,6 +260,18 @@ function SearchState({
           </>
         )}
       </p>
+      {/*
+        **도서관을 체크할 때마다 조회하지 않습니다.** 체크 한 번에 스무 권을 다시 묻게
+        되는데, 열 곳을 고르는 동안 200번이 나가고 화면은 계속 버벅입니다. 하루 호출
+        예산도 그만큼 새어 나갑니다. 그래서 누를 때만 부릅니다.
+      */}
+      {needsCheck && (
+        <p className="recheck">
+          <button type="button" className="button button--quiet" onClick={onCheck}>
+            고른 도서관 {selectedCount}곳에서 확인
+          </button>
+        </p>
+      )}
       <ul className="book-list">
         {works.map((work) => (
           <BookCard
@@ -220,7 +279,8 @@ function SearchState({
             work={work}
             byCode={byCode}
             selectedCount={selectedCount}
-            facts={holdings.get(work.workId) ?? null}
+            facts={facts?.get(work.workId) ?? null}
+            checking={checking}
           />
         ))}
       </ul>
@@ -233,12 +293,14 @@ function BookCard({
   byCode,
   selectedCount,
   facts,
+  checking,
 }: {
   work: WorkResult;
   byCode: Map<string, Library>;
   selectedCount: number;
   /** 아직 도착하지 않았으면 null. **빈 결과와 구분해야 합니다.** */
   facts: HoldingFacts | null;
+  checking: boolean;
 }) {
   return (
     <li className="book">
@@ -292,7 +354,13 @@ function BookCard({
           </p>
         )}
 
-        <Holdings work={work} byCode={byCode} selectedCount={selectedCount} facts={facts} />
+        <Holdings
+          work={work}
+          byCode={byCode}
+          selectedCount={selectedCount}
+          facts={facts}
+          checking={checking}
+        />
       </div>
     </li>
   );
@@ -309,11 +377,13 @@ function Holdings({
   byCode,
   selectedCount,
   facts,
+  checking,
 }: {
   work: WorkResult;
   byCode: Map<string, Library>;
   selectedCount: number;
   facts: HoldingFacts | null;
+  checking: boolean;
 }) {
   // 판정은 holdingState 한 곳에서만 합니다. 화면마다 따로 판정하면 언젠가 한쪽이
   // 확인 불가를 미소장으로 그리게 되고, 그때는 아무도 눈치채지 못합니다.
@@ -323,13 +393,16 @@ function Holdings({
     // 노란 상자는 "확인 불가"에만 씁니다. 안내까지 같은 색으로 칠하면
     // 정작 확인하지 못한 책이 눈에 띄지 않습니다.
     //
-    // **「고르지 않았다」와 「기다리는 중」을 갈라 놓습니다.** 답을 기다리는 중인데
-    // "도서관을 고르면 확인합니다"라고 하면 이미 고른 사용자가 무엇을 해야 할지 모릅니다.
-    return selectedCount === 0 ? (
-      <p className="holding muted">도서관을 고르면 어디에 있는지 확인합니다.</p>
-    ) : (
-      <p className="holding muted">어디에 있는지 확인하고 있습니다…</p>
-    );
+    // **셋을 갈라 놓습니다.** 고르지 않은 것과, 기다리는 중인 것과, 고른 도서관이
+    // 바뀌어 아직 안 물어본 것은 사용자가 할 일이 서로 다릅니다. 하나로 뭉치면
+    // 이미 고른 사용자에게 고르라고 하거나, 눌러야 하는데 기다리게 만듭니다.
+    if (selectedCount === 0) {
+      return <p className="holding muted">도서관을 고르면 어디에 있는지 확인합니다.</p>;
+    }
+    if (checking) {
+      return <p className="holding muted">어디에 있는지 확인하고 있습니다…</p>;
+    }
+    return <p className="holding muted">위의 「확인」을 누르면 어디에 있는지 알려 드립니다.</p>;
   }
 
   if (state === 'unknown') {
