@@ -85,8 +85,13 @@ export class ApiUnavailable extends Error {}
  * 됩니다.
  */
 export class ApiUnreadable extends Error {
-  constructor(readonly status: number) {
-    super(`API 오류 ${status}`);
+  constructor(
+    readonly status: number,
+    /** 정보나루의 오류 코드(`outOflimit`, `authErr` 등). 서버가 알려 주면 담깁니다. */
+    readonly code?: string,
+    reason?: string,
+  ) {
+    super(reason ?? `API 오류 ${status}`);
   }
 }
 
@@ -99,7 +104,19 @@ async function get<T>(path: string): Promise<T> {
     throw new ApiUnavailable('API 서버에 연결하지 못했습니다.');
   }
   if (!response.ok) {
-    throw new ApiUnreadable(response.status);
+    // **서버가 알려 준 이유를 반드시 꺼내 씁니다.** 정보나루는 무엇이 잘못됐는지 한국어로
+    // 또박또박 알려 주는데, 그것을 버리고 「API 오류 503」만 보여 주면 사용자도 우리도
+    // 원인을 코드에서 찾게 됩니다. 실제로 그렇게 하루를 추측으로 보냈습니다.
+    let code: string | undefined;
+    let reason: string | undefined;
+    try {
+      const body = (await response.json()) as { code?: string; reason?: string };
+      code = body.code;
+      reason = body.reason;
+    } catch {
+      // 본문이 JSON 이 아니면 상태 코드만으로 답합니다.
+    }
+    throw new ApiUnreadable(response.status, code, reason);
   }
   return (await response.json()) as T;
 }
