@@ -25,11 +25,22 @@ public final class BibNormalizer {
     private BibNormalizer() {}
 
     /** 표제부와 책임표시부의 경계. KORMARC 245의 $c 앞 구분 기호입니다. */
-    private static final Pattern SOR_SPLIT = Pattern.compile("\\s+/\\s+");
+    /**
+     * KORMARC 245 의 구분 기호. <b>양쪽 공백을 요구하면 안 됩니다.</b>
+     *
+     * <p>표준은 {@code " / "}, {@code " : "} 처럼 앞뒤에 공백을 두지만, 정보나루가 실제로
+     * 돌려주는 값은 {@code "코스모스 :특별판 "} 처럼 <b>한쪽에만</b> 공백이 있습니다. 같은
+     * 책의 다른 판이 서로 다른 형태로 오기도 합니다. 양쪽을 요구하면 그런 레코드에서
+     * 부제가 분리되지 않아 제목에 콜론이 그대로 남습니다.
+     *
+     * <p>다만 <b>한쪽에는 반드시 공백이 있어야 합니다.</b> 공백을 아예 요구하지 않으면
+     * 「입/출력」이나 「10:30」 같은 제목이 쪼개집니다.
+     */
+    private static final Pattern SOR_SPLIT = Pattern.compile("(?:\\s+/\\s*|\\s*/\\s+)");
     /** 대등표제 경계. */
-    private static final Pattern PARALLEL_SPLIT = Pattern.compile("\\s+=\\s+");
+    private static final Pattern PARALLEL_SPLIT = Pattern.compile("(?:\\s+=\\s*|\\s*=\\s+)");
     /** 부표제 경계. */
-    private static final Pattern SUBTITLE_SPLIT = Pattern.compile("\\s+:\\s+");
+    private static final Pattern SUBTITLE_SPLIT = Pattern.compile("(?:\\s+:\\s*|\\s*:\\s+)");
 
     /**
      * 표제 꼬리의 권차 패턴. 위에서부터 먼저 맞는 것을 씁니다.
@@ -195,7 +206,8 @@ public final class BibNormalizer {
         int lastColon = lastIndexOf(work, SUBTITLE_SPLIT);
         if (lastColon >= 0) {
             String head = work.substring(0, lastColon).trim();
-            String tail = work.substring(lastColon).replaceFirst("^\\s+:\\s+", "").trim();
+            String tail = work.substring(lastColon)
+                    .replaceFirst("^(?:\\s+:\\s*|\\s*:\\s+)", "").trim();
             if (!head.isEmpty() && !tail.isEmpty()) {
                 work = head;
                 subtitle = tail;
@@ -227,13 +239,25 @@ public final class BibNormalizer {
         Normalized core = normalize(work);
         Normalized full = normalize(subtitle == null ? work : work + subtitle);
 
+        // 판본·각색 표기는 부제에서도 찾습니다. **이걸 빠뜨리면 오병합이 납니다.**
+        // 「데미안 : 청소년판」은 각색 표기가 부제로 밀려나므로, 표제만 보면 병합 거부 근거를
+        // 잃고 그냥 「데미안」과 합쳐집니다. 각색본을 소장으로 세면 헛걸음이 됩니다.
+        // 키는 표제에서만 만듭니다. 부제까지 키에 넣으면 부제 표기가 다른 같은 책이 갈립니다.
+        Normalized fromSubtitle = subtitle == null ? null : normalize(subtitle);
+        List<String> editionTokens = new ArrayList<>(core.editionTokens());
+        List<String> adaptationTokens = new ArrayList<>(core.adaptationTokens());
+        if (fromSubtitle != null) {
+            editionTokens.addAll(fromSubtitle.editionTokens());
+            adaptationTokens.addAll(fromSubtitle.adaptationTokens());
+        }
+
         List<String> aliases = new ArrayList<>(core.aliasKeys());
         if (parallelTitle != null) aliases.add(normalizeKey(parallelTitle));
         if (seriesTitle != null) aliases.add(normalizeKey(seriesTitle + work));
 
         return new TitleParts(
                 work, subtitle, parallelTitle, seriesTitle, volNo,
-                core.editionTokens(), core.adaptationTokens(),
+                dedupe(editionTokens), dedupe(adaptationTokens),
                 core.key(), full.key(), dedupe(aliases), sor);
     }
 
