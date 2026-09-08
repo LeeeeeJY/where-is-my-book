@@ -7,7 +7,7 @@ import { LibraryPicker } from './components/LibraryPicker';
 import { SAMPLE_LIBRARIES } from './data/sampleLibraries';
 import { loadSelection, saveSelection } from './domain/selectionStorage';
 import { paramsToSelection, selectionToParams } from './domain/selectionUrl';
-import type { Library } from './domain/types';
+import type { Library, UserPosition } from './domain/types';
 
 /**
  * 주소를 쓰기 전에 한 번만 붙잡아 둡니다.
@@ -35,6 +35,11 @@ export default function App() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [restored, setRestored] = useState(false);
   const [mode, setMode] = useState<'single' | 'multi'>('single');
+  /**
+   * 「내 주변」에서 잡은 위치. 도서관 선택 칸이 잡고 여러 권 확인이 거리를 재는 데 씁니다.
+   * 한쪽 컴포넌트 안에 두면 다른 쪽이 볼 수 없어 여기에 올려 둡니다.
+   */
+  const [position, setPosition] = useState<UserPosition | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -129,7 +134,13 @@ export default function App() {
         <p className="muted">도서관 목록을 받는 중입니다.</p>
       ) : (
         <main className="layout">
-          <LibraryPicker libraries={libraries} selected={selected} onChange={setSelected} />
+          <LibraryPicker
+            libraries={libraries}
+            selected={selected}
+            onChange={setSelected}
+            position={position}
+            onPosition={setPosition}
+          />
 
           <div className="results-column">
             <nav className="tabs tabs--mode" role="tablist">
@@ -154,7 +165,7 @@ export default function App() {
             {mode === 'single' ? (
               <BookSearch libraries={libraries} selected={selected} />
             ) : (
-              <MultiCheck libraries={libraries} selected={selected} />
+              <MultiCheck libraries={libraries} selected={selected} position={position} />
             )}
 
           </div>

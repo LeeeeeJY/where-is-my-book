@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Library } from '../domain/types';
+import type { Library, UserPosition } from '../domain/types';
 import {
   buildRegionTree,
   groupState,
@@ -17,10 +17,15 @@ export function LibraryPicker({
   libraries,
   selected,
   onChange,
+  position,
+  onPosition,
 }: {
   libraries: Library[];
   selected: Set<string>;
   onChange: (next: Set<string>) => void;
+  /** 「내 주변」이 잡은 위치. 여러 권 확인도 쓰므로 위에서 들고 내려 줍니다. */
+  position: UserPosition | null;
+  onPosition: (next: UserPosition | null) => void;
 }) {
   const [tab, setTab] = useState<Tab>('region');
 
@@ -64,7 +69,13 @@ export function LibraryPicker({
           <SearchTab libraries={libraries} selected={selected} onChange={onChange} />
         )}
         {tab === 'nearby' && (
-          <NearbyTab libraries={libraries} selected={selected} onChange={onChange} />
+          <NearbyTab
+            libraries={libraries}
+            selected={selected}
+            onChange={onChange}
+            position={position}
+            onPosition={onPosition}
+          />
         )}
       </div>
 
@@ -278,14 +289,15 @@ function NearbyTab({
   libraries,
   selected,
   onChange,
+  position,
+  onPosition: setPosition,
 }: {
   libraries: Library[];
   selected: Set<string>;
   onChange: (next: Set<string>) => void;
+  position: UserPosition | null;
+  onPosition: (next: UserPosition | null) => void;
 }) {
-  const [position, setPosition] = useState<{ lat: number; lon: number; accuracyM: number } | null>(
-    null,
-  );
   const [status, setStatus] = useState<LocateStatus>({ kind: 'idle' });
   const timerRef = useRef<number | null>(null);
 

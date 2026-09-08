@@ -3,9 +3,10 @@ import { ApiUnavailable, fetchHoldings, libraryLink, resolveLines } from '../api
 import { linkLabel } from '../domain/opacLink';
 import type { LineResult, WorkResult } from '../api';
 import { holdingState } from '../domain/holdingState';
-import { countByState, planTrip, rankLibraries } from '../domain/tripPlan';
+import { countByState, fullCoverage, planTrip, rankLibraries } from '../domain/tripPlan';
 import type { BookRow } from '../domain/tripPlan';
-import type { Library } from '../domain/types';
+import type { Library, UserPosition } from '../domain/types';
+import { FullCoverage } from './FullCoverage';
 import { LibraryLoanSweep, LoanCheck } from './LoanCheck';
 import type { SweepBook } from './LoanCheck';
 import { ProgressBar } from './ProgressBar';
@@ -36,6 +37,11 @@ type Row = LineResult & {
   holdings: { libCodes: string[]; complete: boolean; unreadable: boolean } | null;
   /** 조회를 시도했지만 답을 받지 못했는지 */
   failed: boolean;
+  /**
+   * 이 줄만 따로 조회하는 중인지. 후보를 바꾸면 그 줄만 다시 묻는데, 그동안 「위의 확인을
+   * 누르면」이라고 적혀 있었습니다. 눌러야 하는 것이 아니라 기다리면 되는 것입니다.
+   */
+  loading: boolean;
 };
 
 type Phase =
@@ -77,9 +83,12 @@ const INPUT_EXAMPLES = [
 export function MultiCheck({
   libraries,
   selected,
+  position,
 }: {
   libraries: readonly Library[];
   selected: ReadonlySet<string>;
+  /** 「내 주변」이 잡은 위치. 다 빌릴 수 있는 도서관이 여럿일 때 가까운 순으로 세웁니다. */
+  position: UserPosition | null;
 }) {
   const [text, setText] = useState('');
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' });
@@ -133,7 +142,7 @@ export function MultiCheck({
     // 줄 해석은 외부 호출 없이 끝나므로 여기서 곧바로 목록을 그립니다.
     // 소장 조회는 아래에서 도착하는 대로 채워 넣습니다.
     const initial: Row[] = resolved.lines.map((line) => ({
-      ...line, chosen: 0, picked: false, holdings: null, failed: false,
+      ...line, chosen: 0, picked: false, holdings: null, failed: false, loading: false,
     }));
     setRows(initial);
     setPhase({ kind: 'ready', truncated: resolved.truncated });
@@ -188,7 +197,7 @@ export function MultiCheck({
 
   /** 지금 고른 도서관 기준으로 처음부터 다시 물어봅니다. */
   function recheck() {
-    const cleared = rows.map((row) => ({ ...row, holdings: null, failed: false }));
+    const cleared = rows.map((row) => ({ ...row, holdings: null, failed: false, loading: false }));
     setRows(cleared);
     void loadHoldings(cleared, selectedKey);
   }
@@ -208,19 +217,22 @@ export function MultiCheck({
   );
 
   function choose(index: number, candidate: number) {
-    setRows((prev) =>
-      replace(prev, index, { chosen: candidate, picked: true, holdings: null, failed: false }));
     // 고른 책이 바뀌었으므로 그 줄만 다시 물어봅니다. 다만 도서관 선택이 이미 어긋나
     // 있으면 지금 물어봐야 그 줄만 기준이 달라집니다. 그때는 「다시 확인」에 맡깁니다.
     const row = rows[index];
     const work = row?.candidates[candidate];
-    if (!work || selected.size === 0 || stale) return;
+    const willAsk = Boolean(work) && selected.size > 0 && !stale;
+    setRows((prev) =>
+      replace(prev, index, {
+        chosen: candidate, picked: true, holdings: null, failed: false, loading: willAsk,
+      }));
+    if (!willAsk || !work) return;
     fetchHoldings(work.isbn13List, [...selected]).then(
       (holdings) => {
         setAsOf((prev) => (prev === null || holdings.asOf < prev ? holdings.asOf : prev));
-        setRows((prev) => replace(prev, index, { holdings, failed: false }));
+        setRows((prev) => replace(prev, index, { holdings, failed: false, loading: false }));
       },
-      () => setRows((prev) => replace(prev, index, { holdings: null, failed: true })),
+      () => setRows((prev) => replace(prev, index, { holdings: null, failed: true, loading: false })),
     );
   }
 
@@ -240,6 +252,16 @@ export function MultiCheck({
     return map;
   }, [shown]);
   const plan = useMemo(() => planTrip(bookRows, selectedLibraries), [bookRows, selectedLibraries]);
+  /** 어딘가에 있는 책 전부를 가진 도서관. 여럿이면 거리와 대출 상태로 세웁니다. */
+  const full = useMemo(() => fullCoverage(bookRows, selectedLibraries), [bookRows, selectedLibraries]);
+  /** 그 도서관들에서 대출 상태를 물어볼 책. 어딘가에 있는 것으로 확인된 책 전부입니다. */
+  const heldBooks = useMemo(
+    () => bookRows
+      .filter((row) => row.state === 'held')
+      .map((row) => sweepBooks.get(row.key))
+      .filter((book): book is SweepBook => book !== undefined),
+    [bookRows, sweepBooks],
+  );
   const stillChecking = checking;
 
   // 쉰 줄 한도가 있는 화면이라 지금 몇 줄인지 그 자리에서 보여야 합니다.
@@ -337,6 +359,9 @@ export function MultiCheck({
           {plan.length > 0 && (
             <TripPanel
               plan={plan}
+              full={full}
+              books={heldBooks}
+              position={position}
               checking={stillChecking}
               byCode={byCode}
               checkedTotal={counts.held + counts.none}
@@ -414,9 +439,14 @@ function Progress({
  * "한 번 방문해서 여러 권을 빌린다"는 실제 행동에 가장 직접적으로 답하는 출력입니다.
  */
 function TripPanel({
-  plan, checking, byCode, checkedTotal,
+  plan, full, books, position, checking, byCode, checkedTotal,
 }: {
   plan: ReturnType<typeof planTrip>;
+  /** 어딘가에 있는 책 전부를 가진 도서관. 비어 있으면 여러 곳을 엮은 plan 을 보입니다. */
+  full: Library[];
+  /** 그 도서관들에서 대출 상태를 물어볼 책 */
+  books: SweepBook[];
+  position: UserPosition | null;
   checking: boolean;
   byCode: Map<string, Library>;
   /** 분모는 확인이 끝난 책 수입니다. 확인하지 못한 책을 "못 빌리는 책"으로 세면 안 됩니다. */
@@ -428,26 +458,36 @@ function TripPanel({
         한 곳에서 다 빌리기
         {checking && <span className="muted"> (확인 중이라 바뀔 수 있습니다)</span>}
       </h3>
-      <ol className="trip__list">
-        {plan.map((step, index) => (
-          <li key={step.libCode}>
-            <span className="trip__count">{index + 1}곳</span>
-            {/*
-              「+」는 이 도서관을 더한다는 뜻이고, 뒤의 숫자는 거기까지 들렀을 때
-              빌릴 수 있는 누적 권수입니다. 둘을 붙여 쓰면 "3권을 더 빌린다"로 읽힙니다.
-            */}
-            <span>
-              {index === 0 ? '' : '+ '}
-              <a href={libraryLink(step.libCode)} target="_blank" rel="noreferrer">
-                {byCode.get(step.libCode)?.name ?? step.name}
-              </a>
-            </span>
-            <strong className="trip__score">
-              {step.cumulative}/{checkedTotal}권
-            </strong>
-          </li>
-        ))}
-      </ol>
+      {/*
+        **전부 가진 도서관이 있으면 그 도서관들을 전부 보여 줍니다.** 예전에는 이름 순으로
+        한 곳만 골라 보여 줘서, 같은 책을 전부 가진 더 가까운 도서관이 있어도 알 수 없었습니다.
+        실제로 갈 곳을 고르는 기준은 거리와 빌릴 수 있는지이므로 그 둘로 세웁니다.
+        한 곳도 없을 때만 여러 곳을 엮은 순서를 보입니다.
+      */}
+      {full.length > 0 ? (
+        <FullCoverage libraries={full} books={books} position={position} checking={checking} />
+      ) : (
+        <ol className="trip__list">
+          {plan.map((step, index) => (
+            <li key={step.libCode}>
+              {/*
+                「+」는 이 도서관을 더한다는 뜻이고, 뒤의 숫자는 거기까지 들렀을 때
+                빌릴 수 있는 누적 권수입니다. 둘을 붙여 쓰면 "3권을 더 빌린다"로 읽힙니다.
+                「1곳」 「2곳」 같은 차례 표시는 뺐습니다. 한 줄뿐일 때 아무 뜻이 없었습니다.
+              */}
+              <span>
+                {index === 0 ? '' : '+ '}
+                <a href={libraryLink(step.libCode)} target="_blank" rel="noreferrer">
+                  {byCode.get(step.libCode)?.name ?? step.name}
+                </a>
+              </span>
+              <strong className="trip__score">
+                {step.cumulative}/{checkedTotal}권
+              </strong>
+            </li>
+          ))}
+        </ol>
+      )}
     </div>
   );
 }
@@ -727,7 +767,7 @@ function LineHoldings({
       <p className="holding muted">
         {selectedCount === 0
           ? '도서관을 고르면 어디에 있는지 확인합니다.'
-          : checking
+          : checking || row.loading
             ? '확인 중입니다.'
             : '위의 「확인」을 누르면 알려 드립니다.'}
       </p>

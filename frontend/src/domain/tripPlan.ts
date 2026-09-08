@@ -85,6 +85,24 @@ export function rankLibraries(
 }
 
 /**
+ * 확인이 끝나고 어딘가에 있는 책 **전부**를 가진 도서관.
+ *
+ * 여럿이면 화면이 거리와 대출 상태로 순위를 매깁니다. 한 곳도 없으면 빈 목록이고,
+ * 그때는 {@link planTrip} 이 여러 곳을 엮습니다. 순서는 고른 순서 그대로이고, 세우는
+ * 것은 화면의 몫입니다. 확인하지 못한 책은 여기서도 세지 않습니다.
+ */
+export function fullCoverage(
+  rows: readonly BookRow[],
+  selected: readonly Library[],
+): Library[] {
+  const held = rows.filter((row) => row.state === 'held' && row.holdingLibCodes.length > 0);
+  if (held.length === 0) return [];
+  return selected.filter((library) =>
+    held.every((row) => row.holdingLibCodes.includes(library.libCode)),
+  );
+}
+
+/**
  * 「한 곳에서 다 빌리기」. 적은 수의 도서관으로 가장 많은 책을 덮는 조합을 찾습니다.
  *
  * 집합 덮개 문제의 최적해는 계산이 어렵지만, 도서관 20곳 규모에서는 탐욕 방식으로
