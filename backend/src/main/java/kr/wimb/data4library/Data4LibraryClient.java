@@ -103,6 +103,35 @@ public final class Data4LibraryClient {
         }
     }
 
+    /**
+     * 그 도서관에 그 책이 있는지, 지금 빌릴 수 있는지({@code bookExist}).
+     *
+     * <p><b>목록에 붙이지 마세요.</b> 이 호출은 (도서관 하나 × ISBN 하나)라서, 여러 권
+     * 확인 화면에 그냥 달면 30권 × 판본 3개 × 도서관 20곳 = 1,800회가 됩니다. 하루 한도
+     * 30,000건이 열여섯 번 만에 사라집니다. <b>사용자가 그 도서관을 눌렀을 때만</b>
+     * 부릅니다. 그때는 1회입니다.
+     *
+     * <p>그리고 <b>대출 가능 여부는 조회일 기준 전날의 상태입니다</b>(매뉴얼 11절).
+     * 실시간이 아니므로 화면에 그 사실을 반드시 함께 적어야 합니다. 이 값을 실시간으로
+     * 믿고 갔다가 허탕치는 것이 이 도구를 못 쓰게 만드는 가장 큰 요인입니다.
+     */
+    public LoanStatus loanStatus(String libCode, String isbn13, ApiBudget.Priority priority) {
+        Map<String, String> params = new LinkedHashMap<>();
+        params.put("libCode", libCode);
+        params.put("isbn13", isbn13);
+
+        String xml = call("bookExist", params, priority);
+        return new LoanStatus(
+                "Y".equalsIgnoreCase(Data4LibraryResponse.scalar(xml, "hasBook")),
+                "Y".equalsIgnoreCase(Data4LibraryResponse.scalar(xml, "loanAvailable")));
+    }
+
+    /**
+     * @param hasBook       그 도서관이 소장하고 있는지
+     * @param loanAvailable 빌릴 수 있는지. <b>조회일 기준 전날의 상태입니다.</b>
+     */
+    public record LoanStatus(boolean hasBook, boolean loanAvailable) {}
+
     // ---------------------------------------------------------------
     // 서지
     // ---------------------------------------------------------------

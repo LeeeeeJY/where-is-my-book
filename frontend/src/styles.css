@@ -240,3 +240,13 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
 .chip--on { border-color: var(--accent); color: var(--accent); font-weight: 600; }
 .trip__score { margin-left: auto; color: var(--accent); font-size: 14px; }
 .picker__note { margin: 10px 0 0; font-size: 12px; line-height: 1.5; }
+
+/* 대출 상태. 정보나루가 주는 값이 어제 기준이라 항상 날짜를 달고 다닙니다. */
+.loan { font-size: 13px; color: var(--muted); }
+.loan--caution { color: #8a5a00; }
+.link-button {
+  appearance: none; background: none; border: 0; padding: 0 0 0 6px;
+  font: inherit; font-size: 13px; color: var(--accent); cursor: pointer;
+  text-decoration: underline;
+}
+.link-button:disabled { color: var(--muted); cursor: default; text-decoration: none; }

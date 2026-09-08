@@ -96,6 +96,24 @@ export async function searchBooks(query: string, libCodes: string[]): Promise<Se
  * 보냅니다. 규칙이 없는 도서관은 홈페이지로 내려앉는데, 그 사실은 `linkLabel` 이 화면에
  * 밝힙니다. 책 없이 부르면(도서관 순위처럼 한 권을 가리키지 않을 때) 홈페이지로 갑니다.
  */
+/**
+ * 그 도서관에 그 책이 지금 있는지.
+ *
+ * <p><b>목록에 미리 부르지 마세요.</b> 이 호출은 (도서관 × 책)이라 목록에 달면 한 번에
+ * 수백~수천 회가 나갑니다. 사용자가 그 도서관을 눌렀을 때만 부릅니다.
+ */
+export type LoanStatus = {
+  hasBook: boolean;
+  loanAvailable: boolean;
+  /** 이 상태가 언제 기준인지. **어제 날짜입니다.** 화면에서 지우지 마세요. */
+  asOf: string;
+};
+
+export async function fetchLoanStatus(libCode: string, isbn13: string): Promise<LoanStatus> {
+  const params = new URLSearchParams({ lib: libCode, isbn: isbn13 });
+  return get<LoanStatus>(`/api/loan?${params}`);
+}
+
 export function libraryLink(libCode: string, isbn13?: string, title?: string): string {
   const params = new URLSearchParams();
   if (isbn13) params.set('isbn', isbn13);

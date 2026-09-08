@@ -231,6 +231,30 @@ public class WimbController {
         return ResponseEntity.status(HttpStatus.FOUND).location(URI.create(url)).build();
     }
 
+    /**
+     * 그 도서관에 그 책이 지금 있는지({@code bookExist}).
+     *
+     * <p><b>사용자가 그 도서관을 눌렀을 때만 부릅니다.</b> 이 호출은 (도서관 × ISBN)이라
+     * 목록에 그냥 달면 여러 권 확인 한 번에 1,800회가 나가고 하루 한도가 열여섯 번 만에
+     * 사라집니다. 누를 때는 1회입니다.
+     *
+     * <p>돌려주는 {@code asOf} 는 <b>어제 날짜</b>입니다. 오늘이 아닙니다. 정보나루가 주는
+     * 대출 상태가 조회일 기준 전날의 것이기 때문입니다(매뉴얼 11절). 화면이 이 날짜를
+     * 그대로 보여 주어야 사용자가 언제 기준인지 알고 판단합니다.
+     */
+    @GetMapping("/loan")
+    public LoanDto loan(@RequestParam String lib, @RequestParam String isbn) {
+        var status = client.loanStatus(lib, isbn, ApiBudget.Priority.USER);
+        return new LoanDto(status.hasBook(), status.loanAvailable(),
+                LocalDate.now(SEOUL).minusDays(1).toString());
+    }
+
+    /**
+     * @param asOf 이 상태가 <b>언제 기준</b>인지. 어제 날짜가 들어옵니다.
+     *             화면에서 지우지 마세요. 실시간으로 읽히면 헛걸음을 만듭니다.
+     */
+    public record LoanDto(boolean hasBook, boolean loanAvailable, String asOf) {}
+
     /** 호출 예산이 얼마나 남았는지. 한도가 예상과 다른지 여기서 드러납니다. */
     @GetMapping("/status")
     public Map<String, Object> status() {

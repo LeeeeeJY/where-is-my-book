@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react';
-import { ApiUnavailable, libraryLink, searchBooks } from '../api';
+import { ApiUnavailable, fetchLoanStatus, libraryLink, searchBooks } from '../api';
+import type { LoanStatus } from '../api';
 import { resolveLink } from '../domain/opacLink';
+import { LOAN_DISCLAIMER, loanPhrase } from '../domain/loanStatus';
 import type { SearchResponse, WorkResult } from '../api';
 import { holdingState } from '../domain/holdingState';
 import type { Library } from '../domain/types';
@@ -281,6 +283,7 @@ function Holdings({
                       {library ? library.name : code}
                     </a>
                     <span className="muted"> {link.label}</span>
+                    <LoanCheck libCode={code} isbn13={work.isbn13List[0]} />
                   </>
                 );
               })()}
@@ -320,4 +323,58 @@ function formatAsOf(asOf: string | null): string {
     day: 'numeric',
     timeZone: 'Asia/Seoul',
   }).format(date);
+}
+
+/**
+ * 그 도서관에 지금 빌릴 수 있는지. **누를 때만 물어봅니다.**
+ *
+ * <p>이 조회는 (도서관 하나 × 책 하나)라서, 목록에 미리 달면 30권 확인 한 번에 1,800회가
+ * 나가고 하루 한도가 열여섯 번 만에 사라집니다. 「이 도서관에 가려는데 빌릴 수 있나」가
+ * 실제 행동이고, 그건 한 곳만 물어보면 됩니다.
+ *
+ * <p>그리고 <b>결과에서 기준 날짜를 떼지 않습니다.</b> 정보나루가 주는 값은 조회일 기준
+ * 전날의 상태입니다. 「대출 가능」 네 글자만 남으면 사용자는 그것을 지금 상태로 읽고,
+ * 그 믿음으로 갔다가 허탕치는 것이 이 도구를 못 쓰게 만드는 가장 큰 요인입니다.
+ */
+function LoanCheck({ libCode, isbn13 }: { libCode: string; isbn13: string | undefined }) {
+  const [state, setState] = useState<'idle' | 'asking' | 'failed'>('idle');
+  const [status, setStatus] = useState<LoanStatus | null>(null);
+
+  if (!isbn13) return null;
+
+  if (status) {
+    const phrase = loanPhrase(status);
+    return (
+      <span className={phrase.caution ? 'loan loan--caution' : 'loan'}>
+        {' · '}
+        {phrase.text}
+      </span>
+    );
+  }
+
+  if (state === 'failed') {
+    // 못 물어본 것이지 「빌릴 수 없다」가 아닙니다. 둘을 섞으면 헛걸음이 됩니다.
+    return <span className="muted"> · 대출 상태를 확인하지 못했습니다</span>;
+  }
+
+  return (
+    <button
+      type="button"
+      className="link-button"
+      disabled={state === 'asking'}
+      title={LOAN_DISCLAIMER}
+      onClick={() => {
+        setState('asking');
+        fetchLoanStatus(libCode, isbn13).then(
+          (result) => {
+            setStatus(result);
+            setState('idle');
+          },
+          () => setState('failed'),
+        );
+      }}
+    >
+      {state === 'asking' ? '확인 중' : '대출 가능?'}
+    </button>
+  );
 }
