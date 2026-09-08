@@ -641,16 +641,21 @@ function Holdings({
                   스무 곳에서 같은 말이 스무 번 반복되어 목록이 읽히지 않습니다.
                   줄에는 짧게 붙이고 뜻은 목록 아래에 한 번만 풀어 씁니다.
                 */}
+                {/*
+                  **배지까지 링크 안에 둡니다.** 「홈페이지」 배지는 테두리가 둥글어
+                  버튼처럼 보이는데, 예전에는 이름에만 링크가 걸려 있어 배지를 누르면
+                  아무 일도 일어나지 않았습니다. 누를 것처럼 생긴 것은 눌려야 합니다.
+                */}
                 <a
-                  className="lib__name"
+                  className="lib__link"
                   href={libraryLink(code, work.isbn13List[0], work.title)}
                   target="_blank"
                   rel="noreferrer"
                   title={linkLabel(library?.linkKind)}
                 >
-                  {library ? library.name : code}
+                  <span className="lib__name">{library ? library.name : code}</span>
+                  <span className="lib__kind">{linkBadge(library?.linkKind)}</span>
                 </a>
-                <span className="lib__kind">{linkBadge(library?.linkKind)}</span>
               </div>
               <LoanCheck libCode={code} isbn13List={work.isbn13List} />
             </li>

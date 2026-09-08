@@ -302,6 +302,8 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
   border-radius: 8px;
 }
 .lib__head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+/* 이름과 배지를 한 덩어리로 누릅니다. 배지만 눌러도 도서관으로 갑니다. */
+.lib__link { display: inline-flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .lib__name {
   font-size: 14px; font-weight: 600; color: var(--accent);
   text-underline-offset: 3px; min-width: 0; overflow-wrap: anywhere;
