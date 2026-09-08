@@ -49,7 +49,7 @@ fi
 source_changed=$(printf '%s\n' "$files" | grep -E '^(backend/src/main/|frontend/src/)' | head -n 1)
 doc_changed=$(printf '%s\n' "$files" | grep -E '\.md$' | head -n 1)
 if [ -n "$source_changed" ] && [ -z "$doc_changed" ]; then
-    add_message "소스는 바뀌었는데 문서는 그대로입니다. /update-docs 로 어디를 고쳐야 하는지 확인하세요."
+    add_message "소스는 바뀌었는데 문서는 그대로입니다. CLAUDE.md 의 제약이나 README.md 의 「무엇이 되는지」가 달라졌는지 확인하세요."
 fi
 
 [ -n "$message" ] || exit 0
