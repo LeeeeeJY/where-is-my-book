@@ -116,20 +116,37 @@ public class WimbController {
                 .toList();
     }
 
+    /**
+     * 책 검색. <b>제목·저자·출판사를 따로 줄 수 있고 둘 이상 주면 AND 로 걸립니다.</b>
+     *
+     * <p>매뉴얼 16절에 {@code srchBooks} 가 {@code title author publisher isbn13} 을 각각
+     * 받는다고 적혀 있습니다. 한 칸에 다 넣고 우리가 쪼개는 것보다 정보나루에 그대로
+     * 넘기는 편이 정확합니다. 「김영하 알쓸신잡」처럼 붙여 넣으면 그런 제목의 책을 찾다가
+     * 0건이 나오고, 사용자는 그것을 「이 책이 없다」로 읽습니다.
+     *
+     * <p>조건을 하나도 주지 않으면 정보나루는 전체 대출데이터를 훑습니다. 아무 뜻도 없는
+     * 결과에 호출만 쓰게 되므로 여기서 막습니다.
+     */
     @GetMapping("/search")
     public BookSearchService.SearchResponse search(
-            @RequestParam String q,
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) String author,
+            @RequestParam(required = false) String publisher,
             @RequestParam(required = false) List<String> libs) {
 
-        if (q == null || q.isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "검색어가 비어 있습니다.");
+        String title = trimToNull(q);
+        String byAuthor = trimToNull(author);
+        String byPublisher = trimToNull(publisher);
+        if (title == null && byAuthor == null && byPublisher == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "검색 조건이 비어 있습니다.");
         }
         // 고른 도서관은 소장 조회에만 쓰이는데 그것은 /api/holdings 가 따로 답합니다.
         // 여기서 미리 받아 두는 것은 그 조회가 시도 코드를 바로 알 수 있게 하려는 것뿐입니다.
         loadCatalogQuietly(libs == null ? List.of() : libs);
 
         try {
-            return searchService.search(q.trim());
+            return searchService.search(new Data4LibraryClient.BookQuery(
+                    title, byAuthor, byPublisher, null, false));
         } catch (ResponseStatusException e) {
             throw e;
         } catch (RuntimeException e) {
@@ -138,6 +155,13 @@ public class WimbController {
             // 화면은 이것을 "결과 없음"이 아니라 "확인하지 못했다"로 그립니다.
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, e.getMessage(), e);
         }
+    }
+
+    /** 공백만 든 값은 조건이 아닙니다. 그대로 넘기면 정보나루가 빈 조건으로 훑습니다. */
+    private static String trimToNull(String value) {
+        if (value == null) return null;
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     /**

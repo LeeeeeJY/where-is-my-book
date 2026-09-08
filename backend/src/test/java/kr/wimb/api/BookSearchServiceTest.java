@@ -133,17 +133,63 @@ class BookSearchServiceTest {
         assertEquals("코스모스", response.works().get(0).title());
     }
 
+    private static final String ONE_GOOD_ONE_WITHOUT_ISBN = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <response>
+          <docs>
+            <doc>
+              <bookname><![CDATA[마의 산. 상]]></bookname>
+              <authors><![CDATA[토마스 만 지음 ; 홍성광 옮김]]></authors>
+              <publisher><![CDATA[을유문화사]]></publisher>
+              <publication_year>2008</publication_year>
+              <isbn13>9788932460345</isbn13>
+            </doc>
+            <doc>
+              <bookname><![CDATA[마의 산 (전2권)]]></bookname>
+              <authors><![CDATA[토마스 만]]></authors>
+              <publisher><![CDATA[을유문화사]]></publisher>
+              <publication_year>2008</publication_year>
+              <isbn13></isbn13>
+            </doc>
+          </docs>
+        </response>
+        """;
+
     @Test
-    @DisplayName("결과가 많아도 위에서 스무 개까지만 돌려준다")
-    void capsTheNumberOfResults() {
-        // 이 숫자가 곧 화면이 소장을 물어보는 횟수입니다.
+    @DisplayName("ISBN 이 없어 뺀 자료는 몇 건인지 밝힌다")
+    void reportsWhatItHadToDrop() {
+        // 조용히 빼면 사용자는 그것을 「그런 책이 없다」로 읽습니다. 찾던 책이 하필
+        // 그 자료였을 때 아무 단서도 없이 사라집니다.
+        var response = service(ONE_GOOD_ONE_WITHOUT_ISBN, NEVER_CALLED).search("마의 산");
+
+        assertEquals(1, response.works().size());
+        assertEquals(1, response.droppedNoIsbn(), "ISBN 이 없어 뺀 한 건을 밝혀야 합니다");
+    }
+
+    @Test
+    @DisplayName("세우기는 자르지 않는다. 전체가 몇 개인지 셀 수 있어야 한다")
+    void rankingDoesNotTruncate() {
+        // 자르는 것은 부르는 쪽의 몫입니다. 여기서 자르면 화면이 「n개 중 20개」라고
+        // 말할 수 없고, 사용자는 지금 보는 것이 전부인지 잘린 것인지 알 수 없습니다.
+        assertEquals(150, BookSearchService.rank("코스모스", manyWorks(150)).size());
+    }
+
+    @Test
+    @DisplayName("제목 없이 저자나 출판사로만 찾으면 정보나루가 준 순서를 흔들지 않는다")
+    void withoutATitleTheOrderIsLeftAlone() {
+        var works = manyWorks(5);
+        assertEquals(works, BookSearchService.rank(null, works));
+        assertEquals(works, BookSearchService.rank("   ", works));
+    }
+
+    private static List<BookSearchService.WorkResult> manyWorks(int count) {
         List<BookSearchService.WorkResult> many = new java.util.ArrayList<>();
-        for (int i = 0; i < 100; i++) {
+        for (int i = 0; i < count; i++) {
             many.add(new BookSearchService.WorkResult(
                     i, "코스모스 " + i, "지은이", "출판사", null, null,
                     List.of("978898371189" + (i % 10)), List.of()));
         }
-        assertEquals(20, BookSearchService.rank("코스모스", many).size());
+        return many;
     }
 
     @Test

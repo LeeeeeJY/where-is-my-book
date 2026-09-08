@@ -43,11 +43,15 @@ public class BookSearchService {
     /**
      * 화면에 돌려줄 저작 수.
      *
-     * <p>정보나루가 한 번에 300건을 주는데 그것을 다 묶으면 저작이 100~200개가 됩니다.
-     * 사람이 그만큼을 훑지 않을뿐더러, 화면이 저작마다 소장을 물어보므로 <b>이 숫자가 곧
-     * 검색 한 번에 나가는 소장 조회 횟수</b>가 됩니다. 위에서 몇 개만 보면 충분합니다.
+     * <p>예전에는 20이었습니다. 화면이 받은 것을 전부 그리고 저작마다 소장을 물어봤기
+     * 때문에, <b>이 숫자가 곧 검색 한 번에 나가는 소장 조회 횟수</b>였습니다.
+     *
+     * <p>이제는 화면이 20개씩 나눠 보여 주고 <b>펼친 것만 소장을 물어봅니다.</b> 그래서
+     * 이 숫자를 늘려도 조회 횟수는 늘지 않습니다. 늘리는 대신 정보나루를 다시 부르지 않고
+     * 「더 보기」를 즉시 처리할 수 있습니다. 300건을 묶으면 저작이 100~200개쯤 되므로
+     * 100이면 대부분의 검색에서 끝까지 넘겨볼 수 있습니다.
      */
-    private static final int MAX_RESULTS = 20;
+    private static final int MAX_WORKS = 100;
 
     private final Data4LibraryClient client;
     private final HoldingsLookup holdingsLookup;
@@ -58,8 +62,13 @@ public class BookSearchService {
         this.holdingsLookup = holdingsLookup;
     }
 
+    /** 제목만으로 찾는 지름길. */
+    public SearchResponse search(String query) {
+        return search(Data4LibraryClient.BookQuery.byTitle(query));
+    }
+
     /**
-     * 검색어로 저작 목록을 만듭니다. <b>소장 조회는 하지 않습니다.</b>
+     * 조건으로 저작 목록을 만듭니다. <b>소장 조회는 하지 않습니다.</b>
      *
      * <p>예전에는 여기서 저작마다 {@code libSrchByBook} 을 불렀습니다. 저작이 200개면 호출도
      * 200번이고, 요청 간격이 120ms 라 그것만으로 24초가 걸렸습니다. 사용자는 그것을
@@ -69,11 +78,18 @@ public class BookSearchService {
      * 화면이 {@code POST /api/holdings} 로 한 권씩 물어 도착하는 대로 채웁니다.
      * <b>여기에 소장 조회를 다시 넣지 마세요.</b> 넣는 순간 검색이 다시 수십 초가 됩니다.
      *
-     * @param query 검색어. 제목으로 봅니다.
+     * <p>정렬 기준은 <b>제목</b>입니다. 제목 없이 저자나 출판사로만 찾으면 우리가 더 나은
+     * 근거를 갖고 있지 않으므로 정보나루가 준 순서를 그대로 둡니다.
      */
-    public SearchResponse search(String query) {
-        List<WorkResult> works = worksFor(Data4LibraryClient.BookQuery.byTitle(query));
-        return new SearchResponse(rank(query, works), LocalDate.now(SEOUL).toString());
+    public SearchResponse search(Data4LibraryClient.BookQuery query) {
+        List<BookInfo> found = client.searchBooks(query, 1, ApiBudget.Priority.USER);
+        List<BookInfo> usable = withIsbn(found);
+        List<WorkResult> ranked = rank(query.title(), worksOf(usable));
+        return new SearchResponse(
+                ranked.stream().limit(MAX_WORKS).toList(),
+                ranked.size(),
+                found.size() - usable.size(),
+                LocalDate.now(SEOUL).toString());
     }
 
     /**
@@ -88,13 +104,15 @@ public class BookSearchService {
      *
      * <p>같은 등급 안에서는 정보나루가 준 순서를 그대로 둡니다. 정렬이 안정적이라 그렇게
      * 되고, 우리가 더 나은 근거를 갖고 있지 않으므로 굳이 흔들지 않습니다.
+     *
+     * <p><b>여기서 자르지 않습니다.</b> 자르는 것은 부르는 쪽의 몫입니다. 그래야 전체가
+     * 몇 개인지 셀 수 있고, 화면이 「n개 중 20개」라고 말할 수 있습니다.
      */
     static List<WorkResult> rank(String query, List<WorkResult> works) {
-        String queryKey = BibNormalizer.normalizeKey(query);
-        if (queryKey.isEmpty()) return works.stream().limit(MAX_RESULTS).toList();
+        String queryKey = BibNormalizer.normalizeKey(query == null ? "" : query);
+        if (queryKey.isEmpty()) return works;
         return works.stream()
                 .sorted(Comparator.comparingInt(work -> titleTier(queryKey, work.title())))
-                .limit(MAX_RESULTS)
                 .toList();
     }
 
@@ -114,7 +132,16 @@ public class BookSearchService {
      * 그래야 사용자가 빈 화면을 보며 기다리지 않습니다.
      */
     public List<WorkResult> worksFor(Data4LibraryClient.BookQuery query) {
-        List<BookInfo> books = fetchBooks(query);
+        List<BookInfo> books = new ArrayList<>();
+        for (int page = 1; page <= FETCH_PAGES; page++) {
+            var batch = client.searchBooks(query, page, ApiBudget.Priority.USER);
+            books.addAll(batch);
+            if (batch.isEmpty()) break;
+        }
+        return worksOf(withIsbn(books));
+    }
+
+    private List<WorkResult> worksOf(List<BookInfo> books) {
         if (books.isEmpty()) return List.of();
 
         Map<String, BookInfo> byIsbn = indexByIsbn(books);
@@ -123,15 +150,15 @@ public class BookSearchService {
                 .toList();
     }
 
-    private List<BookInfo> fetchBooks(Data4LibraryClient.BookQuery query) {
-        List<BookInfo> books = new ArrayList<>();
-        for (int page = 1; page <= FETCH_PAGES; page++) {
-            var batch = client.searchBooks(query, page, ApiBudget.Priority.USER);
-            books.addAll(batch);
-            if (batch.isEmpty()) break;
-        }
-        // ISBN 을 판별할 수 없는 자료는 소장 조회를 할 수 없으므로 결과에서 뺍니다.
-        // 검색은 되는데 어느 도서관에 있는지 영영 알 수 없는 항목이 되기 때문입니다.
+    /**
+     * ISBN 을 판별할 수 없는 자료를 빼냅니다. 소장 조회가 ISBN 으로만 되기 때문에,
+     * 남겨 두면 검색은 되는데 어느 도서관에 있는지 영영 알 수 없는 항목이 됩니다.
+     *
+     * <p><b>몇 건을 뺐는지는 세어서 화면까지 올립니다.</b> 조용히 빼면 사용자는 그것을
+     * 「그런 책이 없다」로 읽습니다. 찾던 책이 하필 그 자료였을 때 아무 단서도 없이
+     * 사라지는 것이라, 이 도구가 지키려는 「없다와 모른다를 섞지 않는다」와 같은 문제입니다.
+     */
+    private static List<BookInfo> withIsbn(List<BookInfo> books) {
         return books.stream().filter(b -> b.canonicalIsbn13().isPresent()).toList();
     }
 
@@ -287,7 +314,14 @@ public class BookSearchService {
      * 빈 목록으로 나가고, 화면이 그것을 「고른 도서관에는 없습니다」로 그리게 됩니다.
      * 실제로 있는 책을 없다고 답하는 것이라 이 도구의 전제가 무너집니다.
      *
+     * @param works 위에서 {@value #MAX_WORKS} 개까지. 화면이 이것을 20개씩 나눠 보여 줍니다.
+     * @param totalWorks 자르기 전의 전체 저작 수. 화면이 「n개 중 몇 개를 보고 있는지」를
+     *                   말하려면 필요합니다. 이것이 없으면 사용자는 지금 보는 것이 전부인지
+     *                   잘린 것인지 알 수 없습니다.
+     * @param droppedNoIsbn ISBN 을 판별할 수 없어 결과에서 뺀 자료 수. <b>화면이 이것을
+     *                      밝혀야 합니다.</b> 조용히 빼면 사용자는 「그런 책이 없다」로 읽습니다.
      * @param asOf 이 검색을 한 날짜.
      */
-    public record SearchResponse(List<WorkResult> works, String asOf) {}
+    public record SearchResponse(List<WorkResult> works, int totalWorks, int droppedNoIsbn,
+                                 String asOf) {}
 }
