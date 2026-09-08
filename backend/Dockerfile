@@ -32,6 +32,17 @@ EXPOSE 8080
 # 조용히 죽입니다. 이 서버는 도서관 1,604건을 메모리에 두는 정도라 힙이 클 필요가 없습니다.
 ENV JAVA_OPTS="-XX:MaxRAMPercentage=50"
 
+# 어느 코드가 돌고 있는지 서버가 스스로 말할 수 있게 굽습니다.
+#
+# **이것이 없으면 배포가 반영됐는지 알 방법이 없습니다.** VM 은 latest 하나만 물어 가므로
+# 화면이 예전 그대로여도 그것이 「고치다 만 것」인지 「배포가 안 된 것」인지 구별되지
+# 않습니다. 실제로 빌드 셋이 겹쳐 오래된 이미지가 새 이미지를 덮어쓴 적이 있는데,
+# 그때 하루치 추측을 했습니다. 커밋 해시 한 줄이면 1초에 끝날 일이었습니다.
+ARG WIMB_COMMIT=unknown
+ARG WIMB_BUILT_AT=unknown
+ENV WIMB_COMMIT=$WIMB_COMMIT
+ENV WIMB_BUILT_AT=$WIMB_BUILT_AT
+
 # D4L_AUTH_KEY 는 이미지에 굽지 않고 실행할 때 환경 변수로 넣습니다.
 # 비어 있으면 서버가 그 사실을 말하고 뜨지 않습니다.
 ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar /app/app.jar"]

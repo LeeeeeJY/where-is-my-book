@@ -55,6 +55,11 @@ main() {
     for _ in $(seq 1 60); do
         if status=$(curl -fsS localhost:8080/api/status 2>/dev/null); then
             echo "떴습니다: $status"
+            # **어느 코드가 뜬 것인지 기록에 남깁니다.** 이것이 없으면 화면이 예전
+            # 그대로일 때 「고치다 만 것」인지 「배포가 안 된 것」인지 구별되지 않아,
+            # 없는 버그를 찾게 됩니다. 실제로 빌드 셋이 겹쳐 오래된 이미지가 새 이미지를
+            # 덮어쓴 적이 있는데, 그때 하루치를 추측으로 보냈습니다.
+            echo "돌고 있는 코드: $(curl -fsS localhost:8080/api/version 2>/dev/null || echo '(모름)')"
             # 오래된 이미지를 정리합니다. 30GB 디스크가 금방 찹니다.
             docker image prune -f >/dev/null 2>&1 || true
             exit 0

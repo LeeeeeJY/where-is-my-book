@@ -117,6 +117,26 @@ public class WimbController {
     }
 
     /**
+     * 지금 돌고 있는 코드가 무엇인지.
+     *
+     * <p><b>이것이 없으면 배포가 반영됐는지 알 방법이 없습니다.</b> VM 은 {@code latest}
+     * 하나만 물어 가므로, 화면이 예전 그대로여도 그것이 「고치다 만 것」인지 「배포가 안 된
+     * 것」인지 구별되지 않습니다. 실제로 빌드 셋이 겹쳐 오래된 이미지가 새 이미지를
+     * 덮어쓴 적이 있는데, 그때 하루치 추측을 했습니다. 커밋 해시 한 줄이면 1초에 끝날
+     * 일이었습니다.
+     *
+     * <p>비밀이 아닙니다. 저장소가 공개이고 커밋 해시는 거기에 그대로 있습니다.
+     * <b>인증키처럼 실제로 감춰야 하는 값은 절대 여기에 싣지 마세요.</b>
+     */
+    @GetMapping("/version")
+    public Map<String, String> version() {
+        return Map.of(
+                "commit", System.getenv().getOrDefault("WIMB_COMMIT", "unknown"),
+                "builtAt", System.getenv().getOrDefault("WIMB_BUILT_AT", "unknown"),
+                "now", LocalDate.now(SEOUL).toString());
+    }
+
+    /**
      * 책 검색. <b>제목·저자·출판사를 따로 줄 수 있고 둘 이상 주면 AND 로 걸립니다.</b>
      *
      * <p>매뉴얼 16절에 {@code srchBooks} 가 {@code title author publisher isbn13} 을 각각

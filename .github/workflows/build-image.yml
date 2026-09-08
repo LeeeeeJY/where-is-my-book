@@ -77,5 +77,9 @@ jobs:
           tags: |
             ${{ steps.name.outputs.image }}:latest
             ${{ steps.name.outputs.image }}:${{ github.sha }}
+          # 서버가 /api/version 으로 자기 버전을 말할 수 있게 넘깁니다.
+          build-args: |
+            WIMB_COMMIT=${{ github.sha }}
+            WIMB_BUILT_AT=${{ github.event.head_commit.timestamp }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

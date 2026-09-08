@@ -98,6 +98,7 @@ public class BookSearchService {
         return new SearchResponse(
                 ranked.stream().limit(MAX_WORKS).toList(),
                 ranked.size(),
+                found.size(),
                 found.size() - usable.size(),
                 retried,
                 LocalDate.now(SEOUL).toString());
@@ -368,6 +369,12 @@ public class BookSearchService {
      * @param totalWorks 자르기 전의 전체 저작 수. 화면이 「n개 중 몇 개를 보고 있는지」를
      *                   말하려면 필요합니다. 이것이 없으면 사용자는 지금 보는 것이 전부인지
      *                   잘린 것인지 알 수 없습니다.
+     * @param foundBooks 정보나루가 돌려준 서지 건수. <b>우리가 거르기 전의 숫자입니다.</b>
+     *                   찾는 책이 안 나올 때 이 숫자 하나로 어디를 봐야 하는지 갈립니다.
+     *                   0이면 정보나루가 못 찾은 것이고, 0이 아닌데 저작이 0이면 우리가
+     *                   버린 것이고, 저작이 있는데 화면에 없으면 화면 문제입니다.
+     *                   <b>이것이 없으면 셋을 구별할 방법이 없어 추측하게 됩니다.</b>
+     *                   실제로 「마의 산」이 안 나오는 이유를 두고 여러 번 헛짚었습니다.
      * @param droppedNoIsbn ISBN 을 판별할 수 없어 결과에서 뺀 자료 수. <b>화면이 이것을
      *                      밝혀야 합니다.</b> 조용히 빼면 사용자는 「그런 책이 없다」로 읽습니다.
      * @param retriedTitle 처음 제목으로 한 건도 못 찾아 <b>띄어쓰기를 달리해 다시 찾은</b>
@@ -375,6 +382,6 @@ public class BookSearchService {
      *                     다른 결과를 보고 어리둥절하지 않습니다. 재시도가 없었으면 null.
      * @param asOf 이 검색을 한 날짜.
      */
-    public record SearchResponse(List<WorkResult> works, int totalWorks, int droppedNoIsbn,
-                                 String retriedTitle, String asOf) {}
+    public record SearchResponse(List<WorkResult> works, int totalWorks, int foundBooks,
+                                 int droppedNoIsbn, String retriedTitle, String asOf) {}
 }

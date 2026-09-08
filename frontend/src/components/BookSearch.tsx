@@ -314,7 +314,7 @@ function SearchState({
     );
   }
 
-  const { works, totalWorks, droppedNoIsbn, retriedTitle } = state.response;
+  const { works, totalWorks, foundBooks, droppedNoIsbn, retriedTitle } = state.response;
   if (works.length === 0) {
     return (
       <div className="banner banner--warn">
@@ -328,6 +328,14 @@ function SearchState({
             ISBN 으로만 할 수 있어서 어느 도서관에 있는지 알려 드릴 수 없는 자료입니다.
           </>
         )}
+        {/*
+          **어디서 없어졌는지 밝힙니다.** 「없습니다」 한 마디로 끝내면 정보나루가 못 찾은
+          것인지 우리가 버린 것인지 알 수 없고, 그러면 엉뚱한 곳을 고치게 됩니다.
+        */}
+        <br />
+        <span className="muted">
+          정보나루가 준 서지 {foundBooks}건, 그중 쓸 수 있는 것으로 만든 책 {totalWorks}개.
+        </span>
       </div>
     );
   }
