@@ -1,6 +1,7 @@
 package kr.wimb.api;
 
 import kr.wimb.data4library.Data4LibraryClient;
+import kr.wimb.holdings.HoldingCache;
 import kr.wimb.holdings.HoldingsLookup;
 import kr.wimb.ingest.InMemoryApiBudget;
 import org.junit.jupiter.api.DisplayName;
@@ -91,7 +92,7 @@ class BookSearchServiceTest {
     private static BookSearchService service(String payload,
                                              HoldingsLookup.HoldingsClient holdings) {
         return new BookSearchService(client(payload), new HoldingsLookup(
-                holdings, HoldingsLookup.RegionModeStore.documented()));
+                holdings, HoldingsLookup.RegionModeStore.documented()), new HoldingCache(1000, Clock.systemUTC()));
     }
 
     /** 불리면 실패하는 조회. 조회가 일어나지 않아야 하는 경우를 검사할 때 씁니다. */
@@ -357,7 +358,7 @@ class BookSearchServiceTest {
                 (isbn, region) -> {
                     throw new Data4LibraryClient.BudgetExhaustedException("예산 소진");
                 },
-                HoldingsLookup.RegionModeStore.documented()));
+                HoldingsLookup.RegionModeStore.documented()), new HoldingCache(1000, Clock.systemUTC()));
 
         var response = service.search("코스모스");
         assertFalse(response.works().isEmpty(), "책 정보까지 없애 버리면 안 됩니다");
@@ -465,7 +466,7 @@ class BookSearchServiceTest {
                 uri -> uri.toString().contains("author=") ? LESMIS_BY_AUTHOR : LESMIS_SET_ONLY,
                 "테스트키", budget);
         return new BookSearchService(client, new HoldingsLookup(
-                (isbn, region) -> List.of(), HoldingsLookup.RegionModeStore.documented()));
+                (isbn, region) -> List.of(), HoldingsLookup.RegionModeStore.documented()), new HoldingCache(1000, Clock.systemUTC()));
     }
 
     /**
@@ -502,7 +503,7 @@ class BookSearchServiceTest {
                 uri -> uri.toString().contains("author=") ? LESMIS_SAME_TITLE : spacedOnly,
                 "테스트키", budget);
         var service = new BookSearchService(client, new HoldingsLookup(
-                (isbn, region) -> List.of(), HoldingsLookup.RegionModeStore.documented()));
+                (isbn, region) -> List.of(), HoldingsLookup.RegionModeStore.documented()), new HoldingCache(1000, Clock.systemUTC()));
 
         var response = service.search("레 미제라블");
 
@@ -547,7 +548,7 @@ class BookSearchServiceTest {
                 uri -> uri.toString().contains("author=") ? LESMIS_BY_AUTHOR : LESMIS_SAME_TITLE,
                 "테스트키", budget);
         var service = new BookSearchService(client, new HoldingsLookup(
-                (isbn, region) -> List.of(), HoldingsLookup.RegionModeStore.documented()));
+                (isbn, region) -> List.of(), HoldingsLookup.RegionModeStore.documented()), new HoldingCache(1000, Clock.systemUTC()));
 
         var works = service.worksFor(Data4LibraryClient.BookQuery.byTitle("레미제라블"));
         var titles = works.stream().map(BookSearchService.WorkResult::title).toList();
@@ -572,7 +573,7 @@ class BookSearchServiceTest {
             return empty;
         }, "테스트키", budget);
         var service = new BookSearchService(client, new HoldingsLookup(
-                (isbn, region) -> List.of(), HoldingsLookup.RegionModeStore.documented()));
+                (isbn, region) -> List.of(), HoldingsLookup.RegionModeStore.documented()), new HoldingCache(1000, Clock.systemUTC()));
 
         var response = service.search("없는책");
 
@@ -595,7 +596,7 @@ class BookSearchServiceTest {
                 uri -> uri.toString().contains("author=") ? LESMIS_BY_AUTHOR : LESMIS_SAME_TITLE,
                 "테스트키", budget);
         var service = new BookSearchService(client, new HoldingsLookup(
-                (isbn, region) -> List.of(), HoldingsLookup.RegionModeStore.documented()));
+                (isbn, region) -> List.of(), HoldingsLookup.RegionModeStore.documented()), new HoldingCache(1000, Clock.systemUTC()));
 
         var response = service.search("레미제라블");
 

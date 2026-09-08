@@ -1,12 +1,15 @@
 package kr.wimb.api;
 
 import kr.wimb.data4library.Data4LibraryClient;
+import kr.wimb.holdings.CachingHoldingsClient;
+import kr.wimb.holdings.HoldingCache;
 import kr.wimb.holdings.HoldingsLookup;
 import kr.wimb.ingest.ApiBudget;
 import kr.wimb.ingest.InMemoryApiBudget;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
@@ -20,6 +23,8 @@ import java.time.Duration;
 import java.util.Map;
 
 @Configuration
+// 소장 캐시를 주기적으로 파일에 남기는 일정이 필요합니다. HoldingCacheStore 를 보세요.
+@EnableScheduling
 public class WimbConfiguration implements WebMvcConfigurer {
 
     /**
@@ -44,6 +49,12 @@ public class WimbConfiguration implements WebMvcConfigurer {
 
     @Value("${wimb.cors.allowed-origins:http://localhost:5173}")
     private String[] allowedOrigins;
+
+    @Value("${wimb.holdings.cache-max-entries:50000}")
+    private int cacheMaxEntries;
+
+    @Value("${wimb.holdings.fresh-for-days:7}")
+    private long freshForDays;
 
     @Bean
     public ApiBudget apiBudget() {
@@ -77,12 +88,25 @@ public class WimbConfiguration implements WebMvcConfigurer {
         return kr.wimb.opac.OpacTemplates.load();
     }
 
+    /**
+     * 소장 캐시. 상한을 두는 것은 메모리가 1GB 뿐인 기계에서 도는 것을 전제로 하기
+     * 때문입니다. 실측에서 5만 항목이 소장 179곳 기준 45MB 였습니다.
+     */
     @Bean
-    public HoldingsLookup holdingsLookup(Data4LibraryClient client) {
-        // 매뉴얼 13절이 region 을 필수로 명시하므로 탐색 비용 없이 PER_REGION 으로 시작합니다.
-        return new HoldingsLookup(
+    public HoldingCache holdingCache() {
+        return new HoldingCache(cacheMaxEntries, Clock.systemUTC());
+    }
+
+    @Bean
+    public HoldingsLookup holdingsLookup(Data4LibraryClient client, HoldingCache cache) {
+        // **캐시를 HoldingsLookup 안쪽에 끼웁니다.** 바깥에 두면 「저작 + 고른 도서관」이
+        // 열쇠가 되어 도서관을 한 곳만 더 골라도 통째로 빗나갑니다. (ISBN, 시도) 쌍은
+        // 유한하지만 도서관 조합은 그렇지 않습니다.
+        var cached = new CachingHoldingsClient(
                 client.asHoldingsClient(ApiBudget.Priority.USER),
-                HoldingsLookup.RegionModeStore.documented());
+                cache, Duration.ofDays(freshForDays), Clock.systemUTC());
+        // 매뉴얼 13절이 region 을 필수로 명시하므로 탐색 비용 없이 PER_REGION 으로 시작합니다.
+        return new HoldingsLookup(cached, HoldingsLookup.RegionModeStore.documented());
     }
 
     @Override

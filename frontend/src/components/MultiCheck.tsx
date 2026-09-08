@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { ApiUnavailable, fetchHoldings, libraryLink, resolveLines } from '../api';
+import { ApiUnavailable, fetchHoldings, libraryLink, olderAsOf, resolveLines } from '../api';
 import { linkLabel } from '../domain/opacLink';
 import type { LineResult, WorkResult } from '../api';
 import { holdingState } from '../domain/holdingState';
@@ -161,7 +161,7 @@ export function MultiCheck({
         try {
           const holdings = await fetchHoldings(work.isbn13List, libCodes);
           if (token.cancelled) return;
-          setAsOf(holdings.asOf);
+          setAsOf((prev) => olderAsOf(prev, holdings.asOf));
           setRows((prev) => replace(prev, index, { holdings, failed: false }));
         } catch {
           // 한 권의 조회가 실패해도 나머지는 계속합니다.
@@ -206,7 +206,7 @@ export function MultiCheck({
     if (!work || selected.size === 0 || stale) return;
     fetchHoldings(work.isbn13List, [...selected]).then(
       (holdings) => {
-        setAsOf(holdings.asOf);
+        setAsOf((prev) => olderAsOf(prev, holdings.asOf));
         setRows((prev) => replace(prev, index, { holdings, failed: false }));
       },
       () => setRows((prev) => replace(prev, index, { holdings: null, failed: true })),

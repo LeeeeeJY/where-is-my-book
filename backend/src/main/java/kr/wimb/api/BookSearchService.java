@@ -6,6 +6,7 @@ import kr.wimb.bib.WorkClusterer;
 import kr.wimb.bib.WorkMatcher;
 import kr.wimb.data4library.BookInfo;
 import kr.wimb.data4library.Data4LibraryClient;
+import kr.wimb.holdings.HoldingCache;
 import kr.wimb.holdings.HoldingsLookup;
 import kr.wimb.index.SearchDoc;
 import kr.wimb.index.SearchDocBuilder;
@@ -13,6 +14,7 @@ import kr.wimb.ingest.ApiBudget;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
+import java.time.Instant;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -61,11 +63,25 @@ public class BookSearchService {
 
     private final Data4LibraryClient client;
     private final HoldingsLookup holdingsLookup;
+    private final HoldingCache holdingCache;
     private final AtomicInteger workIdSequence = new AtomicInteger(1);
 
-    public BookSearchService(Data4LibraryClient client, HoldingsLookup holdingsLookup) {
+    public BookSearchService(Data4LibraryClient client, HoldingsLookup holdingsLookup,
+                             HoldingCache holdingCache) {
         this.client = client;
         this.holdingsLookup = holdingsLookup;
+        this.holdingCache = holdingCache;
+    }
+
+    /**
+     * 지금 캐시에 들어 있는 (ISBN, 시도) 항목 수. {@code /api/status} 가 내보냅니다.
+     *
+     * <p><b>캐시가 살아 있는지 알 방법이 있어야 합니다.</b> 이 숫자가 없으면 재배포 뒤에
+     * 호출이 줄지 않을 때, 스냅샷을 못 되살린 것인지 저장이 안 된 것인지 캐시가 원래 안
+     * 도는 것인지 구별할 수 없어 추측하게 됩니다.
+     */
+    public int holdingCacheSize() {
+        return holdingCache.size();
     }
 
     /** 제목만으로 찾는 지름길. */
@@ -445,10 +461,14 @@ public class BookSearchService {
             // 이것을 빠뜨리면 그 도서관이 조용히 「없음」으로 나가고, 화면은 그것을
             // 미소장으로 그립니다. 물어보지 않고 없다고 답하는 것입니다.
             boolean complete = result.isComplete() && unaskableLibs == 0;
-            return new HoldingResult(matched, complete, nothingChecked);
+            // 답을 만드는 데 실제로 쓰인 값들 가운데 가장 오래된 시각입니다. 방금 부른 것은
+            // 지금 시각으로 캐시에 들어가 있으므로, 새로 받은 것과 캐시에서 나온 것이 섞여도
+            // 이 한 줄로 정확해집니다.
+            Instant asOf = holdingCache.oldestFetchedAt(isbn13List, regionCodes).orElse(null);
+            return new HoldingResult(matched, complete, nothingChecked, asOf);
         } catch (RuntimeException e) {
             // 조회 실패는 미소장이 아닙니다. 화면에 "확인 불가"로 표시해야 합니다.
-            return new HoldingResult(List.of(), false, true);
+            return new HoldingResult(List.of(), false, true, null);
         }
     }
 
@@ -471,16 +491,21 @@ public class BookSearchService {
     /**
      * @param complete   모든 판본을 빠짐없이 확인했는지
      * @param unreadable 조회 자체가 실패했는지. 미소장과 반드시 구분해야 합니다.
+     * @param asOf       이 답을 <b>정보나루에서 받은</b> 시각. 캐시에서 나온 값이면 그때
+     *                   받은 시각이지 지금이 아닙니다. 물어보지 못했으면 비어 있습니다.
+     *                   <b>지금 시각을 찍어 넣으면 안 됩니다.</b> 한 달 전 값을 오늘 것으로
+     *                   보이게 만들어, 사용자가 "미소장"을 확실한 사실로 읽게 됩니다.
      */
-    public record HoldingResult(List<String> libCodes, boolean complete, boolean unreadable) {
+    public record HoldingResult(List<String> libCodes, boolean complete, boolean unreadable,
+                                Instant asOf) {
         /** 고른 도서관이 없어 물어볼 필요가 없었던 경우. 미소장이 아닙니다. */
         public static HoldingResult notRequested() {
-            return new HoldingResult(List.of(), true, false);
+            return new HoldingResult(List.of(), true, false, null);
         }
 
         /** 물어보고 싶었지만 조회를 시작할 수조차 없었던 경우. 반드시 확인 불가입니다. */
         public static HoldingResult cannotAsk() {
-            return new HoldingResult(List.of(), false, true);
+            return new HoldingResult(List.of(), false, true, null);
         }
     }
 

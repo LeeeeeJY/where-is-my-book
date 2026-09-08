@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ApiUnavailable, fetchHoldings, fetchLoanStatus, hasCriteria, libraryLink, searchBooks } from '../api';
+import { ApiUnavailable, fetchHoldings, fetchLoanStatus, hasCriteria, libraryLink, olderAsOf, searchBooks } from '../api';
 import type { LoanStatus } from '../api';
 import { anyHomepageOnly, linkBadge, linkLabel } from '../domain/opacLink';
 import { LOAN_DISCLAIMER, loanPhrase } from '../domain/loanStatus';
@@ -129,7 +129,10 @@ export function BookSearch({
         const work = works[next++];
         try {
           const result = await fetchHoldings(work.isbn13List, libCodes);
-          if (!token.cancelled) setAsOf(result.asOf);
+          // **덮어쓰지 않고 더 오래된 쪽을 남깁니다.** 책마다 받은 시점이 다른데
+          // 마지막에 도착한 것으로 덮으면, 한 달 전 값이 섞인 목록이 오늘 조회한
+          // 것처럼 보입니다.
+          if (!token.cancelled) setAsOf((prev) => olderAsOf(prev, result.asOf));
           record(work.workId, result);
         } catch {
           // 한 권이 실패해도 나머지는 계속합니다. 실패는 확인 불가로 남기고
@@ -403,7 +406,10 @@ ISBN 을 알 수 없어 소장을 확인하지 못하는 자료가 {droppedNoIsb
             정보나루
           </>
         ) : (
-          <>소장 정보 {formatAsOf(asOf ?? state.response.asOf)} 조회 기준 · 출처: 도서관 정보나루</>
+          <>
+            {formatAsOf(asOf) && `소장 정보 ${formatAsOf(asOf)} 조회 기준 · `}출처: 도서관
+            정보나루
+          </>
         )}
         {facts !== null && [...facts.values()].some((f) => !f.complete) && (
           <>
@@ -710,8 +716,13 @@ function heldRank(
   }
 }
 
+/**
+ * <b>물어보지 못했을 때 「방금」이라고 쓰지 않습니다.</b> 소장 정보를 받지 못한 것을
+ * 방금 확인한 것처럼 적으면, 화면에 남아 있는 「없습니다」가 오늘 확인한 사실로 읽힙니다.
+ * 부르는 쪽이 빈 문자열을 받으면 문구 자체를 내립니다.
+ */
 function formatAsOf(asOf: string | null): string {
-  if (!asOf) return '방금';
+  if (!asOf) return '';
   const date = new Date(`${asOf}T00:00:00+09:00`);
   if (Number.isNaN(date.getTime())) return asOf;
   return new Intl.DateTimeFormat('ko-KR', {

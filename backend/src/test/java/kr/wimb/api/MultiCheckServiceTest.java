@@ -1,6 +1,7 @@
 package kr.wimb.api;
 
 import kr.wimb.data4library.Data4LibraryClient;
+import kr.wimb.holdings.HoldingCache;
 import kr.wimb.holdings.HoldingsLookup;
 import kr.wimb.query.LineParser;
 import kr.wimb.ingest.InMemoryApiBudget;
@@ -55,7 +56,7 @@ class MultiCheckServiceTest {
                 Clock.fixed(Instant.parse("2026-09-05T00:00:00Z"), ZoneId.of("UTC")));
         var client = new Data4LibraryClient(transport, "테스트키", budget);
         var search = new BookSearchService(client, new HoldingsLookup(
-                (isbn, region) -> List.of(), HoldingsLookup.RegionModeStore.documented()));
+                (isbn, region) -> List.of(), HoldingsLookup.RegionModeStore.documented()), new HoldingCache(1000, Clock.systemUTC()));
         return new MultiCheckService(search);
     }
 
@@ -279,7 +280,7 @@ class MultiCheckServiceTest {
             return decoded.contains("author=") ? SOMMER_SPLIT : SOMMER_WHOLE_LINE;
         }, "테스트키", budget);
         var search = new BookSearchService(client, new HoldingsLookup(
-                (isbn, region) -> List.of(), HoldingsLookup.RegionModeStore.documented()));
+                (isbn, region) -> List.of(), HoldingsLookup.RegionModeStore.documented()), new HoldingCache(1000, Clock.systemUTC()));
         var service = new MultiCheckService(search);
 
         var response = service.resolve(List.of("좀머 씨 이야기 - 파트리크 쥐스킨트"));

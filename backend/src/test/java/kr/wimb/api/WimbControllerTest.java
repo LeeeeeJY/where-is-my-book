@@ -2,6 +2,7 @@ package kr.wimb.api;
 
 import kr.wimb.data4library.Data4LibraryClient;
 import kr.wimb.data4library.RegionCode;
+import kr.wimb.holdings.HoldingCache;
 import kr.wimb.holdings.HoldingsLookup;
 import kr.wimb.ingest.InMemoryApiBudget;
 import org.junit.jupiter.api.DisplayName;
@@ -93,7 +94,7 @@ class WimbControllerTest {
                 Clock.fixed(Instant.parse("2026-09-06T00:00:00Z"), ZoneId.of("UTC")));
         var client = new Data4LibraryClient(transport, "테스트키", budget);
         var search = new BookSearchService(client, new HoldingsLookup(
-                (isbn, region) -> List.of(), HoldingsLookup.RegionModeStore.documented()));
+                (isbn, region) -> List.of(), HoldingsLookup.RegionModeStore.documented()), new HoldingCache(1000, Clock.systemUTC()));
         return new WimbController(client, search, new MultiCheckService(search), budget,
                 kr.wimb.opac.OpacTemplates.load(),
                 Clock.fixed(Instant.parse("2026-09-06T00:00:00Z"), ZoneId.of("UTC")));
@@ -109,7 +110,7 @@ class WimbControllerTest {
                 Clock.fixed(Instant.parse("2026-09-06T00:00:00Z"), ZoneId.of("UTC")));
         var client = new Data4LibraryClient(transport, "테스트키", budget);
         var search = new BookSearchService(client, new HoldingsLookup(
-                (isbn, region) -> List.of(), HoldingsLookup.RegionModeStore.documented()));
+                (isbn, region) -> List.of(), HoldingsLookup.RegionModeStore.documented()), new HoldingCache(1000, Clock.systemUTC()));
         Clock moving = new Clock() {
             public ZoneId getZone() { return ZoneId.of("UTC"); }
             public Clock withZone(ZoneId zone) { return this; }

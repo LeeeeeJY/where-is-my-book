@@ -264,8 +264,30 @@ export type HoldingsResponse = {
   libCodes: string[];
   complete: boolean;
   unreadable: boolean;
-  asOf: string;
+  /**
+   * 이 소장 정보를 **정보나루에서 받은** 날짜.
+   *
+   * <p>캐시에서 나온 값이면 오늘이 아니라 **그때 받은 날짜**입니다. 서버가 오늘 날짜를
+   * 찍어 주지 않으므로 화면이 이 값을 그대로 보여 주어야 합니다. 사용자가 "미소장"을
+   * "확실히 없다"로 읽을지 "한 달 전 기준이다"로 읽을지가 이 표시 하나에 달려 있습니다.
+   *
+   * <p>물어보지 못했으면 `null` 입니다. **그때 「방금」이라고 쓰면 안 됩니다.**
+   */
+  asOf: string | null;
 };
+
+/**
+ * 둘 중 **더 오래된** 날짜. 여러 책의 소장 정보를 한 문구로 묶어 말할 때 씁니다.
+ *
+ * <p>가장 최근이 아니라 가장 오래된 것을 남깁니다. 목록의 답은 책마다 받은 시점이 다른데,
+ * 그중 하나라도 오래된 값이 섞여 있으면 그 목록 전체가 그만큼 오래된 것입니다. 최근
+ * 날짜를 말하면 실제보다 새것처럼 보입니다.
+ */
+export function olderAsOf(a: string | null, b: string | null): string | null {
+  if (!a) return b;
+  if (!b) return a;
+  return a < b ? a : b;      // ISO 날짜라 문자열 비교로 충분합니다.
+}
 
 async function post<T>(path: string, body: unknown): Promise<T> {
   let response: Response;

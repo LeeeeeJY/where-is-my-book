@@ -248,7 +248,9 @@ public class WimbController {
     public record HoldingsRequest(List<String> isbn13List, List<String> libs) {}
 
     /**
-     * @param asOf 조회 시각. <b>화면에 반드시 표시합니다.</b>
+     * @param asOf 이 소장 정보를 <b>정보나루에서 받은</b> 날짜. 화면에 반드시 표시합니다.
+     *             캐시에서 나온 값이면 그때 받은 날짜이지 오늘이 아닙니다. 물어보지
+     *             못했으면 null 이라, 화면이 「확인 불가」에 날짜를 붙이지 않습니다.
      */
     public record HoldingsResponse(List<String> libCodes, boolean complete, boolean unreadable,
                                    String asOf) {}
@@ -288,8 +290,12 @@ public class WimbController {
 
         var result = searchService.holdingsOf(
                 request.isbn13List(), regionsOf(selected), selected, unaskableCount(selected));
+        // **오늘 날짜를 찍지 않습니다.** 캐시에서 나온 값이면 그것을 받은 날이 조회 시각이고,
+        // 그 차이가 사용자가 "미소장"을 어떻게 읽을지를 가릅니다. 한 달 전 값을 오늘 것처럼
+        // 보이게 하면 표시가 있으나 마나 합니다.
         return new HoldingsResponse(result.libCodes(), result.complete(), result.unreadable(),
-                LocalDate.now(SEOUL).toString());
+                result.asOf() == null ? null
+                        : LocalDate.ofInstant(result.asOf(), SEOUL).toString());
     }
 
     /**
@@ -383,7 +389,12 @@ public class WimbController {
         return Map.of(
                 "librariesLoaded", catalog.size(),
                 "callsUsedToday", budget.used(Data4LibraryClient.SOURCE_CODE),
-                "callsRemaining", budget.remaining(Data4LibraryClient.SOURCE_CODE));
+                "callsRemaining", budget.remaining(Data4LibraryClient.SOURCE_CODE),
+                // **캐시가 실제로 살아 있는지 알 방법이 있어야 합니다.** 이 숫자가 없으면
+                // 재배포 뒤에 호출이 줄지 않을 때, 캐시가 안 되살아난 것인지 스냅샷이
+                // 저장되지 않은 것인지 캐시가 원래 안 도는 것인지 구별할 수 없어 추측하게
+                // 됩니다. 배포 직후 이 값이 0이면 스냅샷을 잃은 것입니다.
+                "holdingCacheEntries", searchService.holdingCacheSize());
     }
 
     /**

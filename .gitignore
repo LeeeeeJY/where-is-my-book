@@ -6,6 +6,8 @@
 # 내려받은 원본 데이터와 작업 산출물
 inbox/
 /data/
+# 소장 캐시 스냅샷. 로컬에서 서버를 띄우면 backend/data/ 에 생깁니다.
+backend/data/
 *.csv
 *.csv.gz
 !src/**/*.csv
