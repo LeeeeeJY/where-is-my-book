@@ -421,3 +421,14 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
   이 값이 무시되므로 따로 막지 않아도 됩니다.
 */
 .results--fill { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+
+/* 결과가 나온 뒤의 접힌 입력 줄. */
+.multi-done { margin: 0 0 4px; font-size: 13px; }
+
+/*
+  후보를 세로로만 쌓으면 여섯 개가 화면 하나를 다 먹습니다. 넓은 화면에서는 두 줄로
+  나란히 놓아 한눈에 견주게 합니다.
+*/
+@media (min-width: 700px) {
+  .picks__list { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+}

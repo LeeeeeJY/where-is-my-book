@@ -42,6 +42,9 @@ type Phase =
  * <b>이것이 이 도구를 실제로 쓰게 만드는 화면입니다.</b> 한 번 방문해서 여러 권을 빌리는
  * 것이 실제 행동이고, 그 확인을 권수 × 도서관 수만큼 반복하는 것이 이 도구를 만든 이유입니다.
  */
+/** 처음에 보여 줄 후보 수. 나머지는 눌러서 폅니다. */
+const PICKS_SHOWN = 6;
+
 export function MultiCheck({
   libraries,
   selected,
@@ -54,6 +57,8 @@ export function MultiCheck({
   const [rows, setRows] = useState<Row[]>([]);
   const [asOf, setAsOf] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  // 결과가 나오면 입력을 접되, 고치려는 사람은 다시 펼 수 있어야 합니다.
+  const [editing, setEditing] = useState(false);
   /**
    * 지금 들고 있는 소장 결과가 **어느 도서관 선택 기준인지**.
    *
@@ -224,24 +229,37 @@ export function MultiCheck({
         쉰 줄까지 받는 화면인데 아래가 통째로 비어 있었습니다. 목록을 붙여 넣는 화면에서
         가장 중요한 것은 넣은 것이 한눈에 보이는 일입니다.
       */}
-      <form className={phase.kind === 'ready' ? 'multi-form' : 'multi-form multi-form--tall'}
-            onSubmit={submit}>
-        <textarea
-          id="multi-input"
-          className="text-input multi-input"
-          value={text}
-          placeholder={'코스모스\n미움받을 용기\n9788934972464\n총 균 쇠 - 재레드 다이아몬드'}
-          onChange={(e) => setText(e.target.value)}
-        />
-        <div className="multi-form__foot">
-          <span className="muted">
-            한 줄에 한 권씩. 제목·ISBN·서점 주소를 섞어도 됩니다{lineCount > 0 && ` · ${lineCount}줄`}
-          </span>
-          <button className="button" type="submit" disabled={phase.kind === 'resolving'}>
-            {phase.kind === 'resolving' ? '읽는 중' : '확인'}
+      {/*
+        **결과가 나오면 입력을 접습니다.** 펼쳐 둔 채로는 정작 보러 온 결과가 화면 아래로
+        밀려납니다. 목록을 고치려는 사람만 다시 폅니다.
+      */}
+      {phase.kind === 'ready' && !editing ? (
+        <p className="multi-done muted">
+          {lineCount}줄을 확인했습니다.{' '}
+          <button type="button" className="link-button" onClick={() => setEditing(true)}>
+            목록 고치기
           </button>
-        </div>
-      </form>
+        </p>
+      ) : (
+        <form className={phase.kind === 'ready' ? 'multi-form' : 'multi-form multi-form--tall'}
+              onSubmit={submit}>
+          <textarea
+            id="multi-input"
+            className="text-input multi-input"
+            value={text}
+            placeholder={'코스모스\n미움받을 용기\n9788934972464\n총 균 쇠 - 재레드 다이아몬드'}
+            onChange={(e) => setText(e.target.value)}
+          />
+          <div className="multi-form__foot">
+            <span className="muted">
+              한 줄에 한 권씩. 제목·ISBN·서점 주소를 섞어도 됩니다{lineCount > 0 && ` · ${lineCount}줄`}
+            </span>
+            <button className="button" type="submit" disabled={phase.kind === 'resolving'}>
+              {phase.kind === 'resolving' ? '읽는 중' : '확인'}
+            </button>
+          </div>
+        </form>
+      )}
 
       {selected.size === 0 && (
         <p className="muted">도서관을 고르면 어디에 있는지까지 알려 드립니다.</p>
@@ -294,8 +312,11 @@ export function MultiCheck({
             <LibraryRanks ranks={ranks} checking={stillChecking} byCode={byCode} />
           )}
 
-          <Leftovers rows={shown} selectedCount={selected.size} />
-
+          {/*
+            **넣은 목록이 먼저입니다.** 사용자가 보러 온 것은 「내가 적은 책들이 어디에
+            있는가」이고, 「없는 책」과 「고쳐야 하는 줄」은 그것을 본 다음에 챙기는
+            나머지입니다. 순서를 뒤집어 두면 정작 찾은 결과가 화면 아래로 밀립니다.
+          */}
           <h3 className="section-title">넣은 목록을 이렇게 읽었습니다</h3>
           <ul className="line-list">
             {shown.map((row, index) => (
@@ -311,14 +332,20 @@ export function MultiCheck({
             ))}
           </ul>
 
+          <Leftovers rows={shown} selectedCount={selected.size} />
+
           {bookRows.length > 0 && (
             <div className="share">
               <button className="button" onClick={copy} type="button">
-                {copied ? '결과를 복사했습니다' : '결과 복사'}
+                {copied ? '복사했습니다' : '목록 텍스트로 복사'}
               </button>
+              {/*
+                **무엇을 어디에 쓰는 복사인지 말해야 합니다.** 「결과 복사」라고만 적어 두면
+                어디에 붙여 넣으라는 것인지 알 수 없습니다.
+              */}
               <p className="muted">
-                메모 앱에 붙여 넣어 도서관에 가져갈 수 있습니다. 확인하지 못한 책은 없는 책과
-                따로 적힙니다.
+                책과 도서관을 글로 옮겨 적습니다. 메모 앱이나 메신저에 붙여 넣어 도서관에
+                가져가세요. 확인하지 못한 책은 없는 책과 따로 적힙니다.
               </p>
             </div>
           )}
@@ -528,6 +555,18 @@ function LineRow({
 }) {
   const state = row.candidates.length > 0 ? toBookRow(row, selectedCount).state : null;
   const chosen = row.candidates[row.chosen];
+  const [allPicks, setAllPicks] = useState(false);
+  /*
+    **골랐으면 후보를 접습니다.** 여섯 권을 확인하면 줄마다 후보가 열 개씩 남아 화면이
+    끝없이 길어지고, 정작 어느 도서관에 있는지가 저 아래로 밀립니다. 고른 뒤에는 고른
+    것 하나만 남기고, 다시 고르고 싶은 사람만 펼칩니다.
+  */
+  const collapsed = row.picked && !allPicks;
+  const shownCandidates = collapsed
+    ? [row.candidates[row.chosen]].filter(Boolean)
+    : allPicks
+      ? row.candidates
+      : row.candidates.slice(0, PICKS_SHOWN);
 
   return (
     <li className="line">
@@ -550,9 +589,14 @@ function LineRow({
       */}
       {row.status === 'AMBIGUOUS' && (
         <div className="picks">
-          {!row.picked && <p className="picks__ask muted">어느 책인가요?</p>}
+          {!row.picked && (
+            <p className="picks__ask muted">
+              어느 책인가요? <span className="muted">후보 {row.candidates.length}개</span>
+            </p>
+          )}
+          {collapsed && <p className="picks__ask muted">고른 책</p>}
           <ul className="picks__list">
-            {row.candidates.map((candidate, i) => (
+            {shownCandidates.map((candidate, i) => (
               <li key={candidate.workId}>
                 <button
                   type="button"
@@ -582,6 +626,22 @@ function LineRow({
               </li>
             ))}
           </ul>
+          {/*
+            **후보를 잘라 놓고 말하지 않으면 「내 책이 없다」로 읽힙니다.** 출판사가 다른
+            번역본을 갈라 놓은 뒤로 고전은 후보가 스무 개를 넘습니다. 처음에는 몇 개만
+            보여 주되 몇 개가 더 있는지 밝히고, 눌러서 전부 볼 수 있게 합니다.
+          */}
+          {row.candidates.length > 1 && (
+            <button type="button" className="link-button" onClick={() => setAllPicks((v) => !v)}>
+              {collapsed
+                ? `다른 판 고르기 (후보 ${row.candidates.length}개)`
+                : allPicks
+                  ? '접기'
+                  : row.candidates.length > PICKS_SHOWN
+                    ? `나머지 ${row.candidates.length - PICKS_SHOWN}개 더 보기`
+                    : '접기'}
+            </button>
+          )}
         </div>
       )}
 
