@@ -1,0 +1,11 @@
+[Unit]
+Description=WIMB 새 코드가 올라왔는지 주기적으로 확인
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+# 여러 대가 동시에 깨어나 저장소를 두드리지 않게 흩뜨립니다.
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

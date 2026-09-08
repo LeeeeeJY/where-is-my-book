@@ -1,0 +1,12 @@
+# 사용자 유닛입니다. ~/.config/systemd/user/ 에 두고 systemctl --user 로 다룹니다.
+# 시스템 유닛으로 만들면 sudo 가 필요한데, 이 서버는 sudo 가 불안정한 이력이 있습니다
+# (docs/구글-서버-만들기.md 5-1절). 사용자 유닛은 sudo 없이 켜고 끌 수 있습니다.
+[Unit]
+Description=WIMB API 서버 자동 배포
+
+[Service]
+Type=oneshot
+# 빌드가 10분쯤 걸리는데 타이머는 5분마다 깨웁니다. systemd 는 같은 서비스를 겹쳐 돌리지
+# 않으므로, 앞의 배포가 끝나기 전에 다음 것이 시작되지 않습니다.
+TimeoutStartSec=30min
+ExecStart=%h/where-is-my-book/scripts/vm/deploy.sh
