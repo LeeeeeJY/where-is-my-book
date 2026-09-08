@@ -227,7 +227,7 @@ class BookSearchServiceTest {
     }
 
     @Test
-    @DisplayName("ISBN 이 없어 뺀 자료는 몇 건인지 밝힌다")
+    @DisplayName("ISBN 이 없어 뺀 자료는 몇 건인지, 무엇인지 밝힌다")
     void reportsWhatItHadToDrop() {
         // 조용히 빼면 사용자는 그것을 「그런 책이 없다」로 읽습니다. 찾던 책이 하필
         // 그 자료였을 때 아무 단서도 없이 사라집니다.
@@ -235,6 +235,13 @@ class BookSearchServiceTest {
 
         assertEquals(1, response.works().size());
         assertEquals(1, response.droppedNoIsbn(), "ISBN 이 없어 뺀 한 건을 밝혀야 합니다");
+
+        // **건수만으로는 사용자가 할 수 있는 일이 없습니다.** 어느 책이 빠졌는지 알아야
+        // 도서관에서 직접 찾아보기라도 할 수 있습니다.
+        assertEquals(1, response.droppedBooks().size(), "무엇이 빠졌는지도 말해야 합니다");
+        var dropped = response.droppedBooks().get(0);
+        assertNotNull(dropped.title());
+        assertFalse(dropped.title().isBlank(), "표제가 있어야 알아볼 수 있습니다");
     }
 
     @Test

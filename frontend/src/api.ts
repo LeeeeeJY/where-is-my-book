@@ -20,6 +20,14 @@ export type WorkResult = {
  * 와서, 화면이 그것을 「고른 도서관에는 없습니다」로 그리게 됩니다. 실제로 있는 책을
  * 없다고 답하는 것이라 이 도구의 전제가 무너집니다.
  */
+/** ISBN 을 판별하지 못해 소장을 확인할 수 없는 자료. */
+export type DroppedBook = {
+  title: string | null;
+  author: string | null;
+  publisher: string | null;
+  rawIsbn13: string | null;
+};
+
 export type SearchResponse = {
   works: WorkResult[];
   /** 자르기 전의 전체 저작 수. 지금 보는 것이 전부인지 잘린 것인지 알려면 필요합니다. */
@@ -45,6 +53,14 @@ export type SearchResponse = {
    * <p>화면이 이것을 밝혀야 사용자가 자기가 넣은 것과 다른 결과를 보고 어리둥절하지
    * 않습니다. 재시도가 없었으면 null 입니다.
    */
+  /**
+   * ISBN 을 판별하지 못해 뺀 자료가 **무엇인지.** 전체 건수는 `droppedNoIsbn` 입니다.
+   *
+   * <p>건수만으로는 사용자가 할 수 있는 일이 없습니다. 찾던 책이 하필 그 자료였는지
+   * 알려 주지 않으므로 결국 아무 단서 없이 사라진 것과 같습니다. 표제를 보여 주면
+   * 적어도 「이 책이구나」 하고 도서관에서 직접 찾아볼 수 있습니다.
+   */
+  droppedBooks: DroppedBook[];
   retriedTitle: string | null;
   /**
    * 제목으로는 걸리지 않던 판을 **저자로 되찾아 더했는지.**

@@ -55,6 +55,9 @@ public class BookSearchService {
      */
     private static final int MAX_WORKS = 100;
 
+    /** 빠진 자료를 몇 건까지 실어 보낼지. 전체 건수는 droppedNoIsbn 이 말합니다. */
+    private static final int MAX_DROPPED_SHOWN = 20;
+
     private final Data4LibraryClient client;
     private final HoldingsLookup holdingsLookup;
     private final AtomicInteger workIdSequence = new AtomicInteger(1);
@@ -107,9 +110,34 @@ public class BookSearchService {
                 ranked.size(),
                 found.size(),
                 found.size() - usable.size(),
+                droppedBooksOf(found),
                 retried,
                 recovered,
                 LocalDate.now(SEOUL).toString());
+    }
+
+    /**
+     * ISBN 을 판별하지 못해 뺀 자료가 <b>무엇인지</b>.
+     *
+     * <p>건수만으로는 사용자가 할 수 있는 일이 없습니다. 「몇 건 빠졌다」는 말은 찾던 책이
+     * 하필 그 자료였는지 알려 주지 않으므로, 결국 <b>아무 단서도 없이 사라진 것과
+     * 같습니다.</b> 표제와 출판사를 함께 내보내면 적어도 <b>「이 책이구나」 하고 도서관에서
+     * 직접 찾아볼 수 있습니다.</b>
+     *
+     * <p>소장 조회는 ISBN 으로만 되므로 이 자료들을 저작 목록에 넣을 수는 없습니다.
+     * <b>「어디에 있는지 모르는 책」과 「고른 도서관에 없는 책」을 섞지 않으려면 목록 바깥에
+     * 두고 그 사실을 말해야 합니다.</b>
+     *
+     * <p>많으면 응답만 커지므로 위에서 몇 개만 보냅니다. 전체 건수는 {@code droppedNoIsbn}
+     * 이 이미 말하고 있습니다.
+     */
+    private static List<DroppedBook> droppedBooksOf(List<BookInfo> found) {
+        return found.stream()
+                .filter(book -> book.canonicalIsbn13().isEmpty())
+                .map(book -> new DroppedBook(
+                        book.bookname(), book.authors(), book.publisher(), book.isbn13()))
+                .limit(MAX_DROPPED_SHOWN)
+                .toList();
     }
 
     /**
@@ -482,7 +510,16 @@ public class BookSearchService {
      *                          표기의 책이 목록에 섞여 있는 것이므로, 말하지 않으면 검색이
      *                          엉뚱한 것을 가져왔다고 읽힙니다.
      */
+    /**
+     * ISBN 을 판별하지 못해 뺀 자료 한 건.
+     *
+     * @param rawIsbn13 정보나루가 준 원문. 비어 있는지 잘못된 값인지 갈라 보려면 이것이
+     *                  있어야 합니다. <b>없으면 왜 빠졌는지 영영 알 수 없습니다.</b>
+     */
+    public record DroppedBook(String title, String author, String publisher, String rawIsbn13) {}
+
     public record SearchResponse(List<WorkResult> works, int totalWorks, int foundBooks,
-                                 int droppedNoIsbn, String retriedTitle,
+                                 int droppedNoIsbn, List<DroppedBook> droppedBooks,
+                                 String retriedTitle,
                                  boolean recoveredByAuthor, String asOf) {}
 }

@@ -3,10 +3,35 @@ import { ApiUnavailable, fetchHoldings, fetchLoanStatus, hasCriteria, libraryLin
 import type { LoanStatus } from '../api';
 import { anyHomepageOnly, linkBadge, linkLabel } from '../domain/opacLink';
 import { LOAN_DISCLAIMER, loanPhrase } from '../domain/loanStatus';
-import type { SearchCriteria, SearchResponse, WorkResult } from '../api';
+import type { DroppedBook, SearchCriteria, SearchResponse, WorkResult } from '../api';
 import { holdingState } from '../domain/holdingState';
 import type { HoldingFacts } from '../domain/holdingState';
 import type { Library } from '../domain/types';
+
+/**
+ * ISBN 을 판별하지 못해 뺀 자료를 이름으로 보여 줍니다.
+ *
+ * **건수만 말하면 사용자가 할 수 있는 일이 없습니다.** 찾던 책이 하필 그 자료였는지
+ * 알려 주지 않으므로 결국 아무 단서 없이 사라진 것과 같습니다. 표제와 출판사를 보여 주면
+ * 적어도 「이 책이구나」 하고 도서관에서 직접 찾아볼 수 있습니다.
+ *
+ * **저작 목록에 섞지 않습니다.** 소장을 확인할 수 없는 책이라, 목록에 넣으면 「고른
+ * 도서관에 없는 책」과 구별되지 않습니다. 둘은 사용자가 할 일이 다릅니다.
+ */
+function DroppedList({ books, total }: { books: DroppedBook[]; total: number }) {
+  if (books.length === 0) return null;
+  return (
+    <ul className="dropped-list">
+      {books.map((book, i) => (
+        <li key={`${book.title ?? ''}-${i}`}>
+          {book.title ?? '(제목 없음)'}
+          {book.publisher ? ` · ${book.publisher}` : ''}
+        </li>
+      ))}
+      {total > books.length && <li>… 그 밖에 {total - books.length}건</li>}
+    </ul>
+  );
+}
 
 /** 소장을 동시에 몇 권까지 물어볼지. 남의 서버를 몰아치지 않는 선입니다. */
 const CONCURRENCY = 4;
@@ -314,8 +339,8 @@ function SearchState({
     );
   }
 
-  const { works, totalWorks, foundBooks, droppedNoIsbn, retriedTitle, recoveredByAuthor } =
-    state.response;
+  const { works, totalWorks, foundBooks, droppedNoIsbn, droppedBooks, retriedTitle,
+    recoveredByAuthor } = state.response;
   if (works.length === 0) {
     return (
       <div className="banner banner--warn">
@@ -327,6 +352,7 @@ function SearchState({
             <br />
             찾기는 했지만 ISBN 이 없어 뺀 자료가 {droppedNoIsbn}건 있습니다. 소장 조회를
             ISBN 으로만 할 수 있어서 어느 도서관에 있는지 알려 드릴 수 없는 자료입니다.
+            <DroppedList books={droppedBooks} total={droppedNoIsbn} />
           </>
         )}
         {/*
@@ -462,6 +488,7 @@ function SearchState({
             <br />
             ISBN 이 없어 뺀 자료가 {droppedNoIsbn}건 있습니다. 소장 조회를 ISBN 으로만 할 수
             있어서 어느 도서관에 있는지 알려 드릴 수 없는 자료입니다.
+            <DroppedList books={droppedBooks} total={droppedNoIsbn} />
           </>
         )}
       </p>
