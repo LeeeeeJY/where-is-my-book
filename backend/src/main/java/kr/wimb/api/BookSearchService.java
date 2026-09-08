@@ -128,8 +128,14 @@ public class BookSearchService {
      * 되찾습니다. 우리 정규화가 공백을 지우므로 「레미제라블」과 「레 미제라블」의 키가 같아지고,
      * 함께 딸려 온 「파리의 노트르담」은 키가 달라 걸러집니다.
      *
-     * <p><b>호출은 한 번만 늘어납니다.</b> 제목이 그대로 맞은 책이 이미 있으면 아예 부르지
-     * 않으므로, 평소 검색에는 영향이 없습니다.
+     * <p><b>붙여 쓴 질의에만 부릅니다.</b> 처음에는 「제목이 그대로 맞은 책이 하나도 없을
+     * 때」로 걸었는데, 배포해 놓고 불러 보니 <b>한 번도 발동하지 않았습니다.</b>
+     * 「레미제라블」로 찾으면 그 제목의 책이 웅진씽크빅·가나출판사·어문각 등 열다섯 개나
+     * 나옵니다. 없는 것은 「그 제목의 책」이 아니라 <b>띄어 쓴 표기의 판</b>이었습니다.
+     * 조건을 결과의 많고 적음이 아니라 <b>질의의 모양</b>에 걸어야 하는 이유입니다.
+     *
+     * <p>그래서 호출은 붙여 쓴 제목으로 찾을 때만 한 번 늘어납니다. 띄어 쓴 질의는
+     * 정보나루가 어절로 맞춰 주므로 그대로 둡니다.
      */
     private List<BookInfo> recoverByAuthor(Data4LibraryClient.BookQuery query,
                                            List<BookInfo> found) {
@@ -138,10 +144,13 @@ public class BookSearchService {
         // 한 건도 없으면 저자를 알아낼 수가 없습니다. 그건 respacedTitle 이 맡습니다.
         if (found.isEmpty()) return found;
 
+        // **띄어 쓴 질의는 되찾을 것이 없습니다.** 정보나루가 어절 단위로 맞춰 주므로
+        // 「마의 산」은 「마의 산」도 「마의산」도 찾아냅니다. 구조적으로 놓치는 것은
+        // **붙여 쓴 질의**뿐입니다. 어절 하나로 취급되어 띄어 쓴 서명과 영영 맞지 않습니다.
+        if (query.title().trim().contains(" ")) return found;
+
         String wanted = BibNormalizer.parseTitle(query.title()).titleKeyCore();
         if (wanted.isEmpty()) return found;
-        // 제목이 그대로 맞은 책이 하나라도 있으면 놓친 것이 없다고 봅니다.
-        if (found.stream().anyMatch(b -> wanted.equals(titleKeyOf(b)))) return found;
 
         String author = primaryAuthorOf(found);
         if (author == null) return found;

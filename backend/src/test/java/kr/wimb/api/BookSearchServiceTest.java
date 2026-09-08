@@ -376,6 +376,23 @@ class BookSearchServiceTest {
         </response>
         """;
 
+
+    /** 붙여 쓴 표기의 책은 있지만 띄어 쓴 판이 없는 응답. 실제 「레미제라블」 검색의 모양입니다. */
+    private static final String LESMIS_SAME_TITLE = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <response>
+          <docs>
+            <doc>
+              <bookname><![CDATA[레미제라블]]></bookname>
+              <authors><![CDATA[빅토르 위고 지음]]></authors>
+              <publisher><![CDATA[웅진씽크빅]]></publisher>
+              <publication_year>2010</publication_year>
+              <isbn13>9788901109954</isbn13>
+            </doc>
+          </docs>
+        </response>
+        """;
+
     /** 저자로 되찾으면 낱권이 나오는데, 같은 저자의 다른 책도 함께 옵니다. */
     private static final String LESMIS_BY_AUTHOR = """
         <?xml version="1.0" encoding="UTF-8"?>
@@ -439,12 +456,13 @@ class BookSearchServiceTest {
     }
 
     /**
-     * <b>제목이 그대로 맞은 책이 이미 있으면 되찾기를 부르지 않습니다.</b> 평소 검색마다
-     * 호출이 하나씩 늘면 하루 예산이 그만큼 빨리 사라집니다.
+     * <b>띄어 쓴 질의에는 되찾기를 부르지 않습니다.</b> 정보나루가 어절 단위로 맞춰 주므로
+     * 구조적으로 놓치는 것이 없고, 평소 검색마다 호출이 하나씩 늘면 하루 예산이 그만큼
+     * 빨리 사라집니다.
      */
     @Test
-    @DisplayName("제목이 맞은 책이 있으면 저자로 다시 부르지 않는다")
-    void doesNotRecoverWhenTitleAlreadyMatched() {
+    @DisplayName("띄어 쓴 제목으로 찾을 때는 저자로 다시 부르지 않는다")
+    void doesNotRecoverForSpacedQuery() {
         var calls = new java.util.concurrent.atomic.AtomicInteger();
         var budget = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 1000),
                 Clock.fixed(Instant.parse("2026-09-05T00:00:00Z"), ZoneId.of("UTC")));
@@ -455,10 +473,33 @@ class BookSearchServiceTest {
         var service = new BookSearchService(client, new HoldingsLookup(
                 (isbn, region) -> List.of(), HoldingsLookup.RegionModeStore.documented()));
 
-        var response = service.search("코스모스");
+        var response = service.search("칼 세이건의 코스모스");
 
-        assertEquals(1, calls.get(), "제목이 맞았으므로 한 번만 불러야 합니다");
+        assertEquals(1, calls.get(), "띄어 쓴 질의이므로 한 번만 불러야 합니다");
         assertFalse(response.recoveredByAuthor());
+    }
+
+    /**
+     * <b>이 검사가 없어서 한 번 헛짚었습니다.</b> 처음에는 「제목이 그대로 맞은 책이 하나도
+     * 없을 때」만 되찾았는데, 배포해 놓고 불러 보니 한 번도 발동하지 않았습니다.
+     * 「레미제라블」로 찾으면 그 제목의 책이 웅진씽크빅·가나출판사·어문각 등 열다섯 개나
+     * 나옵니다. 없는 것은 「그 제목의 책」이 아니라 <b>띄어 쓴 표기의 판</b>이었습니다.
+     */
+    @Test
+    @DisplayName("같은 제목의 다른 책이 이미 있어도 띄어 쓴 판을 되찾는다")
+    void recoversEvenWhenSameTitleExists() {
+        var budget = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 1000),
+                Clock.fixed(Instant.parse("2026-09-05T00:00:00Z"), ZoneId.of("UTC")));
+        var client = new Data4LibraryClient(
+                uri -> uri.toString().contains("author=") ? LESMIS_BY_AUTHOR : LESMIS_SAME_TITLE,
+                "테스트키", budget);
+        var service = new BookSearchService(client, new HoldingsLookup(
+                (isbn, region) -> List.of(), HoldingsLookup.RegionModeStore.documented()));
+
+        var response = service.search("레미제라블");
+
+        assertTrue(response.recoveredByAuthor(),
+                "제목이 맞는 책이 있어도 띄어 쓴 판은 되찾아야 합니다");
     }
 
 }
