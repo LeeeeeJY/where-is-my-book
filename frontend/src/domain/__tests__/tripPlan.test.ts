@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { countByState, planTrip, rankLibraries } from '../tripPlan';
+import { countByState, fullCoverage, planTrip, rankLibraries } from '../tripPlan';
 import type { BookRow } from '../tripPlan';
 import type { Library } from '../types';
 
@@ -126,3 +126,31 @@ describe('한 곳에서 다 빌리기', () => {
     expect(planTrip(rows, [판교, 분당, 중원])[0].name).toBe('분당도서관');
   });
 });
+
+describe('한 곳에서 다 빌릴 수 있는 도서관을 고른다', () => {
+  it('어딘가에 있는 책 전부를 가진 도서관만 남긴다', () => {
+    const rows = [
+      held('a', '코스모스', 중원.libCode, 분당.libCode),
+      held('b', '사피엔스', 중원.libCode, 판교.libCode),
+    ];
+    expect(fullCoverage(rows, LIBS).map((l) => l.libCode)).toEqual([중원.libCode]);
+  });
+
+  it('여럿이면 고른 순서 그대로 전부 돌려준다', () => {
+    const rows = [held('a', '코스모스', 중원.libCode, 분당.libCode), held('b', '사피엔스', 분당.libCode, 중원.libCode)];
+    expect(fullCoverage(rows, LIBS).map((l) => l.libCode)).toEqual([중원.libCode, 분당.libCode]);
+  });
+
+  it('확인하지 못한 책과 없는 책은 세지 않는다', () => {
+    // 확인 불가를 「그 도서관에 없다」로 세면 다 빌릴 수 있는 곳이 사라지고,
+    // 「있다」로 세면 없는 책을 있다고 답하게 됩니다. 어느 쪽에도 넣지 않습니다.
+    const rows = [held('a', '코스모스', 중원.libCode), unknown('b', '사피엔스'), none('c', '데미안')];
+    expect(fullCoverage(rows, LIBS).map((l) => l.libCode)).toEqual([중원.libCode]);
+  });
+
+  it('어딘가에 있는 책이 없으면 비어 있다', () => {
+    expect(fullCoverage([none('a', '코스모스'), unknown('b', '사피엔스')], LIBS)).toEqual([]);
+    expect(fullCoverage([], LIBS)).toEqual([]);
+  });
+});
+

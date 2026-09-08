@@ -2,7 +2,7 @@ package kr.wimb.api;
 
 import kr.wimb.data4library.Data4LibraryClient;
 import kr.wimb.data4library.RegionCode;
-import kr.wimb.holdings.HoldingCache;
+import kr.wimb.holdings.CachingHoldingsClient;
 import kr.wimb.holdings.HoldingsLookup;
 import kr.wimb.ingest.InMemoryApiBudget;
 import org.junit.jupiter.api.DisplayName;
@@ -11,6 +11,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.net.URI;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.util.ArrayList;
@@ -29,11 +30,15 @@ import static org.junit.jupiter.api.Assertions.*;
 class WimbControllerTest {
 
     private static String libsOf(String... codes) {
+        return libsAt("서울특별시 강남구 어디로 1", codes);
+    }
+
+    private static String libsAt(String address, String... codes) {
         var sb = new StringBuilder("<response><libs>");
         for (String code : codes) {
             sb.append("<lib><libCode>").append(code).append("</libCode>")
               .append("<libName><![CDATA[도서관").append(code).append("]]></libName>")
-              .append("<address><![CDATA[서울특별시 강남구 어디로 1]]></address></lib>");
+              .append("<address><![CDATA[").append(address).append("]]></address></lib>");
         }
         return sb.append("</libs></response>").toString();
     }
@@ -44,16 +49,15 @@ class WimbControllerTest {
         static final String ALL = "ALL";
         final List<String> asked = new ArrayList<>();
         java.util.function.Predicate<String> failsFor = region -> false;
+        /** 시도별로 다른 주소를 돌려주고 싶을 때. null 이면 서울 주소를 씁니다. */
+        java.util.function.Function<String, String> addressFor = region -> null;
 
         @Override public String get(URI uri) {
             String url = uri.toString();
             if (!url.contains("region=")) {
-                // 전국을 한 번에 받는 길입니다. 어느 시도든 문제가 있는 상황이면 이쪽도
-                // 실패한다고 봅니다. 그래야 시도별로 나눠 받는 길로 넘어갑니다.
+                // 전국을 한 번에 받는 길입니다. 이 길로는 각 도서관이 어느 시도에 속하는지
+                // 알 수 없으므로 컨트롤러가 더는 쓰지 않습니다. 부르면 기록만 남깁니다.
                 asked.add(ALL);
-                boolean anyBroken = java.util.Arrays.stream(RegionCode.values())
-                        .anyMatch(r -> failsFor.test(r.code()));
-                if (anyBroken) throw new IllegalStateException("전국 조회 실패");
                 return libsOf(java.util.Arrays.stream(RegionCode.values())
                         .map(r -> r.code() + "0001").toArray(String[]::new));
             }
@@ -61,7 +65,8 @@ class WimbControllerTest {
             asked.add(region);
             if (failsFor.test(region)) throw new IllegalStateException("이 지역만 실패");
             // 지역마다 도서관 하나씩 돌려줍니다.
-            return libsOf(region + "0001");
+            String address = addressFor.apply(region);
+            return address == null ? libsOf(region + "0001") : libsAt(address, region + "0001");
         }
     }
 
@@ -94,14 +99,31 @@ class WimbControllerTest {
                 Clock.fixed(Instant.parse("2026-09-06T00:00:00Z"), ZoneId.of("UTC")));
         var client = new Data4LibraryClient(transport, "테스트키", budget);
         var search = new BookSearchService(client, new HoldingsLookup(
-                (isbn, region) -> List.of(), HoldingsLookup.RegionModeStore.documented()), new HoldingCache(1000, Clock.systemUTC()));
+                (isbn, region) -> List.of(), HoldingsLookup.RegionModeStore.documented()));
         return new WimbController(client, search, new MultiCheckService(search), budget,
                 kr.wimb.opac.OpacTemplates.load(),
+                new CachingHoldingsClient((isbn, region) -> List.of(), Duration.ofHours(6), 100,
+                        Clock.systemUTC()),
                 Clock.fixed(Instant.parse("2026-09-06T00:00:00Z"), ZoneId.of("UTC")));
     }
 
     private static WimbController controller(RegionAware transport) {
         return controller(transport, new AtomicReference<>(Instant.parse("2026-09-06T00:00:00Z")));
+    }
+
+    /** 소장 조회가 어느 지역을 물었는지 보려면 가짜 소장 클라이언트를 끼워야 합니다. */
+    private static WimbController controller(RegionAware transport,
+                                             HoldingsLookup.HoldingsClient holdings) {
+        var budget = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 100_000),
+                Clock.fixed(Instant.parse("2026-09-06T00:00:00Z"), ZoneId.of("UTC")));
+        var client = new Data4LibraryClient(transport, "테스트키", budget);
+        var search = new BookSearchService(client, new HoldingsLookup(
+                holdings, HoldingsLookup.RegionModeStore.documented()));
+        return new WimbController(client, search, new MultiCheckService(search), budget,
+                kr.wimb.opac.OpacTemplates.load(),
+                new CachingHoldingsClient((isbn, region) -> List.of(), Duration.ofHours(6), 100,
+                        Clock.systemUTC()),
+                Clock.fixed(Instant.parse("2026-09-06T00:00:00Z"), ZoneId.of("UTC")));
     }
 
     /** 재시도 시각을 넘겨 보려면 시계를 움직일 수 있어야 합니다. */
@@ -110,27 +132,78 @@ class WimbControllerTest {
                 Clock.fixed(Instant.parse("2026-09-06T00:00:00Z"), ZoneId.of("UTC")));
         var client = new Data4LibraryClient(transport, "테스트키", budget);
         var search = new BookSearchService(client, new HoldingsLookup(
-                (isbn, region) -> List.of(), HoldingsLookup.RegionModeStore.documented()), new HoldingCache(1000, Clock.systemUTC()));
+                (isbn, region) -> List.of(), HoldingsLookup.RegionModeStore.documented()));
         Clock moving = new Clock() {
             public ZoneId getZone() { return ZoneId.of("UTC"); }
             public Clock withZone(ZoneId zone) { return this; }
             public Instant instant() { return now.get(); }
         };
         return new WimbController(client, search, new MultiCheckService(search), budget,
-                kr.wimb.opac.OpacTemplates.load(), moving);
+                kr.wimb.opac.OpacTemplates.load(), new CachingHoldingsClient((isbn, region) -> List.of(), Duration.ofHours(6), 100,
+                        Clock.systemUTC()), moving);
     }
 
     @Test
-    @DisplayName("정상일 때는 전국을 한 번에 받고 시도별로 부르지 않는다")
-    void healthyPathAsksOnceForEveryRegion() {
-        // 시도 17번을 하나씩 도는 동안 왕복이 그만큼 쌓입니다. libSrch 의 region 은 선택
-        // 항목이라 한 번으로 끝낼 수 있고, 그 시간을 사람이 기다릴 이유가 없습니다.
+    @DisplayName("시도별로 받아 각 도서관의 소속을 정보나루 기준으로 기억한다")
+    void loadsPerRegionSoEveryLibraryHasASourceRegion() {
+        // 전국을 한 번에 받으면 호출은 줄지만 각 도서관이 정보나루 기준으로 어느 시도인지
+        // 알 수 없습니다. 소장 조회의 region 은 그 소속으로 걸러지므로, 주소를 우리가
+        // 읽어 낸 값과 어긋나는 도서관은 물어보지도 않은 채 「없음」이 됩니다.
         var transport = new RegionAware();
         var libraries = controller(transport).libraries();
 
         assertEquals(RegionCode.values().length, libraries.size());
-        assertEquals(List.of(RegionAware.ALL), transport.asked,
-                "전국 조회 한 번으로 끝나야 하는데 시도별로도 불렀습니다: " + transport.asked);
+        assertFalse(transport.asked.contains(RegionAware.ALL),
+                "전국 한 번에 받기로는 소속을 알 수 없습니다: " + transport.asked);
+        assertEquals(RegionCode.values().length, transport.asked.size(),
+                "시도마다 한 번씩만 불러야 합니다: " + transport.asked);
+    }
+
+    @Test
+    @DisplayName("주소에서 시도를 못 읽어도 정보나루가 알려 준 소속으로 물어본다")
+    void asksWithTheRegionData4LibraryAssigned() {
+        // 「고양시립백석도서관」은 주소가 「고양시 …」로 시작해 시도를 뽑지 못했고, 그래서
+        // 확인 불가로만 답할 수 있었습니다. 시도별 목록에 들어온 시도가 곧 소속이므로
+        // 이제는 경기도로 물어볼 수 있고, 지역 트리에도 들어갑니다.
+        var transport = new RegionAware();
+        transport.addressFor = region -> region.equals("31") ? "고양시 일산동구 중앙로 1" : null;
+        var askedRegions = new ArrayList<String>();
+        var controller = controller(transport, (isbn, region) -> {
+            askedRegions.add(region);
+            return List.of("310001");
+        });
+
+        var goyang = controller.libraries().stream()
+                .filter(l -> l.libCode().equals("310001")).findFirst().orElseThrow();
+        assertEquals("경기도", goyang.sido(), "소속을 알았으면 지역 트리에도 들어가야 합니다");
+        assertEquals("고양시", goyang.sigungu());
+
+        var holdings = controller.holdings(new WimbController.HoldingsRequest(
+                List.of("9788983711892"), List.of("310001")));
+
+        assertEquals(List.of("31"), askedRegions, "정보나루가 알려 준 소속으로 물어야 합니다");
+        assertTrue(holdings.complete(), "물어볼 수 있었으므로 빠짐없이 확인한 것입니다");
+        assertEquals(List.of("310001"), holdings.libCodes());
+    }
+
+    @Test
+    @DisplayName("주소는 서울인데 정보나루가 경기로 분류한 도서관은 경기로 물어본다")
+    void sourceRegionWinsOverTheAddress() {
+        // 둘이 어긋나면 소장 조회가 걸러지는 기준은 정보나루 쪽입니다. 주소로 물으면
+        // 그 도서관은 응답에 없고, 화면에는 「없음」으로 나갑니다.
+        var transport = new RegionAware();
+        transport.addressFor = region -> region.equals("31") ? "서울특별시 강남구 어디로 1" : null;
+        var askedRegions = new ArrayList<String>();
+        var controller = controller(transport, (isbn, region) -> {
+            askedRegions.add(region);
+            return List.of();
+        });
+        controller.libraries();
+
+        controller.holdings(new WimbController.HoldingsRequest(
+                List.of("9788983711892"), List.of("310001")));
+
+        assertEquals(List.of("31"), askedRegions);
     }
 
     @Test

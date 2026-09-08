@@ -24,17 +24,15 @@ wimb:
     daily-call-budget: 25000
     # 상대 서버에 대한 예의이자 차단을 피하는 장치입니다.
     min-request-interval-ms: 120
+    # 정보나루에 동시에 나가 있을 수 있는 요청 수. 호출 하나가 3~5초 걸려서 겹치지 않으면
+    # 스무 권 확인에 1분이 걸립니다. 정보나루가 느려지거나 오류를 주면 이 값을 먼저 줄이세요.
+    #   WIMB_DATA4LIBRARY_MAX_IN_FLIGHT=6
+    max-in-flight: 12
   holdings:
     # 소장 캐시 스냅샷을 두는 곳. **컨테이너 안에 두면 재배포 때 함께 사라집니다.**
     # 이미지가 WIMB_HOLDINGS_CACHE_PATH=/data/... 로 덮고, 배포 스크립트가 거기에
     # 볼륨을 붙입니다. 아래 값은 로컬에서 개발할 때 쓰는 상대 경로입니다.
     cache-path: data/holding-cache.tsv.gz
-    # 실측에서 5만 항목이 소장 179곳 기준 45MB 였습니다. 메모리가 1GB 뿐인 기계에서
-    # 도는 것을 전제로 잡은 상한입니다.
-    cache-max-entries: 50000
-    # 이 나이를 넘기면 다시 부릅니다. **버리는 만료가 아닙니다.** 다시 부르지 못하면
-    # 옛 값을 그대로 쓰고, 화면에는 그 값을 받은 날짜가 함께 나갑니다.
-    fresh-for-days: 7
     # 종료 훅만으로는 부족해서 주기적으로도 저장합니다. 배포 스크립트가 컨테이너를
     # 바꿀 때 쓰는 docker rm -f 는 SIGKILL 이라 종료 훅이 돌 기회가 없습니다.
     save-interval-ms: 60000

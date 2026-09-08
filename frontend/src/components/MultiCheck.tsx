@@ -1,17 +1,28 @@
 import { useMemo, useRef, useState } from 'react';
-import { ApiUnavailable, fetchHoldings, libraryLink, olderAsOf, resolveLines } from '../api';
+import { ApiUnavailable, fetchHoldings, libraryLink, resolveLines } from '../api';
 import { linkLabel } from '../domain/opacLink';
+import { olderAsOf } from '../domain/asOf';
 import type { LineResult, WorkResult } from '../api';
 import { holdingState } from '../domain/holdingState';
-import { countByState, planTrip, rankLibraries } from '../domain/tripPlan';
+import { countByState, fullCoverage, planTrip, rankLibraries } from '../domain/tripPlan';
 import type { BookRow } from '../domain/tripPlan';
-import type { Library } from '../domain/types';
+import type { Library, UserPosition } from '../domain/types';
+import { FullCoverage } from './FullCoverage';
+import { LibraryLoanSweep, LoanCheck } from './LoanCheck';
+import type { SweepBook } from './LoanCheck';
+import { ProgressBar } from './ProgressBar';
 
 /** 한 번에 확인할 수 있는 줄 수. 백엔드의 LineParser.MAX_LINES 와 같습니다. */
 const MAX_LINES = 50;
 
-/** 동시에 보낼 소장 조회 수. 우리 서버와 정보나루 양쪽에 예의를 지킵니다. */
-const CONCURRENCY = 4;
+/**
+ * 동시에 보낼 소장 조회 수.
+ *
+ * <p>정보나루의 소장 조회는 한 번에 4~5초라 넷씩 물으면 서른 권에 몇 분이 걸립니다.
+ * 정보나루에 한꺼번에 나가는 요청 수는 서버가 따로 묶어 두므로, 여기서 늘리는 것은 우리
+ * 서버로 가는 요청일 뿐입니다.
+ */
+const CONCURRENCY = 8;
 
 type Row = LineResult & {
   /** 모호한 줄에서 사용자가 고른 후보 */
@@ -27,6 +38,11 @@ type Row = LineResult & {
   holdings: { libCodes: string[]; complete: boolean; unreadable: boolean } | null;
   /** 조회를 시도했지만 답을 받지 못했는지 */
   failed: boolean;
+  /**
+   * 이 줄만 따로 조회하는 중인지. 후보를 바꾸면 그 줄만 다시 묻는데, 그동안 「위의 확인을
+   * 누르면」이라고 적혀 있었습니다. 눌러야 하는 것이 아니라 기다리면 되는 것입니다.
+   */
+  loading: boolean;
 };
 
 type Phase =
@@ -59,7 +75,7 @@ type Phase =
  */
 const INPUT_EXAMPLES = [
   '레 미제라블',
-  '마담 보바리 - 플로베르',
+  '마담 보바리 - 귀스타브 플로베르',
   '목로주점 - 에밀 졸라',
   '향수 - 파트리크 쥐스킨트',
   '9788932900209',
@@ -68,9 +84,12 @@ const INPUT_EXAMPLES = [
 export function MultiCheck({
   libraries,
   selected,
+  position,
 }: {
   libraries: readonly Library[];
   selected: ReadonlySet<string>;
+  /** 「내 주변」이 잡은 위치. 다 빌릴 수 있는 도서관이 여럿일 때 가까운 순으로 세웁니다. */
+  position: UserPosition | null;
 }) {
   const [text, setText] = useState('');
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' });
@@ -124,7 +143,7 @@ export function MultiCheck({
     // 줄 해석은 외부 호출 없이 끝나므로 여기서 곧바로 목록을 그립니다.
     // 소장 조회는 아래에서 도착하는 대로 채워 넣습니다.
     const initial: Row[] = resolved.lines.map((line) => ({
-      ...line, chosen: 0, picked: false, holdings: null, failed: false,
+      ...line, chosen: 0, picked: false, holdings: null, failed: false, loading: false,
     }));
     setRows(initial);
     setPhase({ kind: 'ready', truncated: resolved.truncated });
@@ -161,6 +180,8 @@ export function MultiCheck({
         try {
           const holdings = await fetchHoldings(work.isbn13List, libCodes);
           if (token.cancelled) return;
+          // 서버가 답을 몇 시간 기억해 두므로 줄마다 날짜가 다를 수 있습니다. 가장 오래된
+          // 날짜를 말해야 옛 답이 새 답처럼 읽히지 않습니다.
           setAsOf((prev) => olderAsOf(prev, holdings.asOf));
           setRows((prev) => replace(prev, index, { holdings, failed: false }));
         } catch {
@@ -177,7 +198,7 @@ export function MultiCheck({
 
   /** 지금 고른 도서관 기준으로 처음부터 다시 물어봅니다. */
   function recheck() {
-    const cleared = rows.map((row) => ({ ...row, holdings: null, failed: false }));
+    const cleared = rows.map((row) => ({ ...row, holdings: null, failed: false, loading: false }));
     setRows(cleared);
     void loadHoldings(cleared, selectedKey);
   }
@@ -197,19 +218,22 @@ export function MultiCheck({
   );
 
   function choose(index: number, candidate: number) {
-    setRows((prev) =>
-      replace(prev, index, { chosen: candidate, picked: true, holdings: null, failed: false }));
     // 고른 책이 바뀌었으므로 그 줄만 다시 물어봅니다. 다만 도서관 선택이 이미 어긋나
     // 있으면 지금 물어봐야 그 줄만 기준이 달라집니다. 그때는 「다시 확인」에 맡깁니다.
     const row = rows[index];
     const work = row?.candidates[candidate];
-    if (!work || selected.size === 0 || stale) return;
+    const willAsk = Boolean(work) && selected.size > 0 && !stale;
+    setRows((prev) =>
+      replace(prev, index, {
+        chosen: candidate, picked: true, holdings: null, failed: false, loading: willAsk,
+      }));
+    if (!willAsk || !work) return;
     fetchHoldings(work.isbn13List, [...selected]).then(
       (holdings) => {
         setAsOf((prev) => olderAsOf(prev, holdings.asOf));
-        setRows((prev) => replace(prev, index, { holdings, failed: false }));
+        setRows((prev) => replace(prev, index, { holdings, failed: false, loading: false }));
       },
-      () => setRows((prev) => replace(prev, index, { holdings: null, failed: true })),
+      () => setRows((prev) => replace(prev, index, { holdings: null, failed: true, loading: false })),
     );
   }
 
@@ -219,7 +243,26 @@ export function MultiCheck({
   );
   const counts = countByState(bookRows);
   const ranks = useMemo(() => rankLibraries(bookRows, selectedLibraries), [bookRows, selectedLibraries]);
+  /** 도서관별 소장에서 대출 상태를 한 번에 물어볼 때, 줄 식별자로 고른 책을 되찾습니다. */
+  const sweepBooks = useMemo(() => {
+    const map = new Map<string, SweepBook>();
+    for (const row of shown) {
+      const work = row.candidates[row.chosen] ?? row.candidates[0];
+      if (work) map.set(String(row.lineNo), { key: String(row.lineNo), title: work.title, isbn13List: work.isbn13List });
+    }
+    return map;
+  }, [shown]);
   const plan = useMemo(() => planTrip(bookRows, selectedLibraries), [bookRows, selectedLibraries]);
+  /** 어딘가에 있는 책 전부를 가진 도서관. 여럿이면 거리와 대출 상태로 세웁니다. */
+  const full = useMemo(() => fullCoverage(bookRows, selectedLibraries), [bookRows, selectedLibraries]);
+  /** 그 도서관들에서 대출 상태를 물어볼 책. 어딘가에 있는 것으로 확인된 책 전부입니다. */
+  const heldBooks = useMemo(
+    () => bookRows
+      .filter((row) => row.state === 'held')
+      .map((row) => sweepBooks.get(row.key))
+      .filter((book): book is SweepBook => book !== undefined),
+    [bookRows, sweepBooks],
+  );
   const stillChecking = checking;
 
   // 쉰 줄 한도가 있는 화면이라 지금 몇 줄인지 그 자리에서 보여야 합니다.
@@ -317,6 +360,9 @@ export function MultiCheck({
           {plan.length > 0 && (
             <TripPanel
               plan={plan}
+              full={full}
+              books={heldBooks}
+              position={position}
               checking={stillChecking}
               byCode={byCode}
               checkedTotal={counts.held + counts.none}
@@ -324,7 +370,7 @@ export function MultiCheck({
           )}
 
           {ranks.length > 0 && (
-            <LibraryRanks ranks={ranks} checking={stillChecking} byCode={byCode} />
+            <LibraryRanks ranks={ranks} checking={stillChecking} byCode={byCode} sweepBooks={sweepBooks} />
           )}
 
           {/*
@@ -364,19 +410,27 @@ function Progress({
 }) {
   const done = total - counts.pending;
   return (
-    <p className="asof">
-      {checking
-        ? `${total}권 중 ${done}권 확인됨`
-        : `${total}권을 확인했습니다`}
-      {asOf && ` · 소장 정보 ${formatAsOf(asOf)} 조회 기준`} · 출처: 도서관 정보나루
-      {counts.unknown > 0 && (
-        <>
-          <br />
-          <strong>{counts.unknown}권은 확인하지 못했습니다.</strong> 없다는 뜻이 아니므로
-          아래 집계에서 빼 두었습니다.
-        </>
-      )}
-    </p>
+    <>
+      {/*
+        진행 중에는 막대가 어디까지 왔는지 말합니다. 서른 권이면 정보나루 호출이 수십 번이라
+        몇 초가 걸리는데, 숫자만 바뀌는 것보다 막대가 차오르는 편이 멈추지 않았다는 것을
+        한눈에 보여 줍니다.
+      */}
+      {checking && <ProgressBar done={done} total={total} label="소장을 확인하는 중" />}
+      <p className="asof">
+        {checking
+          ? `${total}권 중 ${done}권 확인됨`
+          : `${total}권을 확인했습니다`}
+        {asOf && ` · 소장 정보 ${formatAsOf(asOf)} 조회 기준`} · 출처: 도서관 정보나루
+        {counts.unknown > 0 && (
+          <>
+            <br />
+            <strong>{counts.unknown}권은 확인하지 못했습니다.</strong> 없다는 뜻이 아니므로
+            아래 집계에서 빼 두었습니다.
+          </>
+        )}
+      </p>
+    </>
   );
 }
 
@@ -386,9 +440,14 @@ function Progress({
  * "한 번 방문해서 여러 권을 빌린다"는 실제 행동에 가장 직접적으로 답하는 출력입니다.
  */
 function TripPanel({
-  plan, checking, byCode, checkedTotal,
+  plan, full, books, position, checking, byCode, checkedTotal,
 }: {
   plan: ReturnType<typeof planTrip>;
+  /** 어딘가에 있는 책 전부를 가진 도서관. 비어 있으면 여러 곳을 엮은 plan 을 보입니다. */
+  full: Library[];
+  /** 그 도서관들에서 대출 상태를 물어볼 책 */
+  books: SweepBook[];
+  position: UserPosition | null;
   checking: boolean;
   byCode: Map<string, Library>;
   /** 분모는 확인이 끝난 책 수입니다. 확인하지 못한 책을 "못 빌리는 책"으로 세면 안 됩니다. */
@@ -400,36 +459,48 @@ function TripPanel({
         한 곳에서 다 빌리기
         {checking && <span className="muted"> (확인 중이라 바뀔 수 있습니다)</span>}
       </h3>
-      <ol className="trip__list">
-        {plan.map((step, index) => (
-          <li key={step.libCode}>
-            <span className="trip__count">{index + 1}곳</span>
-            {/*
-              「+」는 이 도서관을 더한다는 뜻이고, 뒤의 숫자는 거기까지 들렀을 때
-              빌릴 수 있는 누적 권수입니다. 둘을 붙여 쓰면 "3권을 더 빌린다"로 읽힙니다.
-            */}
-            <span>
-              {index === 0 ? '' : '+ '}
-              <a href={libraryLink(step.libCode)} target="_blank" rel="noreferrer">
-                {byCode.get(step.libCode)?.name ?? step.name}
-              </a>
-            </span>
-            <strong className="trip__score">
-              {step.cumulative}/{checkedTotal}권
-            </strong>
-          </li>
-        ))}
-      </ol>
+      {/*
+        **전부 가진 도서관이 있으면 그 도서관들을 전부 보여 줍니다.** 예전에는 이름 순으로
+        한 곳만 골라 보여 줘서, 같은 책을 전부 가진 더 가까운 도서관이 있어도 알 수 없었습니다.
+        실제로 갈 곳을 고르는 기준은 거리와 빌릴 수 있는지이므로 그 둘로 세웁니다.
+        한 곳도 없을 때만 여러 곳을 엮은 순서를 보입니다.
+      */}
+      {full.length > 0 ? (
+        <FullCoverage libraries={full} books={books} position={position} checking={checking} />
+      ) : (
+        <ol className="trip__list">
+          {plan.map((step, index) => (
+            <li key={step.libCode}>
+              {/*
+                「+」는 이 도서관을 더한다는 뜻이고, 뒤의 숫자는 거기까지 들렀을 때
+                빌릴 수 있는 누적 권수입니다. 둘을 붙여 쓰면 "3권을 더 빌린다"로 읽힙니다.
+                「1곳」 「2곳」 같은 차례 표시는 뺐습니다. 한 줄뿐일 때 아무 뜻이 없었습니다.
+              */}
+              <span>
+                {index === 0 ? '' : '+ '}
+                <a href={libraryLink(step.libCode)} target="_blank" rel="noreferrer">
+                  {byCode.get(step.libCode)?.name ?? step.name}
+                </a>
+              </span>
+              <strong className="trip__score">
+                {step.cumulative}/{checkedTotal}권
+              </strong>
+            </li>
+          ))}
+        </ol>
+      )}
     </div>
   );
 }
 
 function LibraryRanks({
-  ranks, checking, byCode,
+  ranks, checking, byCode, sweepBooks,
 }: {
   ranks: ReturnType<typeof rankLibraries>;
   checking: boolean;
   byCode: Map<string, Library>;
+  /** 줄 식별자로 고른 책을 되찾는 표. 그 도서관에 있는 책의 대출 상태를 한 번에 물을 때 씁니다. */
+  sweepBooks: Map<string, SweepBook>;
 }) {
   const [expanded, setExpanded] = useState<string | null>(null);
   return (
@@ -464,6 +535,20 @@ function LibraryRanks({
                 <div className="rank__detail muted">
                   <p>소장: {rank.held.join(' · ')}</p>
                   {rank.missing.length > 0 && <p>없음: {rank.missing.join(' · ')}</p>}
+                  {/*
+                    「이 도서관에 가면 이 중에 몇 권을 빌릴 수 있나」가 여러 권 확인의 실제
+                    행동입니다. 누를 때만, 이 도서관에 있는 책 수만큼만 부릅니다. 확인이
+                    끝나기 전에는 목록이 바뀌므로 열지 않습니다.
+                  */}
+                  {!checking && (
+                    <LibraryLoanSweep
+                      key={rank.heldKeys.join(',')}
+                      libCode={rank.libCode}
+                      books={rank.heldKeys
+                        .map((key) => sweepBooks.get(key))
+                        .filter((book): book is SweepBook => book !== undefined)}
+                    />
+                  )}
                 </div>
               )}
             </li>
@@ -683,7 +768,7 @@ function LineHoldings({
       <p className="holding muted">
         {selectedCount === 0
           ? '도서관을 고르면 어디에 있는지 확인합니다.'
-          : checking
+          : checking || row.loading
             ? '확인 중입니다.'
             : '위의 「확인」을 누르면 알려 드립니다.'}
       </p>
@@ -702,37 +787,47 @@ function LineHoldings({
 
   const held = row.holdings?.libCodes ?? [];
   return (
-    <p className="holding holding--held">
-      <strong className="holding__where">있는 곳</strong>{' '}
-      {held.map((code, i) => (
-        <span key={code}>
-          {i > 0 && ' · '}
-          {/* 도서관 이름을 누르면 그 도서관으로 갑니다. 정보나루 책 정보는 따로 답니다. */}
-          <a
-            href={libraryLink(code, work.isbn13List[0], work.title)}
-            target="_blank"
-            rel="noreferrer"
-            title={linkLabel(byCode.get(code)?.linkKind)}
-          >
-            {byCode.get(code)?.name ?? code}
-          </a>
-        </span>
-      ))}
-      {row.holdings && !row.holdings.complete && (
-        <span className="muted"> 확인하지 못한 판본이 있어 더 있을 수 있습니다.</span>
-      )}
-      {work.isbn13List.length > 1 && (
-        <span className="muted"> · 판본 {work.isbn13List.length}개를 함께 조회했습니다.</span>
-      )}
-      {work.detailUrl && (
-        <span>
-          {' · '}
-          <a href={work.detailUrl} target="_blank" rel="noreferrer">
-            정보나루 책 정보
-          </a>
-        </span>
-      )}
-    </p>
+    <div className="holding holding--held">
+      <p className="holding__count">
+        <strong className="holding__where">있는 곳 {held.length}곳</strong>
+        {row.holdings && !row.holdings.complete && (
+          <span className="muted"> · 확인하지 못한 판본이 있어 더 있을 수 있습니다.</span>
+        )}
+        {work.isbn13List.length > 1 && (
+          <span className="muted"> · 판본 {work.isbn13List.length}개를 함께 조회했습니다.</span>
+        )}
+        {work.detailUrl && (
+          <span>
+            {' · '}
+            <a href={work.detailUrl} target="_blank" rel="noreferrer">
+              정보나루 책 정보
+            </a>
+          </span>
+        )}
+      </p>
+      {/*
+        **도서관마다 대출 상태를 누를 수 있습니다.** 예전에는 한 권 검색에만 있어서 여러 권
+        확인에서는 어느 도서관에 있는지까지만 알 수 있었습니다. 한 권 검색과 같은 부품을
+        쓰고, 누를 때만 그 도서관 하나만 물어봅니다.
+      */}
+      <ul className="holding__list holding__list--inline">
+        {held.map((code) => (
+          <li key={code} className="lib lib--inline">
+            {/* 도서관 이름을 누르면 그 도서관으로 갑니다. 정보나루 책 정보는 따로 답니다. */}
+            <a
+              className="lib__name"
+              href={libraryLink(code, work.isbn13List[0], work.title)}
+              target="_blank"
+              rel="noreferrer"
+              title={linkLabel(byCode.get(code)?.linkKind)}
+            >
+              {byCode.get(code)?.name ?? code}
+            </a>
+            <LoanCheck libCode={code} isbn13List={work.isbn13List} />
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

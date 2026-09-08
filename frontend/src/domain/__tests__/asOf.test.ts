@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { olderAsOf } from '../../api';
+import { olderAsOf } from '../asOf';
 
 /**
  * 여러 책의 소장 정보를 한 문구로 묶어 말할 때 어느 날짜를 쓸 것인가.

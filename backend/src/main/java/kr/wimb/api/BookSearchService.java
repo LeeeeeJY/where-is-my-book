@@ -6,7 +6,6 @@ import kr.wimb.bib.WorkClusterer;
 import kr.wimb.bib.WorkMatcher;
 import kr.wimb.data4library.BookInfo;
 import kr.wimb.data4library.Data4LibraryClient;
-import kr.wimb.holdings.HoldingCache;
 import kr.wimb.holdings.HoldingsLookup;
 import kr.wimb.index.SearchDoc;
 import kr.wimb.index.SearchDocBuilder;
@@ -14,15 +13,20 @@ import kr.wimb.ingest.ApiBudget;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
-import java.time.Instant;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.LinkedHashSet;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -42,8 +46,19 @@ public class BookSearchService {
     /** 표시는 전부 한국 시각 기준입니다. 저장은 UTC 이지만 사용자가 보는 날짜는 여기입니다. */
     private static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
 
-    /** 한 검색에서 정보나루로부터 받아 묶을 서지 수. 너무 크면 응답이 느려집니다. */
-    private static final int FETCH_PAGES = 1;
+    /**
+     * 입력 그대로의 검색에서 받아 올 최대 쪽 수. <b>첫 쪽이 가득 찼을 때만</b> 둘째 쪽을 받습니다.
+     *
+     * <p>정보나루는 대출건수 순으로 돌려주므로 많이 읽히는 판은 첫 쪽에 있습니다. 그런데 소장
+     * 조회는 저작에 묶인 ISBN 전체로 나가고, <b>목록에 없는 판은 물어보지도 못합니다.</b>
+     * 「코스모스」처럼 300건이 넘는 제목에서 옛 판이 둘째 쪽에 있으면, 그 판만 가진 도서관이
+     * 「없음」으로 나갑니다. 한 쪽을 더 받는 값으로 그 구멍을 절반으로 줄입니다. 첫 쪽이 덜
+     * 찼으면 더 받을 것이 없으므로 부르지 않습니다.
+     */
+    private static final int MAX_PAGES_AS_TYPED = 2;
+
+    /** 결과에서 발견한 다른 띄어쓰기 표기로 다시 찾아볼 상한. 호출이 곱해지지 않게 묶어 둡니다. */
+    private static final int MAX_ALTERNATE_SPELLINGS = 2;
 
     /**
      * 화면에 돌려줄 저작 수.
@@ -61,27 +76,23 @@ public class BookSearchService {
     /** 빠진 자료를 몇 건까지 실어 보낼지. 전체 건수는 droppedNoIsbn 이 말합니다. */
     private static final int MAX_DROPPED_SHOWN = 20;
 
+    /**
+     * 한 소장 조회에서 물어볼 판본 수 상한. 한 요청이 하루 예산을 통째로 쓰지 못하게 막습니다.
+     *
+     * <p>넘치면 <b>거절하지 않고 앞의 것만 묻되 빠짐없이 확인했다고 하지 않습니다.</b> 예전에는
+     * 400 으로 거절했는데, 화면은 그것을 「확인 불가」로 그려 판본이 많은 책일수록 아무것도
+     * 알려 주지 못했습니다. 일부라도 확인해서 찾았으면 「있음」이고, 못 찾았으면 「확인하지
+     * 못한 판본이 있다」로 나가는 편이 사람에게 쓸모가 있습니다.
+     */
+    public static final int MAX_EDITIONS_PER_LOOKUP = 20;
+
     private final Data4LibraryClient client;
     private final HoldingsLookup holdingsLookup;
-    private final HoldingCache holdingCache;
     private final AtomicInteger workIdSequence = new AtomicInteger(1);
 
-    public BookSearchService(Data4LibraryClient client, HoldingsLookup holdingsLookup,
-                             HoldingCache holdingCache) {
+    public BookSearchService(Data4LibraryClient client, HoldingsLookup holdingsLookup) {
         this.client = client;
         this.holdingsLookup = holdingsLookup;
-        this.holdingCache = holdingCache;
-    }
-
-    /**
-     * 지금 캐시에 들어 있는 (ISBN, 시도) 항목 수. {@code /api/status} 가 내보냅니다.
-     *
-     * <p><b>캐시가 살아 있는지 알 방법이 있어야 합니다.</b> 이 숫자가 없으면 재배포 뒤에
-     * 호출이 줄지 않을 때, 스냅샷을 못 되살린 것인지 저장이 안 된 것인지 캐시가 원래 안
-     * 도는 것인지 구별할 수 없어 추측하게 됩니다.
-     */
-    public int holdingCacheSize() {
-        return holdingCache.size();
     }
 
     /** 제목만으로 찾는 지름길. */
@@ -89,20 +100,6 @@ public class BookSearchService {
         return search(Data4LibraryClient.BookQuery.byTitle(query));
     }
 
-    /**
-     * 조건으로 저작 목록을 만듭니다. <b>소장 조회는 하지 않습니다.</b>
-     *
-     * <p>예전에는 여기서 저작마다 {@code libSrchByBook} 을 불렀습니다. 저작이 200개면 호출도
-     * 200번이고, 요청 간격이 120ms 라 그것만으로 24초가 걸렸습니다. 사용자는 그것을
-     * 「검색이 안 된다」로 읽습니다.
-     *
-     * <p>그래서 여러 권 확인과 같은 방식으로 나눴습니다. 책 목록을 즉시 돌려주고, 소장은
-     * 화면이 {@code POST /api/holdings} 로 한 권씩 물어 도착하는 대로 채웁니다.
-     * <b>여기에 소장 조회를 다시 넣지 마세요.</b> 넣는 순간 검색이 다시 수십 초가 됩니다.
-     *
-     * <p>정렬 기준은 <b>제목</b>입니다. 제목 없이 저자나 출판사로만 찾으면 우리가 더 나은
-     * 근거를 갖고 있지 않으므로 정보나루가 준 순서를 그대로 둡니다.
-     */
     /**
      * 조건으로 서지를 받아 옵니다.
      *
@@ -112,43 +109,121 @@ public class BookSearchService {
      * 민음사 「레 미제라블」 낱권을 한 권도 찾지 못했습니다.</b> 같은 검색어인데 화면에 따라
      * 결과가 달랐던 것입니다. 개선이 한쪽 경로에만 들어가면 반드시 이렇게 갈립니다.
      *
-     * @param pages 받아 올 쪽 수. 여러 권 확인은 후보를 넓게 봐야 해서 더 받습니다.
+     * <p><b>띄어쓰기가 다른 검색은 같은 결과를 받아야 합니다.</b> 정보나루는 넣은 글자를 어절
+     * 단위로 그대로 찾으므로 「레미제라블」과 「레 미제라블」이 서로 다른 검색이고, 예전에는
+     * 어느 쪽으로 넣었는지에 따라 목록이 달랐습니다. 사용자에게는 그것이 「어떤 때는 있고
+     * 어떤 때는 없는 책」으로 보입니다. 그래서 정규화 키가 같은 표기는 <b>모두</b> 찾아 합칩니다.
+     *
+     * <ol>
+     *   <li>입력 그대로. 첫 쪽이 가득 찼으면 둘째 쪽까지.</li>
+     *   <li>띄어쓰기를 뺀 표기. 예전에는 0건일 때만 했는데, 세트 한 건이 걸려 0건이 아닌
+     *       「레미제라블」에서 발동하지 않았습니다. 입력에 공백이 있으면 늘 함께 찾습니다.</li>
+     *   <li>찾은 책의 저자로 되찾기. 공백을 어디에 넣어야 하는지는 우리가 알 수 없지만,
+     *       저자는 첫 검색으로 알게 되므로 그것으로 표제 키가 같은 판을 더합니다.</li>
+     *   <li>그렇게 모인 결과에서 <b>같은 글자를 달리 띄어 쓴 표기</b>를 발견하면 그 표기로도
+     *       찾습니다. 「레미제라블」로 시작했더라도 되찾기가 「레 미제라블」을 보여 주면 그
+     *       표기로 한 번 더 찾아, 「레 미제라블」로 시작한 사람과 같은 목록을 받습니다.</li>
+     * </ol>
+     *
+     * <p>2~4는 덤이라 실패해도 1의 결과를 그대로 내보냅니다. 1이 실패하면 검색 전체가 실패한
+     * 것이고, 화면은 그것을 「확인 불가」로 그립니다.
+     *
+     * <p><b>서로 기다릴 필요가 없는 호출은 동시에 내보냅니다.</b> 정보나루의 서지 검색은 한 번에
+     * 3~4초가 걸려서, 넷을 차례로 부르면 그것만으로 15초입니다. 입력 그대로와 붙여 쓴 표기는
+     * 서로 무관하므로 1회전에 함께, 둘째 쪽과 저자 되찾기는 첫 쪽의 결과가 있어야 하므로 2회전에
+     * 함께, 다른 표기들은 3회전에 함께 부릅니다. 회전 셋이면 최대 10초 안팎, 보통은 두 회전으로
+     * 끝납니다.
      */
-    private Fetched fetchBooks(Data4LibraryClient.BookQuery query, int pages) {
-        List<BookInfo> found = new ArrayList<>();
-        for (int page = 1; page <= pages; page++) {
-            var batch = client.searchBooks(query, page, ApiBudget.Priority.USER);
-            found.addAll(batch);
-            if (batch.isEmpty()) break;
-        }
+    private Fetched fetchBooks(Data4LibraryClient.BookQuery query) {
+        Collected found = new Collected();
+        List<String> alsoSearched = new ArrayList<>();
+        List<String> searchedSpellings = new ArrayList<>();
+        if (query.title() != null) searchedSpellings.add(query.title());
+        String compact = respacedTitle(query.title());
+        if (compact != null) searchedSpellings.add(compact);
 
-        // 한 건도 못 찾았으면 띄어쓰기를 달리해 한 번만 더 찾아봅니다. 자세한 이유는
-        // respacedTitle 에 적어 두었습니다. 0건일 때만이라 호출이 곱해지지 않습니다.
-        String retried = found.isEmpty() ? respacedTitle(query.title()) : null;
-        if (retried != null) {
-            found = new ArrayList<>(
-                    client.searchBooks(query.withTitle(retried), 1, ApiBudget.Priority.USER));
-            if (found.isEmpty()) retried = null;
-        }
+        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            // 1회전: 입력 그대로의 첫 쪽과 띄어쓰기를 뺀 표기.
+            Future<List<BookInfo>> firstPage = executor.submit(
+                    () -> client.searchBooks(query, 1, ApiBudget.Priority.USER));
+            Future<Optional<List<BookInfo>>> compactBooks = compact == null ? null
+                    : executor.submit(() -> searchQuietly(query.withTitle(compact)));
 
-        // 어절 경계 때문에 놓친 판이 있으면 저자로 되찾습니다.
-        int beforeRecovery = found.size();
-        List<BookInfo> withRecovered = recoverByAuthor(query, found);
-        return new Fetched(withRecovered, retried, withRecovered.size() > beforeRecovery);
+            List<BookInfo> first = await(firstPage);
+            found.addAll(first);
+            if (compactBooks != null) {
+                await(compactBooks).ifPresent(books -> {
+                    found.addAll(books);
+                    alsoSearched.add(compact);
+                });
+            }
+
+            // 2회전: 첫 쪽이 가득 찼으면 둘째 쪽, 그리고 저자로 되찾기.
+            Future<Optional<List<BookInfo>>> secondPage =
+                    first.size() >= Data4LibraryClient.PAGE_SIZE && MAX_PAGES_AS_TYPED >= 2
+                            ? executor.submit(() -> searchQuietly(query, 2)) : null;
+            Data4LibraryClient.BookQuery authorQuery = authorQueryFor(query, found);
+            Future<Optional<List<BookInfo>>> byAuthor = authorQuery == null ? null
+                    : executor.submit(() -> searchQuietly(authorQuery));
+
+            if (secondPage != null) await(secondPage).ifPresent(found::addAll);
+            boolean recovered = byAuthor != null
+                    && await(byAuthor).map(books -> addRecovered(query, found, books)).orElse(false);
+
+            // 3회전: 결과에서 본 다른 띄어쓰기 표기.
+            List<String> spellings = alternateSpellings(query.title(), found.books(), searchedSpellings);
+            List<Future<Optional<List<BookInfo>>>> bySpelling = new ArrayList<>();
+            for (String spelling : spellings) {
+                bySpelling.add(executor.submit(() -> searchQuietly(query.withTitle(spelling))));
+            }
+            for (int i = 0; i < spellings.size(); i++) {
+                String spelling = spellings.get(i);
+                await(bySpelling.get(i)).ifPresent(books -> {
+                    found.addAll(books);
+                    alsoSearched.add(spelling);
+                });
+            }
+
+            return new Fetched(found.books(), List.copyOf(alsoSearched), recovered);
+        }
+    }
+
+    /** 덤 호출의 결과를 기다립니다. 입력 그대로의 첫 쪽이 실패한 예외는 그대로 올립니다. */
+    private static <T> T await(Future<T> future) {
+        try {
+            return future.get();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("검색이 중단되었습니다.", e);
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof RuntimeException runtime) throw runtime;
+            throw new IllegalStateException("검색에 실패했습니다.", cause);
+        }
     }
 
     /** {@link #fetchBooks} 의 결과. 무엇을 더 해서 찾았는지까지 함께 들고 다닙니다. */
-    private record Fetched(List<BookInfo> books, String retriedTitle, boolean recovered) {}
+    private record Fetched(List<BookInfo> books, List<String> alsoSearchedTitles, boolean recovered) {}
+
+    /** 덤으로 하는 검색. 실패하면 비어 있는 값을 주고, 부른 쪽은 원래 결과를 그대로 씁니다. */
+    private Optional<List<BookInfo>> searchQuietly(Data4LibraryClient.BookQuery query) {
+        return searchQuietly(query, 1);
+    }
+
+    private Optional<List<BookInfo>> searchQuietly(Data4LibraryClient.BookQuery query, int page) {
+        try {
+            return Optional.of(client.searchBooks(query, page, ApiBudget.Priority.USER));
+        } catch (RuntimeException e) {
+            return Optional.empty();
+        }
+    }
 
     public SearchResponse search(Data4LibraryClient.BookQuery query) {
-        Fetched fetched = fetchBooks(query, 1);
+        Fetched fetched = fetchBooks(query);
         List<BookInfo> found = fetched.books();
-        String retried = fetched.retriedTitle();
-        boolean recovered = fetched.recovered();
 
         List<BookInfo> usable = withIsbn(found);
-        List<WorkResult> ranked = rank(
-                retried != null ? retried : query.title(), worksOf(usable));
+        List<WorkResult> ranked = rank(query.title(), worksOf(usable));
         // **책이 아닌 자료와 ISBN 을 판별하지 못한 책을 갈라 셉니다.** 섞으면 화면이
         // 「DVD 열여섯 건이 빠졌습니다」라고 알리게 되는데, 도움이 되지 않고 불안만 만듭니다.
         List<BookInfo> dropped = found.stream()
@@ -161,8 +236,8 @@ public class BookSearchService {
                 found.size(),
                 dropped.size(),
                 droppedBooksOf(dropped),
-                retried,
-                recovered,
+                fetched.alsoSearchedTitles(),
+                fetched.recovered(),
                 LocalDate.now(SEOUL).toString());
     }
 
@@ -200,8 +275,7 @@ public class BookSearchService {
     }
 
     /**
-     * 제목으로 찾긴 했는데 <b>그 제목의 책이 하나도 없을 때</b>, 찾은 책의 저자로 한 번 더
-     * 찾아 표제가 맞는 것을 더합니다.
+     * 제목으로 찾은 뒤, 찾은 책의 저자로 한 번 더 찾아 표제가 맞는 것을 더합니다.
      *
      * <p><b>정보나루의 제목 매칭은 어절의 앞에서부터 맞춥니다.</b> 실제로 불러 확인했습니다.
      * 「미제라블」은 「레 미제라블」을 찾아내지만 「제라블」과 「레 미제」는 0건입니다.
@@ -229,46 +303,42 @@ public class BookSearchService {
      * <p>그래서 <b>제목으로 찾을 때는 표기와 무관하게 부릅니다.</b> 제목 검색 한 번에 호출이
      * 하나 늘지만, 그러지 않으면 사용자가 넣은 띄어쓰기에 따라 있는 책이 사라집니다.
      * 저자를 알아내지 못하면 부르지 않으므로 0건 검색에서는 늘지 않습니다.
+     *
+     * @return 저자로 되찾을 질의. 되찾을 수 없으면 null 입니다.
      */
-    private List<BookInfo> recoverByAuthor(Data4LibraryClient.BookQuery query,
-                                           List<BookInfo> found) {
+    private static Data4LibraryClient.BookQuery authorQueryFor(Data4LibraryClient.BookQuery query,
+                                                                Collected found) {
         // 저자로 이미 찾고 있으면 되찾을 것이 없습니다.
-        if (query.title() == null || query.title().isBlank() || query.author() != null) return found;
-        // 한 건도 없으면 저자를 알아낼 수가 없습니다. 그건 respacedTitle 이 맡습니다.
-        if (found.isEmpty()) return found;
+        if (query.title() == null || query.title().isBlank() || query.author() != null) return null;
+        // 한 건도 없으면 저자를 알아낼 수가 없습니다.
+        if (found.isEmpty()) return null;
+        if (BibNormalizer.comparisonKey(query.title()).isEmpty()) return null;
 
-        String wanted = BibNormalizer.parseTitle(query.title()).titleKeyCore();
-        if (wanted.isEmpty()) return found;
+        String author = primaryAuthorOf(found.books());
+        if (author == null) return null;
+        return new Data4LibraryClient.BookQuery(null, author, query.publisher(), null, false);
+    }
 
-        String author = primaryAuthorOf(found);
-        if (author == null) return found;
-
-        List<BookInfo> byAuthor;
-        try {
-            byAuthor = client.searchBooks(
-                    new Data4LibraryClient.BookQuery(null, author, query.publisher(), null, false),
-                    1, ApiBudget.Priority.USER);
-        } catch (RuntimeException e) {
-            // 되찾기는 덤입니다. 실패해도 원래 결과를 그대로 내보냅니다.
-            return found;
-        }
-
-        Set<String> seen = found.stream()
-                .map(b -> b.canonicalIsbn13().orElse(null))
-                .filter(java.util.Objects::nonNull)
-                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
-        List<BookInfo> merged = new ArrayList<>(found);
+    /**
+     * 저자로 찾은 것 가운데 표제 키가 맞는 것만 더합니다.
+     *
+     * @return 되찾아 더한 것이 있는지. 화면이 이 사실을 밝힙니다.
+     */
+    private static boolean addRecovered(Data4LibraryClient.BookQuery query, Collected found,
+                                        List<BookInfo> byAuthor) {
+        String wanted = BibNormalizer.comparisonKey(query.title());
+        boolean added = false;
         for (BookInfo book : byAuthor) {
             if (!wanted.equals(titleKeyOf(book))) continue;
-            String isbn = book.canonicalIsbn13().orElse(null);
-            if (isbn == null || !seen.add(isbn)) continue;
-            merged.add(book);
+            // 소장을 물어볼 수 없는 자료는 되찾아도 쓸 곳이 없습니다.
+            if (book.canonicalIsbn13().isEmpty()) continue;
+            if (found.add(book)) added = true;
         }
-        return merged;
+        return added;
     }
 
     private static String titleKeyOf(BookInfo book) {
-        return BibNormalizer.parseTitle(book.bookname()).titleKeyCore();
+        return BibNormalizer.comparisonKey(book.bookname());
     }
 
     /** 찾은 책들에서 가장 자주 나오는 주저자 표기. 정보나루에 그대로 넘길 값입니다. */
@@ -287,7 +357,7 @@ public class BookSearchService {
     }
 
     /**
-     * 띄어쓰기를 달리한 제목. 다시 찾아볼 값이 없으면 {@code null} 입니다.
+     * 띄어쓰기를 뺀 제목. 다시 찾아볼 값이 없으면 {@code null} 입니다.
      *
      * <p><b>정보나루는 넣은 글자를 그대로 찾습니다.</b> 우리 정규화({@code normalizeKey})는
      * 받아온 뒤 순위를 매길 때만 쓰이므로 검색 자체에는 아무 영향이 없습니다. 그래서
@@ -304,7 +374,54 @@ public class BookSearchService {
     }
 
     /**
-     * 제목이 검색어에 얼마나 맞는지로 다시 세우고 위에서 몇 개만 남깁니다.
+     * 찾은 책들 가운데 <b>검색어와 글자는 같은데 띄어쓰기만 다른</b> 표제 표기를 골라냅니다.
+     * 이미 찾아본 표기는 뺍니다. 자주 나온 표기부터 돌려줍니다.
+     *
+     * <p>「레미제라블」로 시작하면 저자 되찾기가 민음사의 「레 미제라블」을 데려오는데, 그것은
+     * 그 저자의 판만입니다. 「레 미제라블」이라는 표기 자체로 다시 찾아야 다른 저자의
+     * 각색본이나 어린이판까지, <b>「레 미제라블」로 시작한 사람이 받는 것과 같은 목록</b>이
+     * 됩니다. 어느 표기로 넣었느냐에 따라 목록이 달라지는 것을 여기서 끝냅니다.
+     *
+     * <p>{@link BibNormalizer#spellingKey} 로 견줍니다. 「코스모스(특별판)」은 「코스모스」와
+     * 저작 키는 같지만 글자가 다르고, 어절 앞머리가 「코스모스」라 그 검색에 이미 걸려 있어
+     * 다시 물어볼 이유가 없습니다.
+     */
+    static List<String> alternateSpellings(String title, List<BookInfo> books,
+                                           List<String> alreadySearched) {
+        if (title == null || title.isBlank()) return List.of();
+        String wanted = BibNormalizer.spellingKey(title);
+        if (wanted.isEmpty()) return List.of();
+
+        Set<String> seen = new HashSet<>();
+        for (String searched : alreadySearched) seen.add(spellingId(searched));
+
+        Map<String, Integer> counts = new LinkedHashMap<>();
+        for (BookInfo book : books) {
+            String proper = BibNormalizer.parseTitle(book.bookname()).titleProper();
+            if (proper == null || proper.isBlank()) continue;
+            String spelling = collapseSpaces(proper);
+            if (!wanted.equals(BibNormalizer.spellingKey(spelling))) continue;
+            if (seen.contains(spellingId(spelling))) continue;
+            counts.merge(spelling, 1, Integer::sum);
+        }
+        return counts.entrySet().stream()
+                .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
+                .map(Map.Entry::getKey)
+                .limit(MAX_ALTERNATE_SPELLINGS)
+                .toList();
+    }
+
+    private static String collapseSpaces(String s) {
+        return s.trim().replaceAll("\\s+", " ");
+    }
+
+    /** 같은 표기인지 볼 때는 공백 묶음과 대소문자를 무시합니다. */
+    private static String spellingId(String s) {
+        return collapseSpaces(s).toLowerCase(Locale.ROOT);
+    }
+
+    /**
+     * 제목이 검색어에 얼마나 맞는지로 다시 세웁니다.
      *
      * <p>정보나루가 주는 순서를 그대로 쓰면 「코스모스」를 찾았는데 「미크로코스모스 입문」이
      * 1등으로 나옵니다. 찾으려던 책이 안 보이는 것이 이 도구를 버리게 만드는 가장 큰
@@ -313,8 +430,10 @@ public class BookSearchService {
      * <p>정규화는 {@link BibNormalizer#normalizeKey}를 씁니다. <b>적재·군집화와 같은 함수를
      * 써야</b> 「해리 포터」와 「해리포터」가 검색에서만 어긋나는 일이 없습니다.
      *
-     * <p>같은 등급 안에서는 정보나루가 준 순서를 그대로 둡니다. 정렬이 안정적이라 그렇게
-     * 되고, 우리가 더 나은 근거를 갖고 있지 않으므로 굳이 흔들지 않습니다.
+     * <p><b>같은 등급 안에서는 대출건수가 많은 것을 앞에 둡니다.</b> 예전에는 정보나루가 준
+     * 순서를 그대로 두었는데, 이제 결과가 여러 번의 검색을 합친 것이라 「어느 표기로
+     * 넣었는가」에 따라 그 순서가 달랐습니다. 정보나루도 기본을 대출건수 순으로 주므로
+     * 뜻이 달라지는 것은 아니고, 표기와 무관하게 <b>같은 순서</b>가 나오게 됩니다.
      *
      * <p><b>여기서 자르지 않습니다.</b> 자르는 것은 부르는 쪽의 몫입니다. 그래야 전체가
      * 몇 개인지 셀 수 있고, 화면이 「n개 중 20개」라고 말할 수 있습니다.
@@ -322,8 +441,14 @@ public class BookSearchService {
     static List<WorkResult> rank(String query, List<WorkResult> works) {
         String queryKey = BibNormalizer.normalizeKey(query == null ? "" : query);
         if (queryKey.isEmpty()) return works;
+        Comparator<WorkResult> byTier = Comparator.comparingInt(work -> titleTier(queryKey, work.title()));
+        Comparator<WorkResult> byLoans = Comparator.comparingInt(WorkResult::loanCount);
+        // 대출건수까지 같으면 ISBN 으로 정합니다. 여기까지 와서 「먼저 받은 순서」에 맡기면
+        // 어느 표기로 검색했는지에 따라 순서가 달라집니다.
+        Comparator<WorkResult> byIsbn = Comparator.comparing(
+                work -> work.isbn13List().isEmpty() ? "" : work.isbn13List().get(0));
         return works.stream()
-                .sorted(Comparator.comparingInt(work -> titleTier(queryKey, work.title())))
+                .sorted(byTier.thenComparing(byLoans.reversed()).thenComparing(byIsbn))
                 .toList();
     }
 
@@ -355,7 +480,7 @@ public class BookSearchService {
      * 그래야 사용자가 빈 화면을 보며 기다리지 않습니다.
      */
     public List<WorkResult> worksFor(Data4LibraryClient.BookQuery query) {
-        return worksOf(withIsbn(fetchBooks(query, FETCH_PAGES).books()));
+        return worksOf(withIsbn(fetchBooks(query).books()));
     }
 
     private List<WorkResult> worksOf(List<BookInfo> books) {
@@ -407,13 +532,43 @@ public class BookSearchService {
     }
 
     /**
-     * 조회하지 않은 것과 조회하지 못한 것을 여기서 가릅니다.
+     * 여러 검색에서 받은 서지를 <b>같은 자료가 두 번 들어가지 않게</b> 모읍니다.
      *
-     * <p><b>둘을 한 갈래로 묶으면 안 됩니다.</b> 어느 쪽이든 소장 도서관 목록이 비어 있지만,
-     * 앞은 물어볼 필요가 없었던 것이고 뒤는 물어보지 못한 것입니다. 뒤를 빈 결과로 돌려주면
-     * 화면이 그것을 "고른 도서관에는 없습니다"로 그리게 되어, 실제로 있는 책을 없다고
-     * 답하게 됩니다.
+     * <p>표기를 달리해 여러 번 찾으면 같은 판이 여러 번 옵니다. 그대로 두면 군집화에 같은
+     * ISBN 이 두 번 들어가고 {@code foundBooks} 와 {@code droppedNoIsbn} 도 부풀어, 화면이
+     * 「정보나루가 600건을 줬다」고 말하게 됩니다.
      */
+    private static final class Collected {
+        private final List<BookInfo> books = new ArrayList<>();
+        private final Set<String> seen = new HashSet<>();
+
+        /** @return 새 자료여서 실제로 더했는지 */
+        boolean add(BookInfo book) {
+            String key = book.canonicalIsbn13().orElseGet(() ->
+                    "raw:" + blankToEmpty(book.isbn13()) + "|" + blankToEmpty(book.bookname())
+                            + "|" + blankToEmpty(book.publisher()));
+            if (!seen.add(key)) return false;
+            books.add(book);
+            return true;
+        }
+
+        void addAll(List<BookInfo> batch) {
+            for (BookInfo book : batch) add(book);
+        }
+
+        boolean isEmpty() {
+            return books.isEmpty();
+        }
+
+        List<BookInfo> books() {
+            return List.copyOf(books);
+        }
+
+        private static String blankToEmpty(String s) {
+            return s == null ? "" : s.trim();
+        }
+    }
+
     /** 물어볼 수 없는 도서관이 없는 경우. 기존 호출부와 시험을 위한 지름길입니다. */
     public HoldingResult holdingsOf(List<String> isbn13List, List<String> regionCodes,
                                     List<String> selectedLibs) {
@@ -421,6 +576,13 @@ public class BookSearchService {
     }
 
     /**
+     * 조회하지 않은 것과 조회하지 못한 것을 여기서 가릅니다.
+     *
+     * <p><b>둘을 한 갈래로 묶으면 안 됩니다.</b> 어느 쪽이든 소장 도서관 목록이 비어 있지만,
+     * 앞은 물어볼 필요가 없었던 것이고 뒤는 물어보지 못한 것입니다. 뒤를 빈 결과로 돌려주면
+     * 화면이 그것을 "고른 도서관에는 없습니다"로 그리게 되어, 실제로 있는 책을 없다고
+     * 답하게 됩니다.
+     *
      * @param unaskableLibs 고른 도서관 가운데 <b>시도를 알아내지 못해 물어볼 수조차 없는</b>
      *                      곳의 수. 0이 아니면 빠짐없이 확인한 것이 아니므로 절대
      *                      {@code complete} 로 답하면 안 됩니다. 물어보지 않은 도서관은
@@ -440,11 +602,15 @@ public class BookSearchService {
             // 주소가 비어 있거나 도서관 마스터에 없는 부호가 넘어오면 여기에 걸립니다.
             return HoldingResult.cannotAsk();
         }
-        return lookupHoldings(isbn13List, regionCodes, selectedLibs, unaskableLibs);
+        // 판본이 상한을 넘으면 앞의 것만 묻고, 그 사실을 complete 에 반영합니다.
+        boolean truncated = isbn13List.size() > MAX_EDITIONS_PER_LOOKUP;
+        List<String> asked = truncated ? isbn13List.subList(0, MAX_EDITIONS_PER_LOOKUP) : isbn13List;
+        return lookupHoldings(asked, regionCodes, selectedLibs, unaskableLibs, truncated);
     }
 
     private HoldingResult lookupHoldings(List<String> isbn13List, List<String> regionCodes,
-                                         List<String> selectedLibs, int unaskableLibs) {
+                                         List<String> selectedLibs, int unaskableLibs,
+                                         boolean truncated) {
         try {
             var result = holdingsLookup.lookup(isbn13List, regionCodes);
             // 선택한 도서관과 교집합만 남깁니다.
@@ -460,11 +626,9 @@ public class BookSearchService {
             // 물어볼 수 없었던 도서관이 하나라도 있으면 빠짐없이 확인한 것이 아닙니다.
             // 이것을 빠뜨리면 그 도서관이 조용히 「없음」으로 나가고, 화면은 그것을
             // 미소장으로 그립니다. 물어보지 않고 없다고 답하는 것입니다.
-            boolean complete = result.isComplete() && unaskableLibs == 0;
-            // 답을 만드는 데 실제로 쓰인 값들 가운데 가장 오래된 시각입니다. 방금 부른 것은
-            // 지금 시각으로 캐시에 들어가 있으므로, 새로 받은 것과 캐시에서 나온 것이 섞여도
-            // 이 한 줄로 정확해집니다.
-            Instant asOf = holdingCache.oldestFetchedAt(isbn13List, regionCodes).orElse(null);
+            boolean complete = result.isComplete() && unaskableLibs == 0 && !truncated;
+            LocalDate asOf = result.oldestFetchedAt() == null
+                    ? null : LocalDate.ofInstant(result.oldestFetchedAt(), SEOUL);
             return new HoldingResult(matched, complete, nothingChecked, asOf);
         } catch (RuntimeException e) {
             // 조회 실패는 미소장이 아닙니다. 화면에 "확인 불가"로 표시해야 합니다.
@@ -491,13 +655,12 @@ public class BookSearchService {
     /**
      * @param complete   모든 판본을 빠짐없이 확인했는지
      * @param unreadable 조회 자체가 실패했는지. 미소장과 반드시 구분해야 합니다.
-     * @param asOf       이 답을 <b>정보나루에서 받은</b> 시각. 캐시에서 나온 값이면 그때
-     *                   받은 시각이지 지금이 아닙니다. 물어보지 못했으면 비어 있습니다.
-     *                   <b>지금 시각을 찍어 넣으면 안 됩니다.</b> 한 달 전 값을 오늘 것으로
-     *                   보이게 만들어, 사용자가 "미소장"을 확실한 사실로 읽게 됩니다.
+     * @param asOf       이 답이 <b>언제 받은 것인지</b>(한국 날짜). 캐시에서 나온 답이면 캐시된
+     *                   날짜이고, 여러 답이 섞였으면 가장 오래된 날짜입니다. 아무 답도 받지
+     *                   못했으면 null 입니다. 화면이 「n월 n일 조회 기준」으로 보여 줍니다.
      */
     public record HoldingResult(List<String> libCodes, boolean complete, boolean unreadable,
-                                Instant asOf) {
+                                LocalDate asOf) {
         /** 고른 도서관이 없어 물어볼 필요가 없었던 경우. 미소장이 아닙니다. */
         public static HoldingResult notRequested() {
             return new HoldingResult(List.of(), true, false, null);
@@ -509,6 +672,10 @@ public class BookSearchService {
         }
     }
 
+    /**
+     * @param loanCount 묶인 판본 가운데 가장 큰 대출건수. 정보나루가 서지마다 주는 값입니다.
+     *                  같은 등급 안에서 순서를 정하는 데 씁니다. 모르면 0 입니다.
+     */
     public record WorkResult(
             int workId,
             String title,
@@ -521,15 +688,23 @@ public class BookSearchService {
              */
             String detailUrl,
             List<String> isbn13List,
-            List<String> editionLabels
+            List<String> editionLabels,
+            int loanCount
     ) {
         static WorkResult of(SearchDoc doc, Map<String, BookInfo> byIsbn) {
             String cover = firstNonBlank(doc, byIsbn, BookInfo::bookImageUrl);
             String detail = firstNonBlank(doc, byIsbn, BookInfo::bookDetailUrl);
+            int loans = doc.isbn13List().stream()
+                    .map(byIsbn::get)
+                    .filter(java.util.Objects::nonNull)
+                    .map(BookInfo::loanCount)
+                    .filter(java.util.Objects::nonNull)
+                    .mapToInt(Integer::intValue)
+                    .max().orElse(0);
 
             return new WorkResult(doc.workId(), doc.titleDisplay(), doc.authorDisplay(),
                     doc.publisherDisplay(), toHttps(cover), toHttps(detail),
-                    doc.isbn13List(), doc.editionLabels());
+                    doc.isbn13List(), doc.editionLabels(), loans);
         }
 
         private static String firstNonBlank(SearchDoc doc, Map<String, BookInfo> byIsbn,
@@ -557,6 +732,14 @@ public class BookSearchService {
     }
 
     /**
+     * ISBN 을 판별하지 못해 뺀 자료 한 건.
+     *
+     * @param rawIsbn13 정보나루가 준 원문. 비어 있는지 잘못된 값인지 갈라 보려면 이것이
+     *                  있어야 합니다. <b>없으면 왜 빠졌는지 영영 알 수 없습니다.</b>
+     */
+    public record DroppedBook(String title, String author, String publisher, String rawIsbn13) {}
+
+    /**
      * <b>소장 항목이 없는 것이 의도적입니다.</b> 소장은 {@code POST /api/holdings} 한 곳에서만
      * 답합니다. 검색 응답에도 소장을 실으면 「물어본 적 없음」과 「물어봤는데 없음」이 같은
      * 빈 목록으로 나가고, 화면이 그것을 「고른 도서관에는 없습니다」로 그리게 됩니다.
@@ -566,35 +749,25 @@ public class BookSearchService {
      * @param totalWorks 자르기 전의 전체 저작 수. 화면이 「n개 중 몇 개를 보고 있는지」를
      *                   말하려면 필요합니다. 이것이 없으면 사용자는 지금 보는 것이 전부인지
      *                   잘린 것인지 알 수 없습니다.
-     * @param foundBooks 정보나루가 돌려준 서지 건수. <b>우리가 거르기 전의 숫자입니다.</b>
-     *                   찾는 책이 안 나올 때 이 숫자 하나로 어디를 봐야 하는지 갈립니다.
-     *                   0이면 정보나루가 못 찾은 것이고, 0이 아닌데 저작이 0이면 우리가
-     *                   버린 것이고, 저작이 있는데 화면에 없으면 화면 문제입니다.
-     *                   <b>이것이 없으면 셋을 구별할 방법이 없어 추측하게 됩니다.</b>
+     * @param foundBooks 정보나루가 돌려준 서지 건수(같은 자료는 한 번만 셉니다). <b>우리가
+     *                   거르기 전의 숫자입니다.</b> 찾는 책이 안 나올 때 이 숫자 하나로 어디를
+     *                   봐야 하는지 갈립니다. 0이면 정보나루가 못 찾은 것이고, 0이 아닌데
+     *                   저작이 0이면 우리가 버린 것이고, 저작이 있는데 화면에 없으면 화면
+     *                   문제입니다. <b>이것이 없으면 셋을 구별할 방법이 없어 추측하게 됩니다.</b>
      *                   실제로 「마의 산」이 안 나오는 이유를 두고 여러 번 헛짚었습니다.
      * @param droppedNoIsbn ISBN 을 판별할 수 없어 결과에서 뺀 자료 수. <b>화면이 이것을
      *                      밝혀야 합니다.</b> 조용히 빼면 사용자는 「그런 책이 없다」로 읽습니다.
-     * @param retriedTitle 처음 제목으로 한 건도 못 찾아 <b>띄어쓰기를 달리해 다시 찾은</b>
-     *                     경우 그 제목. 화면이 이것을 밝혀야 사용자가 자기가 넣은 것과
-     *                     다른 결과를 보고 어리둥절하지 않습니다. 재시도가 없었으면 null.
-     * @param asOf 이 검색을 한 날짜.
-     */
-    /**
+     * @param alsoSearchedTitles 넣은 제목 말고 <b>함께 찾아본 다른 띄어쓰기 표기</b>. 화면이
+     *                           이것을 밝혀야 사용자가 자기가 넣은 것과 다른 표기의 책을 보고
+     *                           어리둥절하지 않습니다. 없으면 빈 목록입니다.
      * @param recoveredByAuthor 제목으로는 걸리지 않던 판을 <b>저자로 되찾아 더했는지.</b>
      *                          화면이 이 사실을 밝혀야 합니다. 사용자가 넣은 제목과 다른
      *                          표기의 책이 목록에 섞여 있는 것이므로, 말하지 않으면 검색이
      *                          엉뚱한 것을 가져왔다고 읽힙니다.
+     * @param asOf 이 검색을 한 날짜.
      */
-    /**
-     * ISBN 을 판별하지 못해 뺀 자료 한 건.
-     *
-     * @param rawIsbn13 정보나루가 준 원문. 비어 있는지 잘못된 값인지 갈라 보려면 이것이
-     *                  있어야 합니다. <b>없으면 왜 빠졌는지 영영 알 수 없습니다.</b>
-     */
-    public record DroppedBook(String title, String author, String publisher, String rawIsbn13) {}
-
     public record SearchResponse(List<WorkResult> works, int totalWorks, int foundBooks,
                                  int droppedNoIsbn, List<DroppedBook> droppedBooks,
-                                 String retriedTitle,
+                                 List<String> alsoSearchedTitles,
                                  boolean recoveredByAuthor, String asOf) {}
 }

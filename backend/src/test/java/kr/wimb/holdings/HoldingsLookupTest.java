@@ -16,7 +16,8 @@ class HoldingsLookupTest {
 
     /** 정보나루가 어떻게 동작하든 흉내 낼 수 있는 가짜 서버. */
     private static final class FakeServer implements HoldingsLookup.HoldingsClient {
-        final List<String> calls = new ArrayList<>();
+        /** 이제 호출이 동시에 나가므로 목록도 동시에 써도 안전해야 합니다. */
+        final List<String> calls = java.util.Collections.synchronizedList(new ArrayList<>());
         boolean nationwideSupported = true;
         boolean nationwideThrows = false;
         Map<String, List<String>> byRegion = Map.of();
@@ -159,6 +160,78 @@ class HoldingsLookupTest {
 
         assertEquals(java.util.Set.of("011001"), result.libCodes(), "성공한 지역의 결과는 씁니다");
         assertEquals(List.of("A"), result.partialIsbns());
+        assertTrue(result.unresolvedIsbns().isEmpty());
+        assertFalse(result.isComplete());
+    }
+
+    @Test
+    @DisplayName("여러 답이 섞이면 가장 오래된 조회 시각을 기준으로 삼는다")
+    void reportsTheOldestFetchTime() {
+        // 캐시가 끼면 방금 받은 답과 몇 시간 전 답이 한 결과에 섞입니다. 화면의
+        // 「n월 n일 조회 기준」은 그 가운데 가장 오래된 것이어야 합니다. 최신으로 말하면
+        // 옛 답을 새 답처럼 읽게 됩니다.
+        var old = java.time.Instant.parse("2026-09-07T01:00:00Z");
+        var fresh = java.time.Instant.parse("2026-09-08T01:00:00Z");
+        HoldingsLookup.HoldingsClient client = new HoldingsLookup.HoldingsClient() {
+            @Override public List<String> libCodesFor(String isbn13, String regionCode) {
+                return List.of(isbn13);
+            }
+            @Override public Answer answerFor(String isbn13, String regionCode) {
+                return new Answer(List.of(isbn13), isbn13.equals("옛판") ? old : fresh);
+            }
+        };
+
+        var result = new HoldingsLookup(client, HoldingsLookup.RegionModeStore.documented())
+                .lookup(List.of("새판", "옛판"), List.of("11"));
+
+        assertEquals(old, result.oldestFetchedAt());
+        assertEquals(java.util.Set.of("새판", "옛판"), result.libCodes());
+    }
+
+    @Test
+    @DisplayName("답을 하나도 못 받았으면 조회 시각도 없다")
+    void noAnswerMeansNoFetchTime() {
+        HoldingsLookup.HoldingsClient failing = (isbn13, regionCode) -> {
+            throw new IllegalStateException("장애");
+        };
+        var result = new HoldingsLookup(failing, HoldingsLookup.RegionModeStore.documented())
+                .lookup(List.of("A"), List.of("11"));
+
+        assertNull(result.oldestFetchedAt());
+        assertEquals(List.of("A"), result.unresolvedIsbns());
+    }
+
+    @Test
+    @DisplayName("판본과 지역이 많아도 호출은 (판본 × 지역)만큼이고 전부 모인다")
+    void fansOutOverEveryPairAndCollectsAll() {
+        // 정보나루의 소장 조회는 한 번에 4~5초라 차례로 부르면 판본 아홉 개짜리가 40초입니다.
+        // 동시에 내보내되, 어느 쌍도 빠뜨리거나 두 번 부르지 않아야 합니다.
+        var server = new FakeServer();
+        server.byRegion = Map.of("11", List.of("011001"), "31", List.of("141053"), "21", List.of());
+        var store = HoldingsLookup.RegionModeStore.documented();
+        List<String> isbns = List.of("A", "B", "C", "D", "E", "F", "G", "H", "I");
+
+        var result = lookupWith(server, store).lookup(isbns, List.of("11", "31", "21"));
+
+        assertEquals(27, result.calls());
+        assertEquals(27, server.calls.size(), "쌍마다 정확히 한 번씩 불러야 합니다");
+        assertEquals(27, new java.util.HashSet<>(server.calls).size(), "같은 쌍을 두 번 부르면 안 됩니다");
+        assertEquals(java.util.Set.of("011001", "141053"), result.libCodes());
+        assertTrue(result.isComplete());
+    }
+
+    @Test
+    @DisplayName("동시에 불러도 시도 하나의 실패는 그 판본의 일부 실패로만 남는다")
+    void concurrentPartialFailureIsStillReported() {
+        var server = new FakeServer();
+        server.byRegion = Map.of("11", List.of("011001"), "31", List.of("141053"));
+        server.failingRegions = java.util.Set.of("31");
+        var store = HoldingsLookup.RegionModeStore.documented();
+
+        var result = lookupWith(server, store).lookup(List.of("A", "B"), SEOUL_GYEONGGI);
+
+        assertEquals(java.util.Set.of("011001"), result.libCodes());
+        assertEquals(List.of("A", "B"), result.partialIsbns(), "두 판본 모두 경기가 빠졌습니다");
         assertTrue(result.unresolvedIsbns().isEmpty());
         assertFalse(result.isComplete());
     }

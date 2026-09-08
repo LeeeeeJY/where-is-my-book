@@ -27,6 +27,8 @@ export type LibraryRank = {
   name: string;
   /** 이 도서관에 있는 책 제목 */
   held: string[];
+  /** `held` 와 같은 순서의 줄 식별자. 그 도서관에서 대출 상태를 한 번에 물어볼 때 책을 되찾는 데 씁니다. */
+  heldKeys: string[];
   /** 확인했는데 이 도서관에 없는 책 제목. **확인하지 못한 책은 들어가지 않습니다.** */
   missing: string[];
 };
@@ -66,18 +68,38 @@ export function rankLibraries(
   return selected
     .map((library) => {
       const held: string[] = [];
+      const heldKeys: string[] = [];
       const missing: string[] = [];
       for (const row of checked) {
         if (row.state === 'held' && row.holdingLibCodes.includes(library.libCode)) {
           held.push(row.title);
+          heldKeys.push(row.key);
         } else {
           missing.push(row.title);
         }
       }
-      return { libCode: library.libCode, name: library.name, held, missing };
+      return { libCode: library.libCode, name: library.name, held, heldKeys, missing };
     })
     .filter((rank) => rank.held.length > 0)
     .sort((a, b) => b.held.length - a.held.length || a.name.localeCompare(b.name, 'ko'));
+}
+
+/**
+ * 확인이 끝나고 어딘가에 있는 책 **전부**를 가진 도서관.
+ *
+ * 여럿이면 화면이 거리와 대출 상태로 순위를 매깁니다. 한 곳도 없으면 빈 목록이고,
+ * 그때는 {@link planTrip} 이 여러 곳을 엮습니다. 순서는 고른 순서 그대로이고, 세우는
+ * 것은 화면의 몫입니다. 확인하지 못한 책은 여기서도 세지 않습니다.
+ */
+export function fullCoverage(
+  rows: readonly BookRow[],
+  selected: readonly Library[],
+): Library[] {
+  const held = rows.filter((row) => row.state === 'held' && row.holdingLibCodes.length > 0);
+  if (held.length === 0) return [];
+  return selected.filter((library) =>
+    held.every((row) => row.holdingLibCodes.includes(library.libCode)),
+  );
 }
 
 /**

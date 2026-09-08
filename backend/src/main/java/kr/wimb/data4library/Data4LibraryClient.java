@@ -13,6 +13,10 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 /**
  * 정보나루 Open API 클라이언트. Open API Manual v20260210 을 그대로 구현합니다.
@@ -29,16 +33,23 @@ import java.util.Map;
  *   <tr><td>{@code libSrchByBook}</td><td>소장 도서관. <b>region 이 필수</b>입니다</td></tr>
  * </table>
  *
- * <p>{@code bookExist}(11절)는 쓰지 않습니다. 대출 가능 여부를 돌려주는데, 그 값이 전날
- * 기준이라 믿고 갔다가 헛걸음하는 것이 이 도구를 못 쓰게 만드는 가장 큰 요인입니다.
+ * <p>{@code bookExist}(11절)는 <b>사용자가 도서관을 눌렀을 때만</b> 부릅니다({@link #loanStatus}).
+ * 돌려주는 대출 가능 여부가 전날 기준이라, 목록에 미리 달아 두면 실시간으로 읽혀 헛걸음을
+ * 만들고 호출도 (도서관 × ISBN)으로 폭발합니다.
  */
 public final class Data4LibraryClient {
 
     public static final String SOURCE_CODE = "DATA4LIBRARY_API";
     private static final String BASE = "https://data4library.kr/api";
 
-    /** 한 번에 받을 수 있는 최대치가 문서에 없어, 예시에 나온 300 을 넘지 않게 잡았습니다. */
-    private static final int PAGE_SIZE = 300;
+    /**
+     * 한 번에 받을 수 있는 최대치가 문서에 없어, 예시에 나온 300 을 넘지 않게 잡았습니다.
+     *
+     * <p>공개해 둔 것은 부르는 쪽이 <b>「첫 쪽이 가득 찼는지」</b>를 알아야 하기 때문입니다.
+     * 가득 찼으면 뒤에 판본이 더 있을 수 있고, 그것을 놓치면 그 판본만 가진 도서관이
+     * 「없음」으로 나갑니다.
+     */
+    public static final int PAGE_SIZE = 300;
 
     @FunctionalInterface
     public interface Transport {
@@ -216,6 +227,13 @@ public final class Data4LibraryClient {
     private static final int MAX_HOLDING_PAGES = 20;
 
     /**
+     * 둘째 쪽부터를 동시에 몇 쪽까지 받을지. 정보나루의 소장 조회는 한 쪽에 4~5초가 걸려서,
+     * 인기 있는 책일수록 쪽이 늘고 차례로 받으면 그만큼 곱해집니다. 전체 건수를 알면 남은
+     * 쪽 수를 미리 알 수 있으므로 한꺼번에 받습니다.
+     */
+    private static final int PAGE_FAN_OUT = 4;
+
+    /**
      * 이 ISBN 을 소장한 도서관. <b>{@code region} 은 매뉴얼상 필수입니다.</b>
      * 전국을 한 번에 받는 방법이 없어 시도마다 따로 불러야 합니다.
      *
@@ -232,6 +250,10 @@ public final class Data4LibraryClient {
      * 받아 준다는 보장이 없고, 실제로 더 작게 잘라 줘도 우리는 알 방법이 없습니다.
      * 그래서 {@code numFound} 를 기준으로 삼고, 그 값이 없으면 첫 쪽에 실제로 몇 건이
      * 왔는지를 한 쪽 분량으로 삼아 이어 받습니다.
+     *
+     * <p><b>둘째 쪽부터는 동시에 받습니다.</b> 한 쪽에 4~5초가 걸리는데 서울에서 인기 있는
+     * 책은 두세 쪽이라, 차례로 받으면 그 책 하나에 15초입니다. 첫 쪽이 전체 건수를 알려 주므로
+     * 남은 쪽 수를 알고 한꺼번에 부를 수 있습니다.
      */
     public List<LibraryInfo> librariesHolding(String isbn13, String regionCode,
                                               ApiBudget.Priority priority) {
@@ -240,30 +262,80 @@ public final class Data4LibraryClient {
                     "libSrchByBook 은 region 이 필수입니다. 매뉴얼 13절을 보세요.");
         }
         List<LibraryInfo> out = new ArrayList<>();
-        int numFound = -1;
-        int perPage = -1;
 
-        for (int page = 1; page <= MAX_HOLDING_PAGES; page++) {
-            Map<String, String> params = new LinkedHashMap<>();
-            params.put("isbn", isbn13);
-            params.put("region", regionCode);
-            params.put("pageNo", String.valueOf(page));
-            params.put("pageSize", String.valueOf(PAGE_SIZE));
+        String first = holdingPage(isbn13, regionCode, 1, priority);
+        var firstItems = Data4LibraryResponse.items(first, "lib");
+        firstItems.stream().map(LibraryInfo::from).forEach(out::add);
+        if (firstItems.isEmpty()) return out;
 
-            String xml = call("libSrchByBook", params, priority);
-            var items = Data4LibraryResponse.items(xml, "lib");
-            items.stream().map(LibraryInfo::from).forEach(out::add);
+        int numFound = intOrMinusOne(Data4LibraryResponse.scalar(first, "numFound"));
+        // 서버가 pageSize 를 그대로 따랐는지는 알 수 없습니다. 실제로 온 건수를
+        // 한 쪽 분량으로 삼아야 서버가 더 작게 잘라 줘도 이어 받을 수 있습니다.
+        int perPage = firstItems.size();
 
-            if (page == 1) {
-                numFound = intOrMinusOne(Data4LibraryResponse.scalar(xml, "numFound"));
-                // 서버가 pageSize 를 그대로 따랐는지는 알 수 없습니다. 실제로 온 건수를
-                // 한 쪽 분량으로 삼아야 서버가 더 작게 잘라 줘도 이어 받을 수 있습니다.
-                perPage = items.size();
+        if (numFound < 0) {
+            // 전체 건수를 모르면 짧은 쪽이 나올 때까지 차례로 받습니다.
+            for (int page = 2; page <= MAX_HOLDING_PAGES; page++) {
+                var items = Data4LibraryResponse.items(
+                        holdingPage(isbn13, regionCode, page, priority), "lib");
+                items.stream().map(LibraryInfo::from).forEach(out::add);
+                if (items.isEmpty() || items.size() < perPage) return out;
             }
-            if (items.isEmpty()) return out;
-            if (numFound >= 0 ? out.size() >= numFound : items.size() < perPage) return out;
+            return out;
+        }
+        if (out.size() >= numFound) return out;
+
+        // 남은 쪽 수를 알 수 있으므로 한꺼번에 받습니다. 쪽 순서대로 이어 붙입니다.
+        int remaining = numFound - out.size();
+        int lastPage = Math.min(MAX_HOLDING_PAGES, 1 + (remaining + perPage - 1) / perPage);
+        for (String xml : holdingPages(isbn13, regionCode, 2, lastPage, priority)) {
+            Data4LibraryResponse.items(xml, "lib").stream().map(LibraryInfo::from).forEach(out::add);
         }
         return out;
+    }
+
+    private String holdingPage(String isbn13, String regionCode, int page,
+                               ApiBudget.Priority priority) {
+        Map<String, String> params = new LinkedHashMap<>();
+        params.put("isbn", isbn13);
+        params.put("region", regionCode);
+        params.put("pageNo", String.valueOf(page));
+        params.put("pageSize", String.valueOf(PAGE_SIZE));
+        return call("libSrchByBook", params, priority);
+    }
+
+    /**
+     * {@code from} 쪽부터 {@code to} 쪽까지를 동시에 받아 쪽 순서대로 돌려줍니다.
+     * 한 쪽이라도 실패하면 그 예외를 그대로 올립니다. 빠진 쪽이 있는 답은 빠짐없이 확인한
+     * 것이 아니므로, 부르는 쪽이 그것을 실패로 세어야 합니다.
+     */
+    private List<String> holdingPages(String isbn13, String regionCode, int from, int to,
+                                      ApiBudget.Priority priority) {
+        List<String> pages = new ArrayList<>();
+        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            List<Future<String>> futures = new ArrayList<>();
+            java.util.concurrent.Semaphore permits = new java.util.concurrent.Semaphore(PAGE_FAN_OUT);
+            for (int page = from; page <= to; page++) {
+                int pageNo = page;
+                futures.add(executor.submit(() -> {
+                    permits.acquire();
+                    try {
+                        return holdingPage(isbn13, regionCode, pageNo, priority);
+                    } finally {
+                        permits.release();
+                    }
+                }));
+            }
+            for (Future<String> future : futures) pages.add(future.get());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("소장 조회가 중단되었습니다.", e);
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof RuntimeException runtime) throw runtime;
+            throw new IllegalStateException("소장 조회에 실패했습니다.", cause);
+        }
+        return pages;
     }
 
     private static int intOrMinusOne(String value) {

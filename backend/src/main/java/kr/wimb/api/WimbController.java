@@ -1,6 +1,7 @@
 package kr.wimb.api;
 
 import kr.wimb.data4library.Data4LibraryClient;
+import kr.wimb.holdings.CachingHoldingsClient;
 import kr.wimb.data4library.LibraryInfo;
 import kr.wimb.data4library.RegionCode;
 import kr.wimb.ingest.ApiBudget;
@@ -34,9 +35,6 @@ public class WimbController {
     /** 실패한 시도를 다시 받기까지 기다리는 시간. 계속 실패하는 지역을 매번 두드리지 않습니다. */
     private static final Duration CATALOG_RETRY_AFTER = Duration.ofMinutes(5);
 
-    /** 한 요청에서 조회할 판본 수 상한. 한 요청이 예산을 통째로 쓰지 못하게 막습니다. */
-    private static final int MAX_EDITIONS_PER_LOOKUP = 20;
-
     /** 표시는 전부 한국 시각 기준입니다. */
     private static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
 
@@ -44,13 +42,29 @@ public class WimbController {
     private final BookSearchService searchService;
     private final MultiCheckService multiCheckService;
     private final ApiBudget budget;
+
+    /** 소장 캐시. {@code /api/status} 가 항목 수를 내보냅니다. */
+    private final CachingHoldingsClient holdingsCache;
     private final OpacTemplates opacTemplates;
 
     /**
-     * 도서관 마스터를 메모리에 담아 둡니다. 1,604건뿐이라 이걸로 충분하고,
+     * 도서관 마스터를 메모리에 담아 둡니다. 1,619건뿐이라 이걸로 충분하고,
      * 매번 정보나루를 부르면 예산이 검색에 쓸 몫까지 갉아먹습니다.
      */
     private final Map<String, LibraryInfo> catalog = new ConcurrentHashMap<>();
+
+    /**
+     * 각 도서관이 어느 시도에 속하는지. <b>정보나루가 그 시도의 {@code libSrch} 목록에
+     * 넣어 준 것</b>이 근거입니다.
+     *
+     * <p>예전에는 도서관 주소의 앞머리에서 시도명을 뽑았습니다. 그런데 {@code libSrchByBook}
+     * 의 {@code region} 은 정보나루가 그 도서관에 붙여 둔 지역으로 걸러지는 것이라, 주소를
+     * 우리가 읽어 낸 값과 어긋나면 <b>그 도서관은 물어보지도 않은 채 「없음」으로
+     * 나갑니다.</b> 실제로 「고양시립」 두 곳은 주소에서 시도를 뽑지 못해 확인 불가로만
+     * 답할 수 있었습니다. 정보나루가 시도별로 돌려주는 목록에서 소속을 그대로 받으면
+     * 소장 조회가 쓰는 것과 같은 기준이 됩니다. 주소 읽기는 이 값이 없을 때의 예비입니다.
+     */
+    private final Map<String, RegionCode> regionOf = new ConcurrentHashMap<>();
 
     /**
      * 이미 받아 둔 시도. <b>실패한 시도는 여기에 없으므로 다음 기회에 다시 받습니다.</b>
@@ -74,14 +88,16 @@ public class WimbController {
     @Autowired
     public WimbController(Data4LibraryClient client, BookSearchService searchService,
                           MultiCheckService multiCheckService, ApiBudget budget,
-                          OpacTemplates opacTemplates) {
-        this(client, searchService, multiCheckService, budget, opacTemplates, Clock.systemUTC());
+                          OpacTemplates opacTemplates, CachingHoldingsClient holdingsCache) {
+        this(client, searchService, multiCheckService, budget, opacTemplates, holdingsCache,
+                Clock.systemUTC());
     }
 
     /** 재시도 시각을 시험할 수 있도록 시계를 받는 생성자입니다. */
     WimbController(Data4LibraryClient client, BookSearchService searchService,
                    MultiCheckService multiCheckService, ApiBudget budget,
-                   OpacTemplates opacTemplates, Clock clock) {
+                   OpacTemplates opacTemplates, CachingHoldingsClient holdingsCache, Clock clock) {
+        this.holdingsCache = holdingsCache;
         this.opacTemplates = opacTemplates;
         this.client = client;
         this.searchService = searchService;
@@ -108,7 +124,7 @@ public class WimbController {
             }
         }
         return catalog.values().stream()
-                .map(info -> LibraryDto.from(info, opacTemplates))
+                .map(info -> LibraryDto.from(info, opacTemplates, regionOf.get(info.libCode())))
                 // 시도를 못 알아낸 도서관은 끝으로 보냅니다. 목록에서 빼지는 않습니다.
                 .sorted(Comparator.comparing(LibraryDto::sido,
                                 Comparator.nullsLast(Comparator.naturalOrder()))
@@ -147,12 +163,10 @@ public class WimbController {
      * <p>조건을 하나도 주지 않으면 정보나루는 전체 대출데이터를 훑습니다. 아무 뜻도 없는
      * 결과에 호출만 쓰게 되므로 여기서 막습니다.
      *
-     * <p><b>{@code keyword} 는 아직 화면이 쓰지 않습니다. 실측용으로 열어 둔 것입니다.</b>
-     * 매뉴얼 16절이 {@code title} 과 별개의 항목으로 두고 있는데, 둘이 어떻게 다른지는
-     * 적혀 있지 않습니다. 「레미제라블」로는 민음사 낱권이 한 건도 걸리지 않고 「레 미제라블」로는
-     * 여섯 저작이 걸리는 것을 확인했으므로, <b>정보나루의 제목 매칭이 공백을 어떻게 다루는지
-     * 알아내야 합니다.</b> 등록된 IP 에서만 물어볼 수 있는 질문이라 서버에 통로를 냅니다.
-     * 추측으로 정하지 말고 이것으로 불러 보고 정하세요.
+     * <p><b>{@code keyword} 는 화면이 쓰지 않습니다. 실측용으로 열어 둔 것입니다.</b>
+     * 매뉴얼 16절이 {@code title} 과 별개의 항목으로 두고 있는데, 실제로 불러 보니 제목이
+     * 아니라 <b>주제어</b>를 찾았습니다. 제목 검색에 쓰지 마세요. 등록된 IP 에서만 물어볼 수
+     * 있는 질문이 다시 생길 때를 위해 통로만 남겨 둡니다.
      */
     @GetMapping("/search")
     public BookSearchService.SearchResponse search(
@@ -204,6 +218,18 @@ public class WimbController {
     }
 
     /**
+     * 도서관 하나가 속한 시도. <b>정보나루가 준 소속을 먼저 보고</b>, 그것이 없을 때만 주소를
+     * 읽습니다. 소장 조회의 {@code region} 이 여기서 나오므로, 정보나루와 다른 기준을 쓰면
+     * 그 도서관은 물어보지도 않은 채 「없음」이 됩니다.
+     */
+    private Optional<RegionCode> regionFor(String libCode) {
+        RegionCode fromSource = regionOf.get(libCode);
+        if (fromSource != null) return Optional.of(fromSource);
+        LibraryInfo info = catalog.get(libCode);
+        return info == null ? Optional.empty() : info.region();
+    }
+
+    /**
      * 선택한 도서관들이 어느 시도에 걸쳐 있는지 구합니다.
      *
      * <p>{@code libSrchByBook} 의 {@code region} 이 필수라 <b>이 목록의 크기만큼 호출이
@@ -211,9 +237,7 @@ public class WimbController {
      */
     private List<String> regionsOf(List<String> selectedLibs) {
         return selectedLibs.stream()
-                .map(catalog::get)
-                .filter(java.util.Objects::nonNull)
-                .map(LibraryInfo::region)
+                .map(this::regionFor)
                 .flatMap(Optional::stream)
                 .map(RegionCode::code)
                 .distinct().toList();
@@ -222,9 +246,9 @@ public class WimbController {
     /**
      * 고른 도서관 가운데 <b>물어볼 수조차 없는 곳</b>의 수.
      *
-     * <p>{@code libSrchByBook} 은 {@code region} 이 필수인데, 그 값은 도서관 주소 앞머리에서
-     * 뽑습니다. 마스터에 그 부호가 없거나 주소가 비어 있거나 시도를 알아보지 못하면 region 이
-     * 없고, 그러면 <b>그 도서관은 조회 대상에서 아예 빠집니다.</b>
+     * <p>{@code libSrchByBook} 은 {@code region} 이 필수인데, 정보나루가 준 소속도 없고
+     * 주소에서도 시도를 알아보지 못하면 region 이 없고, 그러면 <b>그 도서관은 조회 대상에서
+     * 아예 빠집니다.</b>
      *
      * <p>여기까지는 어쩔 수 없습니다. 문제는 그다음입니다. 빠진 도서관은 결과 목록에 있을
      * 수 없으므로 <b>「그 도서관에는 없다」로 나갑니다.</b> 물어보지 않고 없다고 답하는
@@ -236,10 +260,7 @@ public class WimbController {
      */
     private int unaskableCount(List<String> selectedLibs) {
         return (int) selectedLibs.stream()
-                .filter(code -> {
-                    LibraryInfo info = catalog.get(code);
-                    return info == null || info.region().isEmpty();
-                })
+                .filter(code -> regionFor(code).isEmpty())
                 .count();
     }
 
@@ -248,9 +269,8 @@ public class WimbController {
     public record HoldingsRequest(List<String> isbn13List, List<String> libs) {}
 
     /**
-     * @param asOf 이 소장 정보를 <b>정보나루에서 받은</b> 날짜. 화면에 반드시 표시합니다.
-     *             캐시에서 나온 값이면 그때 받은 날짜이지 오늘이 아닙니다. 물어보지
-     *             못했으면 null 이라, 화면이 「확인 불가」에 날짜를 붙이지 않습니다.
+     * @param asOf 조회 시각. <b>화면에 반드시 표시합니다.</b> 캐시에서 나온 답이면 캐시된
+     *             날짜이고, 여러 답이 섞였으면 가장 오래된 날짜입니다.
      */
     public record HoldingsResponse(List<String> libCodes, boolean complete, boolean unreadable,
                                    String asOf) {}
@@ -273,29 +293,22 @@ public class WimbController {
      * 저작 하나의 소장 여부. 화면이 책마다 따로 부르고 도착하는 대로 채웁니다.
      *
      * <p>저작에 묶인 <b>모든 판본</b>을 함께 보내야 합니다. 판본 하나만 조회하면 도서관이
-     * 다른 판을 가지고 있어도 미소장으로 나옵니다.
+     * 다른 판을 가지고 있어도 미소장으로 나옵니다. 판본이 상한을 넘으면 서비스가 앞의
+     * 것만 묻고 {@code complete} 를 내립니다. 거절하면 화면이 「확인 불가」밖에 그릴 수 없습니다.
      */
     @PostMapping("/holdings")
     public HoldingsResponse holdings(@RequestBody HoldingsRequest request) {
         if (request == null || request.isbn13List() == null || request.isbn13List().isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "조회할 ISBN 이 없습니다.");
         }
-        if (request.isbn13List().size() > MAX_EDITIONS_PER_LOOKUP) {
-            // 한 요청이 하루치 예산을 통째로 쓰는 것을 막습니다.
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "한 번에 조회할 판본이 너무 많습니다.");
-        }
         List<String> selected = request.libs() == null ? List.of() : request.libs();
         loadCatalogQuietly(selected);
 
         var result = searchService.holdingsOf(
                 request.isbn13List(), regionsOf(selected), selected, unaskableCount(selected));
-        // **오늘 날짜를 찍지 않습니다.** 캐시에서 나온 값이면 그것을 받은 날이 조회 시각이고,
-        // 그 차이가 사용자가 "미소장"을 어떻게 읽을지를 가릅니다. 한 달 전 값을 오늘 것처럼
-        // 보이게 하면 표시가 있으나 마나 합니다.
-        return new HoldingsResponse(result.libCodes(), result.complete(), result.unreadable(),
-                result.asOf() == null ? null
-                        : LocalDate.ofInstant(result.asOf(), SEOUL).toString());
+        // 답을 실제로 받은 날짜를 말합니다. 받은 답이 없으면(물어보지 못했으면) 오늘입니다.
+        String asOf = (result.asOf() != null ? result.asOf() : LocalDate.now(SEOUL)).toString();
+        return new HoldingsResponse(result.libCodes(), result.complete(), result.unreadable(), asOf);
     }
 
     /**
@@ -337,6 +350,9 @@ public class WimbController {
      * 것이라, 소장 정보 자체를 믿지 못하게 만듭니다. 판본 분산 문제가 여기서 다시
      * 나타난 것입니다.
      *
+     * <p>판본이 상한을 넘으면 앞의 것만 묻습니다. 그 안에서 찾으면 그것이 답이고, 못 찾았으면
+     * <b>묻지 못한 판본이 남은 것이라 「없다」고 말할 수 없습니다.</b>
+     *
      * <p>돌려주는 {@code asOf} 는 <b>어제 날짜</b>입니다. 오늘이 아닙니다. 정보나루가 주는
      * 대출 상태가 조회일 기준 전날의 것이기 때문입니다(매뉴얼 11절). 화면이 이 날짜를
      * 그대로 보여 주어야 사용자가 언제 기준인지 알고 판단합니다.
@@ -346,13 +362,11 @@ public class WimbController {
         if (isbn == null || isbn.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "조회할 ISBN 이 없습니다.");
         }
-        if (isbn.size() > MAX_EDITIONS_PER_LOOKUP) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "한 번에 조회할 판본이 너무 많습니다.");
-        }
+        boolean truncated = isbn.size() > BookSearchService.MAX_EDITIONS_PER_LOOKUP;
+        List<String> asked = truncated ? isbn.subList(0, BookSearchService.MAX_EDITIONS_PER_LOOKUP) : isbn;
 
-        boolean anyFailed = false;
-        for (String isbn13 : isbn) {
+        boolean anyFailed = truncated;
+        for (String isbn13 : asked) {
             try {
                 var status = client.loanStatus(lib, isbn13, ApiBudget.Priority.USER);
                 // 하나라도 가지고 있으면 그것이 답입니다. 나머지는 물어볼 필요가 없습니다.
@@ -391,10 +405,10 @@ public class WimbController {
                 "callsUsedToday", budget.used(Data4LibraryClient.SOURCE_CODE),
                 "callsRemaining", budget.remaining(Data4LibraryClient.SOURCE_CODE),
                 // **캐시가 실제로 살아 있는지 알 방법이 있어야 합니다.** 이 숫자가 없으면
-                // 재배포 뒤에 호출이 줄지 않을 때, 캐시가 안 되살아난 것인지 스냅샷이
-                // 저장되지 않은 것인지 캐시가 원래 안 도는 것인지 구별할 수 없어 추측하게
-                // 됩니다. 배포 직후 이 값이 0이면 스냅샷을 잃은 것입니다.
-                "holdingCacheEntries", searchService.holdingCacheSize());
+                // 재배포 뒤에 호출이 줄지 않을 때, 스냅샷을 못 되살린 것인지 저장이 안 된
+                // 것인지 캐시가 원래 안 도는 것인지 구별할 수 없어 추측하게 됩니다.
+                // 배포 직후 이 값이 0이면 스냅샷을 잃은 것입니다.
+                "holdingCacheEntries", holdingsCache.size());
     }
 
     /**
@@ -413,19 +427,6 @@ public class WimbController {
         }
     }
 
-    /**
-     * 도서관 마스터를 시도별로 받습니다.
-     *
-     * <p><b>시도 하나가 실패해도 나머지로 목록을 만듭니다.</b> 17곳을 한 덩어리로 다루면
-     * 한 곳이 잠깐 흔들릴 때 전국 목록을 통째로 못 쓰게 되는데, 그것은 부분 실패를 전체
-     * 실패로 만드는 것입니다.
-     *
-     * <p>대신 실패한 시도를 성공으로 기억하지 않습니다. 그러지 않으면 그 지역 도서관이
-     * 영영 목록에 나타나지 않고, 사용자에게는 <b>"그런 도서관이 없다"로 보입니다.</b>
-     *
-     * @throws ResponseStatusException 한 시도도 받지 못한 경우. 빈 목록을 정상인 척
-     *                                 돌려주면 화면이 도서관이 없는 것으로 그립니다.
-     */
     /**
      * 서버가 뜨면 곧바로 도서관 목록을 받아 둡니다.
      *
@@ -446,48 +447,41 @@ public class WimbController {
     }
 
     /**
-     * 전국을 한 번에 받아 봅니다.
+     * 도서관 마스터를 <b>시도별로</b> 받습니다.
      *
-     * <p><b>{@code libSrch} 의 {@code region} 은 선택 항목입니다(매뉴얼 1절).</b> 없으면 모든
-     * 지역을 돌려주므로, 시도 17번을 도는 대신 쪽수만큼만 부르면 됩니다. 호출이 3분의 1로
-     * 줄고 그만큼 왕복도 줄어듭니다. {@code libSrchByBook} 의 {@code region} 이 필수인 것과
-     * 혼동하지 마세요. 그쪽은 여전히 시도마다 불러야 합니다.
+     * <p>전국을 한 번에 받으면 호출이 3분의 1로 줄지만, 그러면 <b>각 도서관이 정보나루 기준으로
+     * 어느 시도에 속하는지</b>를 알 수 없습니다. 소장 조회({@code libSrchByBook})는 그 소속으로
+     * 걸러지므로, 주소를 우리가 읽어 낸 값이 그것과 어긋나는 도서관은 물어보지도 않은 채
+     * 「없음」이 됩니다. 시도별로 받으면 목록에 들어온 시도가 곧 소속이라 그 어긋남이
+     * 사라집니다. 서버가 뜰 때 배경에서 받는 열일곱 번이라 사람이 기다리지 않습니다.
      *
-     * @return 받았으면 true. 실패하면 false 를 주고 시도별로 다시 받습니다. 시도별로 받으면
-     *         일부만 실패했을 때 나머지라도 건집니다.
+     * <p><b>시도 하나가 실패해도 나머지로 목록을 만듭니다.</b> 17곳을 한 덩어리로 다루면
+     * 한 곳이 잠깐 흔들릴 때 전국 목록을 통째로 못 쓰게 되는데, 그것은 부분 실패를 전체
+     * 실패로 만드는 것입니다.
+     *
+     * <p>대신 실패한 시도를 성공으로 기억하지 않습니다. 그러지 않으면 그 지역 도서관이
+     * 영영 목록에 나타나지 않고, 사용자에게는 <b>"그런 도서관이 없다"로 보입니다.</b>
+     *
+     * @throws ResponseStatusException 한 시도도 받지 못한 경우. 빈 목록을 정상인 척
+     *                                 돌려주면 화면이 도서관이 없는 것으로 그립니다.
      */
-    private boolean loadEveryRegionAtOnce() {
-        try {
-            for (LibraryInfo library : client.libraries(null, ApiBudget.Priority.BACKGROUND)) {
-                if (library.libCode() != null) catalog.put(library.libCode(), library);
-            }
-        } catch (RuntimeException e) {
-            return false;
-        }
-        if (catalog.isEmpty()) return false;
-        for (RegionCode region : RegionCode.values()) loadedRegions.add(region.code());
-        return true;
-    }
-
     private synchronized void loadCatalog() {
         if (isComplete()) return;
         // **비어 있을 때도 기다립니다.** 예전에는 목록이 비어 있으면 이 빗장을 건너뛰었는데,
         // 정보나루가 답하지 않는 동안에는 목록이 늘 비어 있습니다. 그래서 아무도 기다리지
-        // 않고, 화면을 한 번 열 때마다 전국 한 번 + 시도 열일곱 번을 다시 부르게 됩니다.
+        // 않고, 화면을 한 번 열 때마다 시도 열일곱 번을 다시 부르게 됩니다.
         // **가장 안 될 때 가장 많이 부르는 셈**이고, 그 헛호출이 하루 한도를 갉아먹어
         // 고장을 스스로 늘립니다. 비어 있는 쪽이 오히려 더 기다려야 합니다.
         if (clock.instant().isBefore(nextRetry)) return;
 
-        if (loadedRegions.isEmpty() && loadEveryRegionAtOnce()) return;
-
         int failures = 0;
-        // 전국 한 번에 받기가 실패했을 때의 길입니다. 시도별로 나누면 일부만 실패해도
-        // 나머지는 건집니다.
         for (RegionCode region : RegionCode.values()) {
             if (loadedRegions.contains(region.code())) continue;
             try {
                 for (LibraryInfo library : client.libraries(region.code(), ApiBudget.Priority.BACKGROUND)) {
-                    if (library.libCode() != null) catalog.put(library.libCode(), library);
+                    if (library.libCode() == null) continue;
+                    catalog.put(library.libCode(), library);
+                    regionOf.put(library.libCode(), region);
                 }
                 loadedRegions.add(region.code());
             } catch (RuntimeException e) {
@@ -496,8 +490,6 @@ public class WimbController {
             }
         }
 
-        // 전국 한 번에 받기가 실패한 것도 실패입니다. 이것을 세지 않으면 그 길로만
-        // 실패하는 동안 빗장이 걸리지 않아 매 요청마다 다시 부르게 됩니다.
         if (failures > 0 || !isComplete()) nextRetry = clock.instant().plus(CATALOG_RETRY_AFTER);
         if (catalog.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
@@ -524,8 +516,12 @@ public class WimbController {
              */
             OpacLink.Kind linkKind
     ) {
-        static LibraryDto from(LibraryInfo info, OpacTemplates templates) {
-            String[] parts = splitAddress(info.address());
+        /**
+         * @param fromSource 정보나루가 시도별 목록에서 알려 준 소속. 모르면 null 이고, 그때만
+         *                   주소에서 읽습니다.
+         */
+        static LibraryDto from(LibraryInfo info, OpacTemplates templates, RegionCode fromSource) {
+            String[] parts = splitAddress(info.address(), fromSource);
             return new LibraryDto(
                     info.libCode(),
                     shortIdOf(info.libCode()),
@@ -550,20 +546,37 @@ public class WimbController {
         }
 
         /**
-         * 주소 앞머리에서 시도와 시군구를 뽑습니다. <b>못 알아내면 null 을 줍니다.</b>
+         * 시도와 시군구를 정합니다. <b>시도는 정보나루가 알려 준 소속을 우선합니다.</b>
          *
-         * <p>예전에는 「기타」라는 묶음에 몰아넣었는데, 지역으로 훑는 사람에게 「기타」는
-         * 아무것도 알려 주지 않는 이름이라 열어 볼 이유가 없습니다. 그렇다고 목록에서 아예
-         * 빼면 이름으로 검색해도 안 나와서 <b>「그런 도서관이 없다」로 읽히는데</b>, 그것이
-         * 더 나쁩니다. 그래서 값을 비우고, 지역 트리에서만 빠지게 합니다. 이름 검색에서는
-         * 그대로 나옵니다.
+         * <p>주소 앞머리가 시도명이면 그 다음 어절이 시군구입니다. 「고양시 일산동구 …」처럼
+         * 시도명이 빠진 주소는 예전에는 시도를 알아내지 못해 지역 트리에서 빠졋는데, 이제는
+         * 소속이 따로 오므로 첫 어절을 시군구로 삼습니다. 다만 그 어절이 시·군·구로 끝나지
+         * 않으면 시군구라고 단정하지 않습니다. 길 이름을 시군구로 올리면 트리에 엉뚱한
+         * 가지가 생깁니다.
+         *
+         * <p>둘 다 없으면 null 을 줍니다. 「기타」 묶음은 지역으로 훑는 사람에게 아무것도
+         * 알려 주지 않고, 그렇다고 목록에서 빼면 이름으로 검색해도 안 나와서 <b>「그런 도서관이
+         * 없다」로 읽힙니다.</b> 값을 비우고 지역 트리에서만 빠지게 합니다.
          */
-        private static String[] splitAddress(String address) {
-            if (address == null || address.isBlank()) return new String[] {null, null};
-            String[] tokens = address.trim().split("\\s+");
-            String sido = RegionCode.ofSido(tokens[0]).map(RegionCode::sido).orElse(null);
-            if (sido == null) return new String[] {null, null};
-            return new String[] {sido, tokens.length > 1 ? tokens[1] : null};
+        private static String[] splitAddress(String address, RegionCode fromSource) {
+            String[] tokens = address == null || address.isBlank()
+                    ? new String[0] : address.trim().split("\\s+");
+            Optional<RegionCode> fromAddress = tokens.length == 0
+                    ? Optional.empty() : RegionCode.ofSido(tokens[0]);
+            RegionCode region = fromSource != null ? fromSource : fromAddress.orElse(null);
+            if (region == null) return new String[] {null, null};
+
+            String sigungu;
+            if (fromAddress.isPresent()) {
+                sigungu = tokens.length > 1 ? tokens[1] : null;
+            } else {
+                sigungu = tokens.length > 0 && looksLikeSigungu(tokens[0]) ? tokens[0] : null;
+            }
+            return new String[] {region.sido(), sigungu};
+        }
+
+        private static boolean looksLikeSigungu(String token) {
+            return token.endsWith("시") || token.endsWith("군") || token.endsWith("구");
         }
     }
 }

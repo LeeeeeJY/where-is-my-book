@@ -2,7 +2,6 @@ package kr.wimb.api;
 
 import kr.wimb.data4library.Data4LibraryClient;
 import kr.wimb.holdings.CachingHoldingsClient;
-import kr.wimb.holdings.HoldingCache;
 import kr.wimb.holdings.HoldingsLookup;
 import kr.wimb.ingest.ApiBudget;
 import kr.wimb.ingest.InMemoryApiBudget;
@@ -21,9 +20,11 @@ import java.time.Clock;
 import java.time.ZoneId;
 import java.time.Duration;
 import java.util.Map;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.locks.ReentrantLock;
 
 @Configuration
-// 소장 캐시를 주기적으로 파일에 남기는 일정이 필요합니다. HoldingCacheStore 를 보세요.
+// 소장 캐시 스냅샷을 주기적으로 저장하는 일정이 필요합니다. HoldingCacheStore 를 보세요.
 @EnableScheduling
 public class WimbConfiguration implements WebMvcConfigurer {
 
@@ -47,14 +48,20 @@ public class WimbConfiguration implements WebMvcConfigurer {
     @Value("${wimb.data4library.min-request-interval-ms:120}")
     private long minIntervalMs;
 
+    /**
+     * 정보나루에 <b>동시에</b> 나가 있을 수 있는 요청 수.
+     *
+     * <p>실측으로 정보나루 호출 하나가 3~5초 걸립니다(소장 조회 4.9초, 서지 검색 3.7초). 요청
+     * 사이의 간격이 아니라 <b>이 왕복 시간</b>이 병목이라, 겹치지 않으면 스무 권 확인에 1분이
+     * 걸립니다. 그래서 소장 조회와 서지 검색을 안에서 겹쳐 내보내는데, 그것이 곱해져 한꺼번에
+     * 수십 개가 나가지 않도록 여기서 상한을 둡니다. 남의 서버에 대한 예의이자 차단을 피하는
+     * 장치입니다. 실제 운영에서 정보나루가 느려지거나 오류를 돌려주면 이 값을 먼저 줄이세요.
+     */
+    @Value("${wimb.data4library.max-in-flight:12}")
+    private int maxInFlight;
+
     @Value("${wimb.cors.allowed-origins:http://localhost:5173}")
     private String[] allowedOrigins;
-
-    @Value("${wimb.holdings.cache-max-entries:50000}")
-    private int cacheMaxEntries;
-
-    @Value("${wimb.holdings.fresh-for-days:7}")
-    private long freshForDays;
 
     @Bean
     public ApiBudget apiBudget() {
@@ -75,7 +82,8 @@ public class WimbConfiguration implements WebMvcConfigurer {
                       cp .env.example .env  후 D4L_AUTH_KEY 를 채우고
                       set -a; . ./.env; set +a  로 환경 변수에 올린 뒤 실행하세요.""");
         }
-        return new Data4LibraryClient(new ThrottledHttpTransport(minIntervalMs), authKey, budget);
+        return new Data4LibraryClient(
+                new ThrottledHttpTransport(minIntervalMs, maxInFlight), authKey, budget);
     }
 
     /**
@@ -89,24 +97,34 @@ public class WimbConfiguration implements WebMvcConfigurer {
     }
 
     /**
-     * 소장 캐시. 상한을 두는 것은 메모리가 1GB 뿐인 기계에서 도는 것을 전제로 하기
-     * 때문입니다. 실측에서 5만 항목이 소장 179곳 기준 45MB 였습니다.
+     * (ISBN, 지역) 한 쌍의 소장 답을 기억해 두는 시간.
+     *
+     * <p>정보나루의 소장 데이터는 하루 단위로 갱신되므로 몇 시간 안의 답은 다시 물어도
+     * 같습니다. 도서관을 하나 더 고르고 「확인」을 다시 누르는 것이 이 도구의 가장 흔한
+     * 동작인데, 그때 스무 권을 정보나루에 다시 물으면 사람이 몇 초를 다시 기다리고 하루
+     * 예산도 그만큼 새어 나갑니다. 화면은 답을 실제로 받은 날짜를 「조회 기준」으로 보여
+     * 주므로, 캐시에서 나온 답이라는 사실이 감춰지지 않습니다.
+     */
+    static final Duration HOLDINGS_CACHE_TTL = Duration.ofHours(6);
+
+    /** 메모리 1GB 기계에서 캐시가 자라는 대로 두면 안 됩니다. 넘으면 비웁니다. */
+    static final int HOLDINGS_CACHE_MAX_ENTRIES = 5_000;
+
+    /**
+     * 소장 캐시. <b>빈으로 꺼내 두는 것은 파일 스냅샷 때문입니다.</b>
+     * {@link HoldingCacheStore} 가 이것을 주기적으로 저장하고 시작할 때 되살립니다.
      */
     @Bean
-    public HoldingCache holdingCache() {
-        return new HoldingCache(cacheMaxEntries, Clock.systemUTC());
+    public CachingHoldingsClient holdingsCache(Data4LibraryClient client) {
+        return new CachingHoldingsClient(
+                client.asHoldingsClient(ApiBudget.Priority.USER),
+                HOLDINGS_CACHE_TTL, HOLDINGS_CACHE_MAX_ENTRIES, Clock.systemUTC());
     }
 
     @Bean
-    public HoldingsLookup holdingsLookup(Data4LibraryClient client, HoldingCache cache) {
-        // **캐시를 HoldingsLookup 안쪽에 끼웁니다.** 바깥에 두면 「저작 + 고른 도서관」이
-        // 열쇠가 되어 도서관을 한 곳만 더 골라도 통째로 빗나갑니다. (ISBN, 시도) 쌍은
-        // 유한하지만 도서관 조합은 그렇지 않습니다.
-        var cached = new CachingHoldingsClient(
-                client.asHoldingsClient(ApiBudget.Priority.USER),
-                cache, Duration.ofDays(freshForDays), Clock.systemUTC());
+    public HoldingsLookup holdingsLookup(CachingHoldingsClient cache) {
         // 매뉴얼 13절이 region 을 필수로 명시하므로 탐색 비용 없이 PER_REGION 으로 시작합니다.
-        return new HoldingsLookup(cached, HoldingsLookup.RegionModeStore.documented());
+        return new HoldingsLookup(cache, HoldingsLookup.RegionModeStore.documented());
     }
 
     @Override
@@ -114,7 +132,13 @@ public class WimbConfiguration implements WebMvcConfigurer {
         registry.addMapping("/api/**").allowedOrigins(allowedOrigins).allowedMethods("GET", "POST");
     }
 
-    /** 호출 간격을 지키는 최소한의 전송 계층. 상대 서버에 대한 예의입니다. */
+    /**
+     * 호출 간격과 동시 요청 수를 지키는 최소한의 전송 계층. 상대 서버에 대한 예의입니다.
+     *
+     * <p>둘은 서로 다른 것을 막습니다. 간격은 <b>짧은 시간에 몰아치는 것</b>을, 동시 상한은
+     * <b>답이 느릴 때 요청이 쌓이는 것</b>을 막습니다. 정보나루는 답이 느린 쪽이라 뒤엣것이
+     * 실제로 작동하는 제한입니다.
+     */
     private static final class ThrottledHttpTransport implements Data4LibraryClient.Transport {
         private final HttpClient http = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(5))
@@ -122,13 +146,37 @@ public class WimbConfiguration implements WebMvcConfigurer {
                 .build();
         private final long minIntervalMs;
         private long lastCallMs;
+        /**
+         * {@code synchronized} 가 아니라 잠금 객체를 씁니다. 요청 처리와 줄 확정이 가상
+         * 스레드에서 돌기 때문인데, 가상 스레드는 {@code synchronized} 안에서 잠들면
+         * 운반 스레드를 붙잡아 다른 가상 스레드가 그동안 돌지 못합니다. 잠금 객체 안에서
+         * 잠들면 운반 스레드를 놓아 줍니다.
+         */
+        private final ReentrantLock gate = new ReentrantLock(true);
+        /** 동시에 나가 있는 요청 수의 상한. 공정 모드라 먼저 기다린 요청이 먼저 나갑니다. */
+        private final Semaphore inFlight;
 
-        ThrottledHttpTransport(long minIntervalMs) {
+        ThrottledHttpTransport(long minIntervalMs, int maxInFlight) {
             this.minIntervalMs = minIntervalMs;
+            this.inFlight = new Semaphore(Math.max(1, maxInFlight), true);
         }
 
         @Override
         public String get(URI uri) {
+            try {
+                inFlight.acquire();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("호출 차례를 기다리다 중단되었습니다.", e);
+            }
+            try {
+                return send(uri);
+            } finally {
+                inFlight.release();
+            }
+        }
+
+        private String send(URI uri) {
             pace();
             try {
                 var request = HttpRequest.newBuilder(uri)
@@ -152,16 +200,26 @@ public class WimbConfiguration implements WebMvcConfigurer {
             }
         }
 
-        private synchronized void pace() {
-            long wait = minIntervalMs - (System.currentTimeMillis() - lastCallMs);
-            if (wait > 0) {
-                try {
-                    Thread.sleep(wait);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
+        /**
+         * 요청 사이의 간격만 지키고 <b>호출 자체는 잠금 밖에서</b> 합니다. 그래서 여러 요청의
+         * 왕복 시간이 서로 겹치고, 서버가 해외에 있어도 느려지지 않습니다. 호출을 이 안으로
+         * 옮기면 그 순간 직렬화되어 왕복 시간이 그대로 쌓입니다.
+         */
+        private void pace() {
+            gate.lock();
+            try {
+                long wait = minIntervalMs - (System.currentTimeMillis() - lastCallMs);
+                if (wait > 0) {
+                    try {
+                        Thread.sleep(wait);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
                 }
+                lastCallMs = System.currentTimeMillis();
+            } finally {
+                gate.unlock();
             }
-            lastCallMs = System.currentTimeMillis();
         }
     }
 }

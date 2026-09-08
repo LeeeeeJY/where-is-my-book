@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LOAN_DISCLAIMER, loanPhrase } from '../loanStatus';
+import { LOAN_DISCLAIMER, loanPhrase, loanTallyPhrase } from '../loanStatus';
 
 const YESTERDAY = '2026-09-07';
 
@@ -42,3 +42,22 @@ describe('대출 상태 문구', () => {
     expect(LOAN_DISCLAIMER).toContain('다를 수 있');
   });
 });
+
+describe('여러 권을 모아 말하는 문구', () => {
+  it('날짜를 항상 붙인다', () => {
+    expect(loanTallyPhrase(3, 5, 0, YESTERDAY).text).toBe(`5권 중 3권 대출 가능 (${YESTERDAY} 기준)`);
+  });
+
+  it('못 물어본 권수를 「빌릴 수 없다」와 섞지 않는다', () => {
+    const phrase = loanTallyPhrase(2, 5, 1, YESTERDAY);
+    expect(phrase.text).toContain('1권은 확인 못 함');
+    expect(phrase.caution).toBe(true);
+  });
+
+  it('한 권도 답을 못 받았으면 확인하지 못했다고 말한다', () => {
+    const phrase = loanTallyPhrase(0, 5, 5, null);
+    expect(phrase.text).toContain('확인하지 못했습니다');
+    expect(phrase.caution).toBe(true);
+  });
+});
+

@@ -2,7 +2,7 @@ package kr.wimb.api;
 
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
-import kr.wimb.holdings.HoldingCache;
+import kr.wimb.holdings.CachingHoldingsClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -32,10 +32,10 @@ public class HoldingCacheStore {
 
     private static final Logger log = LoggerFactory.getLogger(HoldingCacheStore.class);
 
-    private final HoldingCache cache;
+    private final CachingHoldingsClient cache;
     private final Path path;
 
-    public HoldingCacheStore(HoldingCache cache,
+    public HoldingCacheStore(CachingHoldingsClient cache,
                              @Value("${wimb.holdings.cache-path:data/holding-cache.tsv.gz}")
                              String path) {
         this.cache = cache;

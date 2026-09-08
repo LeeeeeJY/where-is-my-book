@@ -9,6 +9,11 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.Semaphore;
 
 /**
  * 여러 권을 한 번에 확인하는 화면의 첫 단계입니다. 줄을 해석하고 책을 확정합니다.
@@ -24,7 +29,6 @@ import java.util.List;
 @Service
 public class MultiCheckService {
 
-    /** 모호한 줄에 펼쳐 보여 줄 후보 수. 더 늘리면 고르는 일이 일이 됩니다. */
     /**
      * 한 줄에 보여 줄 후보 수.
      *
@@ -37,6 +41,16 @@ public class MultiCheckService {
 
     /** 1위가 2위의 이만큼이면 확정으로 봅니다. */
     private static final double CONFIRM_RATIO = 2.0;
+
+    /**
+     * 줄 확정을 동시에 몇 줄까지 진행할지.
+     *
+     * <p>줄마다 정보나루를 두세 번 부르고 정보나루의 서지 검색은 한 번에 3~4초가 걸립니다.
+     * 서른 줄을 차례로 돌리면 몇 분이 되고, 사용자는 그 시간을 빈 화면으로 기다립니다.
+     * 정보나루에 한꺼번에 나가는 요청 수는 전송 계층이 따로 묶어 두므로, 여기서 겹치는 것은
+     * <b>왕복 시간만</b>이고 정보나루에 더 몰아치는 것이 아닙니다.
+     */
+    private static final int RESOLVE_CONCURRENCY = 6;
 
     private final BookSearchService searchService;
 
@@ -85,11 +99,43 @@ public class MultiCheckService {
 
     public ResolveResponse resolve(List<String> rawLines) {
         LineParser.Parsed parsed = LineParser.parse(rawLines);
-        List<LineResult> results = new ArrayList<>(parsed.lines().size());
-        for (LineParser.ParsedLine line : parsed.lines()) {
-            results.add(resolveOne(line));
+        return new ResolveResponse(resolveAll(parsed.lines()), parsed.truncated());
+    }
+
+    /**
+     * 줄들을 몇 개씩 겹쳐서 확정합니다. <b>결과 순서는 줄 순서 그대로입니다.</b>
+     *
+     * <p>줄 하나의 실패는 {@link #resolveOne} 안에서 이미 그 줄의 상태로 바뀌므로, 여기까지
+     * 올라오는 예외는 코드의 결함입니다. 그것은 감추지 않고 그대로 올립니다.
+     */
+    private List<LineResult> resolveAll(List<LineParser.ParsedLine> lines) {
+        if (lines.size() <= 1) {
+            return lines.stream().map(this::resolveOne).toList();
         }
-        return new ResolveResponse(List.copyOf(results), parsed.truncated());
+        Semaphore permits = new Semaphore(RESOLVE_CONCURRENCY);
+        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            List<Future<LineResult>> futures = new ArrayList<>(lines.size());
+            for (LineParser.ParsedLine line : lines) {
+                futures.add(executor.submit(() -> {
+                    permits.acquire();
+                    try {
+                        return resolveOne(line);
+                    } finally {
+                        permits.release();
+                    }
+                }));
+            }
+            List<LineResult> out = new ArrayList<>(futures.size());
+            for (Future<LineResult> future : futures) out.add(future.get());
+            return List.copyOf(out);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("줄 확정이 중단되었습니다.", e);
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof RuntimeException runtime) throw runtime;
+            throw new IllegalStateException("줄 확정에 실패했습니다.", cause);
+        }
     }
 
     private LineResult resolveOne(LineParser.ParsedLine line) {
@@ -198,16 +244,24 @@ public class MultiCheckService {
         return second <= 0 || first >= second * CONFIRM_RATIO;
     }
 
+    /**
+     * 점수 내림차순으로 세우고, <b>점수가 같으면 대출건수가 많은 것을 앞에 둡니다.</b>
+     * 결과가 여러 검색을 합친 것이라 정보나루가 준 순서를 그대로 둘 수 없고, 한 권 검색의
+     * 같은 등급 정렬과 기준을 맞춥니다.
+     */
     private static List<BookSearchService.WorkResult> rank(
             List<BookSearchService.WorkResult> works, LineParser.Attempt attempt) {
+        Comparator<BookSearchService.WorkResult> byScore =
+                Comparator.comparingDouble(work -> score(work, attempt));
+        Comparator<BookSearchService.WorkResult> byLoans =
+                Comparator.comparingInt(BookSearchService.WorkResult::loanCount);
         return works.stream()
-                .sorted(Comparator.comparingDouble((BookSearchService.WorkResult w) ->
-                        score(w, attempt)).reversed())
+                .sorted(byScore.reversed().thenComparing(byLoans.reversed()))
                 .toList();
     }
 
     /**
-     * 후보 점수. <b>제목 일치도, 저자 일치 여부, 판본 수만 봅니다.</b>
+     * 후보 점수. <b>제목 일치도, 저자 일치 여부, 대출건수만 봅니다.</b>
      *
      * <p>소장 여부는 쓰지 않습니다. 소장을 알려면 먼저 책을 확정해야 하므로 순서가 맞지
      * 않고, 후보마다 조회하면 호출이 몇 배로 늘어납니다.
@@ -231,10 +285,21 @@ public class MultiCheckService {
                     BibNormalizer.normalizeKey(work.author())) * 0.5;
         }
 
-        // 판본이 여럿 묶인 저작을 조금 올립니다. 널리 읽혀 여러 번 나온 책일 가능성이
-        // 높고, 소장 조회에서도 잡힐 확률이 높습니다.
-        double editionBonus = Math.min(work.isbn13List().size(), 5) * 0.02;
+        // **널리 읽힌 책을 조금 올립니다.** 예전에는 판본 수를 썼는데, 같은 제목의 저작
+        // 가운데 사용자가 찾는 것은 판본이 많은 쪽이 아니라 **많이 빌려 간 쪽**입니다.
+        // 실제로 한 권 검색과 여러 권 확인이 같은 제목에 서로 다른 저작을 앞에 세워,
+        // 같은 책인데 소장 도서관이 다르게 나왔습니다. 한 권 검색이 같은 등급 안에서
+        // 대출건수로 세우므로, 여기서도 대출건수를 쓰면 두 화면의 첫 후보가 같아집니다.
+        // 로그를 취해 0.1 을 넘지 않게 묶습니다. 제목이 그대로 맞는 것(1.0)을 뒤집을 만큼
+        // 커지면 안 됩니다.
+        double popularityBonus = popularityBonus(work.loanCount());
 
-        return titleScore + authorScore + editionBonus;
+        return titleScore + authorScore + popularityBonus;
+    }
+
+    /** 대출건수 10만 건에서 0.1 이 되는 완만한 보너스. 0건이면 0 입니다. */
+    static double popularityBonus(int loanCount) {
+        if (loanCount <= 0) return 0.0;
+        return 0.1 * Math.min(1.0, Math.log10(1 + loanCount) / 5.0);
     }
 }

@@ -33,3 +33,28 @@ export function loanPhrase(status: LoanStatus): LoanPhrase {
 /** 값 옆에 항상 붙는 단서. 「어제 기준」을 한 번 더 풀어서 말합니다. */
 export const LOAN_DISCLAIMER =
   '대출 상태는 어제 기준이라 지금과 다를 수 있습니다. 확실한 것은 도서관 페이지에서 확인해 주세요.';
+
+/**
+ * 한 도서관에서 여러 권의 대출 상태를 모아 말하는 문구. **여기서도 날짜를 떼지 않습니다.**
+ *
+ * @param available 빌릴 수 있다고 나온 권수
+ * @param total     물어본 권수
+ * @param failed    물어보지 못한 권수. 「빌릴 수 없다」와 섞지 않고 따로 말합니다
+ * @param asOf      기준 날짜(어제). 한 권도 답을 못 받았으면 null
+ */
+export function loanTallyPhrase(
+  available: number,
+  total: number,
+  failed: number,
+  asOf: string | null,
+): LoanPhrase {
+  if (asOf === null) {
+    return { text: '대출 상태를 확인하지 못했습니다', caution: true };
+  }
+  const base = `${total}권 중 ${available}권 대출 가능`;
+  if (failed > 0) {
+    return { text: `${base}, ${failed}권은 확인 못 함 (${asOf} 기준)`, caution: true };
+  }
+  return { text: `${base} (${asOf} 기준)`, caution: false };
+}
+
