@@ -371,7 +371,7 @@ function Holdings({
                 {library ? library.name : code}
               </a>
               <span className="muted"> {linkLabel(library?.linkKind)}</span>
-              <LoanCheck libCode={code} isbn13={work.isbn13List[0]} />
+              <LoanCheck libCode={code} isbn13List={work.isbn13List} />
             </li>
           );
         })}
@@ -414,11 +414,18 @@ function formatAsOf(asOf: string | null): string {
  * 전날의 상태입니다. 「대출 가능」 네 글자만 남으면 사용자는 그것을 지금 상태로 읽고,
  * 그 믿음으로 갔다가 허탕치는 것이 이 도구를 못 쓰게 만드는 가장 큰 요인입니다.
  */
-function LoanCheck({ libCode, isbn13 }: { libCode: string; isbn13: string | undefined }) {
+/**
+ * 누를 때만 대출 상태를 물어봅니다.
+ *
+ * <p>목록에 미리 붙이면 안 됩니다. `bookExist` 는 (도서관 하나 × ISBN 하나)라, 여러 권
+ * 확인 화면에 그냥 달면 30권 × 판본 3개 × 도서관 20곳 = 1,800회가 되고 하루 한도가
+ * 열여섯 번 만에 사라집니다.
+ */
+function LoanCheck({ libCode, isbn13List }: { libCode: string; isbn13List: string[] }) {
   const [state, setState] = useState<'idle' | 'asking' | 'failed'>('idle');
   const [status, setStatus] = useState<LoanStatus | null>(null);
 
-  if (!isbn13) return null;
+  if (isbn13List.length === 0) return null;
 
   if (status) {
     const phrase = loanPhrase(status);
@@ -443,7 +450,7 @@ function LoanCheck({ libCode, isbn13 }: { libCode: string; isbn13: string | unde
       title={LOAN_DISCLAIMER}
       onClick={() => {
         setState('asking');
-        fetchLoanStatus(libCode, isbn13).then(
+        fetchLoanStatus(libCode, isbn13List).then(
           (result) => {
             setStatus(result);
             setState('idle');
@@ -452,7 +459,7 @@ function LoanCheck({ libCode, isbn13 }: { libCode: string; isbn13: string | unde
         );
       }}
     >
-      {state === 'asking' ? '확인 중' : '대출 가능?'}
+      {state === 'asking' ? '확인 중' : '대출 상태 확인'}
     </button>
   );
 }

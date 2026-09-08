@@ -23,10 +23,18 @@ describe('대출 상태 문구', () => {
   });
 
   it('소장 조회와 어긋나면 주의로 표시한다', () => {
-    // 소장한다고 나왔는데 여기서 없다고 하면 판본이 다르거나 자료가 빠진 것입니다.
     const phrase = loanPhrase({ hasBook: false, loanAvailable: false, asOf: YESTERDAY });
     expect(phrase.caution).toBe(true);
     expect(loanPhrase({ hasBook: true, loanAvailable: true, asOf: YESTERDAY }).caution).toBe(false);
+  });
+
+  it('어긋났을 때 「없습니다」라고 단정하지 않는다', () => {
+    // 여기까지 왔다는 것은 묶인 판본을 전부 물어봤는데도 없다고 나왔다는 뜻입니다.
+    // 소장 조회와 대출 조회의 답이 어긋난 것이고, 어느 쪽이 맞는지 우리는 모릅니다.
+    // 단정하면 실제로 있는 책을 없다고 답하게 되고, 그게 이 도구가 가장 피해야 할 답입니다.
+    const text = loanPhrase({ hasBook: false, loanAvailable: false, asOf: YESTERDAY }).text;
+    expect(text).toContain('소장 목록에는 있는데');
+    expect(text).not.toContain('없습니다');
   });
 
   it('단서 문구가 실시간이 아님을 말한다', () => {

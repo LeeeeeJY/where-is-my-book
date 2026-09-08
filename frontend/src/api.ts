@@ -109,8 +109,19 @@ export type LoanStatus = {
   asOf: string;
 };
 
-export async function fetchLoanStatus(libCode: string, isbn13: string): Promise<LoanStatus> {
-  const params = new URLSearchParams({ lib: libCode, isbn: isbn13 });
+/**
+ * 대출 상태를 물어봅니다.
+ *
+ * <p><b>저작에 묶인 판본을 전부 보냅니다.</b> 대표 판본 하나만 물으면, 도서관이 2판을
+ * 가지고 있을 때 1판을 물어보고 「이 도서관에는 없다」는 답을 받습니다. 소장한다고
+ * 표시해 놓고 누르면 없다고 하는 셈이라 소장 정보 자체를 믿지 못하게 됩니다.
+ */
+export async function fetchLoanStatus(
+  libCode: string,
+  isbn13List: string[],
+): Promise<LoanStatus> {
+  const params = new URLSearchParams({ lib: libCode });
+  for (const isbn13 of isbn13List) params.append('isbn', isbn13);
   return get<LoanStatus>(`/api/loan?${params}`);
 }
 

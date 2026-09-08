@@ -64,6 +64,41 @@ class WimbControllerTest {
         }
     }
 
+    /**
+     * {@code bookExist} 만 답하는 가짜 정보나루. 어느 판본을 물었는지 기록합니다.
+     */
+    private static final class LoanTransport implements Data4LibraryClient.Transport {
+        final List<String> asked = new ArrayList<>();
+        /** 이 판본만 소장하고 있다고 답합니다. */
+        String heldIsbn = null;
+        /** 이 판본은 조회 자체가 실패합니다. */
+        String failsFor = null;
+        boolean loanAvailable = true;
+
+        @Override public String get(URI uri) {
+            String url = uri.toString();
+            if (!url.contains("bookExist")) return libsOf("110001");
+            String isbn = url.replaceAll(".*[?&]isbn13=([0-9]+).*", "$1");
+            asked.add(isbn);
+            if (isbn.equals(failsFor)) throw new IllegalStateException("이 판본만 조회 실패");
+            boolean has = isbn.equals(heldIsbn);
+            return "<response><hasBook>" + (has ? "Y" : "N") + "</hasBook>"
+                    + "<loanAvailable>" + (has && loanAvailable ? "Y" : "N") + "</loanAvailable>"
+                    + "</response>";
+        }
+    }
+
+    private static WimbController controllerWith(Data4LibraryClient.Transport transport) {
+        var budget = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 100_000),
+                Clock.fixed(Instant.parse("2026-09-06T00:00:00Z"), ZoneId.of("UTC")));
+        var client = new Data4LibraryClient(transport, "테스트키", budget);
+        var search = new BookSearchService(client, new HoldingsLookup(
+                (isbn, region) -> List.of(), HoldingsLookup.RegionModeStore.documented()));
+        return new WimbController(client, search, new MultiCheckService(search), budget,
+                kr.wimb.opac.OpacTemplates.load(),
+                Clock.fixed(Instant.parse("2026-09-06T00:00:00Z"), ZoneId.of("UTC")));
+    }
+
     private static WimbController controller(RegionAware transport) {
         return controller(transport, new AtomicReference<>(Instant.parse("2026-09-06T00:00:00Z")));
     }
@@ -171,5 +206,75 @@ class WimbControllerTest {
 
         var thrown = assertThrows(ResponseStatusException.class, () -> controller(transport).libraries());
         assertEquals(503, thrown.getStatusCode().value());
+    }
+
+    @Test
+    @DisplayName("도서관이 다른 판본을 가지고 있어도 찾아낸다")
+    void loanCheckTriesEveryEdition() {
+        // 소장 조회는 저작에 묶인 판본 전체를 봅니다. 대출 조회만 대표 판본 하나를 물으면,
+        // 도서관이 2판을 가지고 있을 때 「이 도서관에는 없다」고 답하게 됩니다.
+        // 소장한다고 표시해 놓고 누르면 없다고 하는 셈이라 소장 정보를 믿지 못하게 됩니다.
+        var transport = new LoanTransport();
+        transport.heldIsbn = "9791158510015";   // 2판만 소장
+
+        var loan = controllerWith(transport)
+                .loan("110001", List.of("9788983711892", "9791158510015"));
+
+        assertTrue(loan.hasBook(), "묶인 판본을 다 물었으면 찾았어야 합니다: " + transport.asked);
+        assertTrue(loan.loanAvailable());
+        assertEquals(List.of("9788983711892", "9791158510015"), transport.asked);
+    }
+
+    @Test
+    @DisplayName("찾으면 나머지 판본은 물어보지 않는다")
+    void loanCheckStopsAtTheFirstHit() {
+        // bookExist 는 (도서관 × ISBN)이라 부르는 만큼 예산이 깎입니다.
+        var transport = new LoanTransport();
+        transport.heldIsbn = "9788983711892";   // 첫 판본을 소장
+
+        controllerWith(transport).loan("110001", List.of("9788983711892", "9791158510015"));
+
+        assertEquals(List.of("9788983711892"), transport.asked);
+    }
+
+    @Test
+    @DisplayName("한 판본이라도 못 물어봤으면 없다고 답하지 않는다")
+    void loanCheckDoesNotClaimAbsenceAfterAFailure() {
+        // 못 물어본 것을 「없다」로 답하면, 실제로 있는 책을 없다고 말하게 됩니다.
+        // 소장 여부에서 지키는 구분과 같습니다. 503 으로 답해 화면이 확인 불가로 그립니다.
+        var transport = new LoanTransport();
+        transport.failsFor = "9791158510015";
+
+        var controller = controllerWith(transport);
+        var thrown = assertThrows(ResponseStatusException.class,
+                () -> controller.loan("110001", List.of("9788983711892", "9791158510015")));
+
+        assertEquals(503, thrown.getStatusCode().value());
+    }
+
+    @Test
+    @DisplayName("전부 물어봤는데 없으면 그때는 없다고 답한다")
+    void loanCheckReportsAbsenceOnlyAfterCheckingEverything() {
+        var transport = new LoanTransport();   // 어느 판본도 소장하지 않음
+
+        var loan = controllerWith(transport)
+                .loan("110001", List.of("9788983711892", "9791158510015"));
+
+        assertFalse(loan.hasBook());
+        assertEquals(2, transport.asked.size(), "전부 물어봤어야 합니다");
+    }
+
+    @Test
+    @DisplayName("대출 상태의 기준 날짜는 어제다")
+    void loanStatusIsDatedYesterday() {
+        // 정보나루가 주는 값은 조회일 기준 전날의 것입니다(매뉴얼 11절).
+        // 화면이 이 날짜를 그대로 보여 주어야 사용자가 언제 기준인지 알고 판단합니다.
+        var transport = new LoanTransport();
+        transport.heldIsbn = "9788983711892";
+
+        var loan = controllerWith(transport).loan("110001", List.of("9788983711892"));
+
+        assertEquals(java.time.LocalDate.now(ZoneId.of("Asia/Seoul")).minusDays(1).toString(),
+                loan.asOf());
     }
 }

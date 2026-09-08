@@ -15,8 +15,14 @@ export type LoanPhrase = { text: string; caution: boolean };
 
 export function loanPhrase(status: LoanStatus): LoanPhrase {
   if (!status.hasBook) {
-    // 소장 조회는 있다고 했는데 여기서 없다고 하면, 판본이 다르거나 자료가 빠진 것입니다.
-    return { text: `이 도서관에는 없다고 나옵니다 (${status.asOf} 기준)`, caution: true };
+    // **여기까지 왔다는 것은 묶인 판본을 전부 물어봤다는 뜻입니다.** 그런데도 없다고 하면
+    // 소장 조회(libSrchByBook)와 대출 조회(bookExist)의 답이 서로 어긋난 것입니다.
+    // 어느 쪽이 맞는지 우리는 알 수 없으므로 「없습니다」라고 단정하지 않습니다.
+    // 단정하면 실제로 있는 책을 없다고 답하는 것이고, 그게 이 도구가 가장 피해야 할 답입니다.
+    return {
+      text: `소장 목록에는 있는데 대출 정보에는 안 잡힙니다 (${status.asOf} 기준)`,
+      caution: true,
+    };
   }
   if (status.loanAvailable) {
     return { text: `대출 가능 (${status.asOf} 기준)`, caution: false };

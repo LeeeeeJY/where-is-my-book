@@ -235,17 +235,52 @@ public class WimbController {
      *
      * <p><b>사용자가 그 도서관을 눌렀을 때만 부릅니다.</b> 이 호출은 (도서관 × ISBN)이라
      * 목록에 그냥 달면 여러 권 확인 한 번에 1,800회가 나가고 하루 한도가 열여섯 번 만에
-     * 사라집니다. 누를 때는 1회입니다.
+     * 사라집니다. 누를 때만 부르므로 저작 하나에 판본 수만큼입니다.
+     *
+     * <p><b>저작에 묶인 판본을 전부 받아야 합니다.</b> 처음에는 대표 판본 하나만 물었는데,
+     * 소장 조회는 판본 전체를 대상으로 하므로 도서관이 2판을 가지고 있으면 1판을 물어보고
+     * 「이 도서관에는 없다」고 답하게 됩니다. 소장한다고 표시해 놓고 누르면 없다고 하는
+     * 것이라, 소장 정보 자체를 믿지 못하게 만듭니다. 판본 분산 문제가 여기서 다시
+     * 나타난 것입니다.
      *
      * <p>돌려주는 {@code asOf} 는 <b>어제 날짜</b>입니다. 오늘이 아닙니다. 정보나루가 주는
      * 대출 상태가 조회일 기준 전날의 것이기 때문입니다(매뉴얼 11절). 화면이 이 날짜를
      * 그대로 보여 주어야 사용자가 언제 기준인지 알고 판단합니다.
      */
     @GetMapping("/loan")
-    public LoanDto loan(@RequestParam String lib, @RequestParam String isbn) {
-        var status = client.loanStatus(lib, isbn, ApiBudget.Priority.USER);
-        return new LoanDto(status.hasBook(), status.loanAvailable(),
-                LocalDate.now(SEOUL).minusDays(1).toString());
+    public LoanDto loan(@RequestParam String lib, @RequestParam List<String> isbn) {
+        if (isbn == null || isbn.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "조회할 ISBN 이 없습니다.");
+        }
+        if (isbn.size() > MAX_EDITIONS_PER_LOOKUP) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "한 번에 조회할 판본이 너무 많습니다.");
+        }
+
+        boolean anyFailed = false;
+        for (String isbn13 : isbn) {
+            try {
+                var status = client.loanStatus(lib, isbn13, ApiBudget.Priority.USER);
+                // 하나라도 가지고 있으면 그것이 답입니다. 나머지는 물어볼 필요가 없습니다.
+                if (status.hasBook()) {
+                    return new LoanDto(true, status.loanAvailable(), yesterday());
+                }
+            } catch (RuntimeException e) {
+                anyFailed = true;
+            }
+        }
+
+        // **못 물어본 판본이 남았으면 「없다」고 말할 수 없습니다.** 소장 여부에서 지키는
+        // 구분과 같습니다. 화면이 이것을 「확인하지 못했습니다」로 그립니다.
+        if (anyFailed) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                    "대출 상태를 확인하지 못했습니다.");
+        }
+        return new LoanDto(false, false, yesterday());
+    }
+
+    private static String yesterday() {
+        return LocalDate.now(SEOUL).minusDays(1).toString();
     }
 
     /**
