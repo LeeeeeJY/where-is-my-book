@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { ApiUnavailable, fetchHoldings, libraryLink, resolveLines } from '../api';
-import { linkLabel } from '../domain/opacLink';
+import { resolveLink } from '../domain/opacLink';
 import type { LineResult, WorkResult } from '../api';
 import { holdingState } from '../domain/holdingState';
 import { countByState, planTrip, rankLibraries, toPlainText } from '../domain/tripPlan';
@@ -518,10 +518,22 @@ function LineHoldings({
         <span key={code}>
           {i > 0 && ' · '}
           <a
-            href={libraryLink(code, work.isbn13List[0], work.title)}
+            href={
+              resolveLink(
+                byCode.get(code)?.linkKind,
+                libraryLink(code, work.isbn13List[0], work.title),
+                work.detailUrl,
+              ).href
+            }
             target="_blank"
             rel="noreferrer"
-            title={linkLabel(byCode.get(code)?.linkKind)}
+            title={
+              resolveLink(
+                byCode.get(code)?.linkKind,
+                libraryLink(code, work.isbn13List[0], work.title),
+                work.detailUrl,
+              ).label
+            }
           >
             {byCode.get(code)?.name ?? code}
           </a>

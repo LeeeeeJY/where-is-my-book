@@ -8,6 +8,8 @@ export type WorkResult = {
   author: string | null;
   publisher: string | null;
   coverUrl: string | null;
+  /** 정보나루의 그 책 상세 페이지. 도서관 주소 규칙이 없을 때 홈페이지 대신 씁니다. */
+  detailUrl: string | null;
   isbn13List: string[];
   editionLabels: string[];
   holdingLibCodes: string[];

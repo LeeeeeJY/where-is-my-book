@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { linkLabel } from '../opacLink';
+import { linkLabel, resolveLink } from '../opacLink';
 import { libraryLink } from '../../api';
 
 describe('링크 단계 문구', () => {
@@ -31,5 +31,35 @@ describe('도서관 링크 주소', () => {
 
   it('도서관부호를 인코딩한다', () => {
     expect(libraryLink('a/b')).toContain('/api/go/a%2Fb');
+  });
+});
+
+describe('주소 규칙이 없는 도서관', () => {
+  const API = 'https://api.example/api/go/111001?isbn=9788983711892';
+  const DETAIL = 'https://data4library.kr/bookV?seq=2083728';
+
+  it('정보나루 상세 페이지로 보낸다', () => {
+    // 도서관 첫 화면은 그 책에 대해 아무것도 말해 주지 않습니다.
+    const link = resolveLink('HOMEPAGE', API, DETAIL);
+    expect(link.href).toBe(DETAIL);
+  });
+
+  it('도서관이 아니라는 것을 문구에 밝힌다', () => {
+    // 도서관 이름을 눌렀는데 다른 사이트가 뜨면, 말해 두지 않는 한 「링크가 잘못됐다」로 읽힙니다.
+    expect(resolveLink('HOMEPAGE', API, DETAIL).label).toContain('정보나루');
+    expect(resolveLink('HOMEPAGE', API, DETAIL).label).toContain('규칙 없음');
+  });
+
+  it('상세 주소도 없으면 홈페이지로 간다', () => {
+    const link = resolveLink('HOMEPAGE', API, null);
+    expect(link.href).toBe(API);
+    expect(link.label).toBe('도서관 홈페이지로 이동');
+  });
+
+  it('규칙이 있으면 상세 주소가 있어도 도서관으로 보낸다', () => {
+    // 도서관 그 책 페이지가 정보나루 상세보다 낫습니다. 거기서 바로 대출 신청을 합니다.
+    const link = resolveLink('ISBN_SEARCH', API, DETAIL);
+    expect(link.href).toBe(API);
+    expect(link.label).toBe('이 책 검색 결과로 이동');
   });
 });

@@ -203,6 +203,11 @@ public class BookSearchService {
             String author,
             String publisher,
             String coverUrl,
+            /**
+             * 정보나루의 그 책 상세 페이지. 도서관 주소 규칙이 없을 때 홈페이지 대신
+             * 여기로 보냅니다. 홈페이지는 그 책에 대해 아무것도 말해 주지 않습니다.
+             */
+            String detailUrl,
             List<String> isbn13List,
             List<String> editionLabels,
             List<String> holdingLibCodes,
@@ -212,22 +217,42 @@ public class BookSearchService {
             boolean holdingsUnreadable
     ) {
         static WorkResult of(SearchDoc doc, Map<String, BookInfo> byIsbn, HoldingResult holdings) {
-            String cover = doc.isbn13List().stream()
-                    .map(byIsbn::get)
-                    .filter(java.util.Objects::nonNull)
-                    .map(BookInfo::bookImageUrl)
-                    .filter(url -> url != null && !url.isBlank())
-                    .findFirst().orElse(null);
+            String cover = firstNonBlank(doc, byIsbn, BookInfo::bookImageUrl);
+            String detail = firstNonBlank(doc, byIsbn, BookInfo::bookDetailUrl);
 
             return new WorkResult(doc.workId(), doc.titleDisplay(), doc.authorDisplay(),
-                    doc.publisherDisplay(), cover, doc.isbn13List(), doc.editionLabels(),
+                    doc.publisherDisplay(), toHttps(cover), toHttps(detail),
+                    doc.isbn13List(), doc.editionLabels(),
                     holdings.libCodes(), holdings.complete(), holdings.unreadable());
+        }
+
+        private static String firstNonBlank(SearchDoc doc, Map<String, BookInfo> byIsbn,
+                                            java.util.function.Function<BookInfo, String> field) {
+            return doc.isbn13List().stream()
+                    .map(byIsbn::get)
+                    .filter(java.util.Objects::nonNull)
+                    .map(field)
+                    .filter(value -> value != null && !value.isBlank())
+                    .findFirst().orElse(null);
+        }
+
+        /**
+         * <b>표지 주소가 {@code http://} 로 옵니다.</b> 사이트는 HTTPS 라서 브라우저가
+         * 이런 자원을 조용히 막습니다(혼합 콘텐츠). 오류도 뜨지 않고 빈자리만 남기 때문에
+         * 「표지가 원래 없나 보다」로 보입니다. 실제로 그 상태로 돌고 있었습니다.
+         *
+         * <p>주소만 바꿔서 안 열리는 서버가 있을 수 있으므로 화면에서 실패를 감춥니다.
+         */
+        private static String toHttps(String url) {
+            if (url == null || !url.startsWith("http://")) return url;
+            return "https://" + url.substring("http://".length());
         }
 
         /** 서지만 먼저 만들어 둔 뒤 소장 결과가 도착하면 덧붙입니다. */
         public WorkResult withHoldings(HoldingResult holdings) {
-            return new WorkResult(workId, title, author, publisher, coverUrl, isbn13List,
-                    editionLabels, holdings.libCodes(), holdings.complete(), holdings.unreadable());
+            return new WorkResult(workId, title, author, publisher, coverUrl, detailUrl,
+                    isbn13List, editionLabels,
+                    holdings.libCodes(), holdings.complete(), holdings.unreadable());
         }
     }
 

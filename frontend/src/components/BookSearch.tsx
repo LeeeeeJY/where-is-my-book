@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { ApiUnavailable, libraryLink, searchBooks } from '../api';
-import { linkLabel } from '../domain/opacLink';
+import { resolveLink } from '../domain/opacLink';
 import type { SearchResponse, WorkResult } from '../api';
 import { holdingState } from '../domain/holdingState';
 import type { Library } from '../domain/types';
@@ -165,7 +165,17 @@ function BookCard({
   return (
     <li className="book">
       {work.coverUrl ? (
-        <img className="book__cover" src={work.coverUrl} alt="" loading="lazy" />
+        <img
+          className="book__cover"
+          src={work.coverUrl}
+          alt=""
+          loading="lazy"
+          // 표지 서버가 답하지 않으면 깨진 그림 자리가 남습니다. 표지는 없어도 되는
+          // 정보라, 실패하면 조용히 지우는 편이 화면이 깔끔합니다.
+          onError={(e) => {
+            e.currentTarget.style.display = 'none';
+          }}
+        />
       ) : (
         <div className="book__cover book__cover--empty" aria-hidden />
       )}
@@ -255,18 +265,25 @@ function Holdings({
           const library = byCode.get(code);
           return (
             <li key={code}>
-              <a
-                href={libraryLink(code, work.isbn13List[0], work.title)}
-                target="_blank"
-                rel="noreferrer"
-              >
-                {library ? library.name : code}
-              </a>
               {/*
                 어느 단계의 링크인지 밝힙니다. 조용히 홈페이지로 보내면 사용자는
                 검색 결과 자체가 틀렸다고 생각합니다.
               */}
-              <span className="muted"> {linkLabel(library?.linkKind)}</span>
+              {(() => {
+                const link = resolveLink(
+                  library?.linkKind,
+                  libraryLink(code, work.isbn13List[0], work.title),
+                  work.detailUrl,
+                );
+                return (
+                  <>
+                    <a href={link.href} target="_blank" rel="noreferrer">
+                      {library ? library.name : code}
+                    </a>
+                    <span className="muted"> {link.label}</span>
+                  </>
+                );
+              })()}
             </li>
           );
         })}
