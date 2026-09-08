@@ -164,6 +164,43 @@ class HoldingsLookupTest {
     }
 
     @Test
+    @DisplayName("여러 답이 섞이면 가장 오래된 조회 시각을 기준으로 삼는다")
+    void reportsTheOldestFetchTime() {
+        // 캐시가 끼면 방금 받은 답과 몇 시간 전 답이 한 결과에 섞입니다. 화면의
+        // 「n월 n일 조회 기준」은 그 가운데 가장 오래된 것이어야 합니다. 최신으로 말하면
+        // 옛 답을 새 답처럼 읽게 됩니다.
+        var old = java.time.Instant.parse("2026-09-07T01:00:00Z");
+        var fresh = java.time.Instant.parse("2026-09-08T01:00:00Z");
+        HoldingsLookup.HoldingsClient client = new HoldingsLookup.HoldingsClient() {
+            @Override public List<String> libCodesFor(String isbn13, String regionCode) {
+                return List.of(isbn13);
+            }
+            @Override public Answer answerFor(String isbn13, String regionCode) {
+                return new Answer(List.of(isbn13), isbn13.equals("옛판") ? old : fresh);
+            }
+        };
+
+        var result = new HoldingsLookup(client, HoldingsLookup.RegionModeStore.documented())
+                .lookup(List.of("새판", "옛판"), List.of("11"));
+
+        assertEquals(old, result.oldestFetchedAt());
+        assertEquals(java.util.Set.of("새판", "옛판"), result.libCodes());
+    }
+
+    @Test
+    @DisplayName("답을 하나도 못 받았으면 조회 시각도 없다")
+    void noAnswerMeansNoFetchTime() {
+        HoldingsLookup.HoldingsClient failing = (isbn13, regionCode) -> {
+            throw new IllegalStateException("장애");
+        };
+        var result = new HoldingsLookup(failing, HoldingsLookup.RegionModeStore.documented())
+                .lookup(List.of("A"), List.of("11"));
+
+        assertNull(result.oldestFetchedAt());
+        assertEquals(List.of("A"), result.unresolvedIsbns());
+    }
+
+    @Test
     @DisplayName("저작에 묶인 모든 판본을 조회해 합친다")
     void unionsAcrossAllEditions() {
         // 판본 하나만 조회하면 도서관이 다른 판을 가지고 있어도 미소장으로 나옵니다.

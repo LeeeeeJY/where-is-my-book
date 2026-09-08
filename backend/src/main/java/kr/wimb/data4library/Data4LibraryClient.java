@@ -29,16 +29,23 @@ import java.util.Map;
  *   <tr><td>{@code libSrchByBook}</td><td>소장 도서관. <b>region 이 필수</b>입니다</td></tr>
  * </table>
  *
- * <p>{@code bookExist}(11절)는 쓰지 않습니다. 대출 가능 여부를 돌려주는데, 그 값이 전날
- * 기준이라 믿고 갔다가 헛걸음하는 것이 이 도구를 못 쓰게 만드는 가장 큰 요인입니다.
+ * <p>{@code bookExist}(11절)는 <b>사용자가 도서관을 눌렀을 때만</b> 부릅니다({@link #loanStatus}).
+ * 돌려주는 대출 가능 여부가 전날 기준이라, 목록에 미리 달아 두면 실시간으로 읽혀 헛걸음을
+ * 만들고 호출도 (도서관 × ISBN)으로 폭발합니다.
  */
 public final class Data4LibraryClient {
 
     public static final String SOURCE_CODE = "DATA4LIBRARY_API";
     private static final String BASE = "https://data4library.kr/api";
 
-    /** 한 번에 받을 수 있는 최대치가 문서에 없어, 예시에 나온 300 을 넘지 않게 잡았습니다. */
-    private static final int PAGE_SIZE = 300;
+    /**
+     * 한 번에 받을 수 있는 최대치가 문서에 없어, 예시에 나온 300 을 넘지 않게 잡았습니다.
+     *
+     * <p>공개해 둔 것은 부르는 쪽이 <b>「첫 쪽이 가득 찼는지」</b>를 알아야 하기 때문입니다.
+     * 가득 찼으면 뒤에 판본이 더 있을 수 있고, 그것을 놓치면 그 판본만 가진 도서관이
+     * 「없음」으로 나갑니다.
+     */
+    public static final int PAGE_SIZE = 300;
 
     @FunctionalInterface
     public interface Transport {

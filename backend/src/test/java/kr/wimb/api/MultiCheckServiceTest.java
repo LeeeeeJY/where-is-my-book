@@ -23,6 +23,10 @@ import static org.junit.jupiter.api.Assertions.*;
 class MultiCheckServiceTest {
 
     private static String doc(String title, String authors, String year, String isbn) {
+        return doc(title, authors, year, isbn, 0);
+    }
+
+    private static String doc(String title, String authors, String year, String isbn, int loans) {
         return """
             <doc>
               <bookname><![CDATA[%s]]></bookname>
@@ -30,8 +34,9 @@ class MultiCheckServiceTest {
               <publisher><![CDATA[테스트출판]]></publisher>
               <publication_year>%s</publication_year>
               <isbn13>%s</isbn13>
+              <loan_count>%d</loan_count>
             </doc>
-            """.formatted(title, authors, year, isbn);
+            """.formatted(title, authors, year, isbn, loans);
     }
 
     private static String docs(String... entries) {
@@ -222,9 +227,9 @@ class MultiCheckServiceTest {
     void volumeScoresAsExactTitle() {
         var attempt = LineParser.parse(List.of("레미제라블")).lines().get(0).attempts().get(0);
         var volume = new BookSearchService.WorkResult(
-                1, "레 미제라블 1권", "빅토르 위고", "민음사", null, null, List.of("9788937463013"), List.of());
+                1, "레 미제라블 1권", "빅토르 위고", "민음사", null, null, List.of("9788937463013"), List.of(), 0);
         var plain = new BookSearchService.WorkResult(
-                2, "레 미제라블", "빅토르 위고", "삼성출판사", null, null, List.of("9788915030688"), List.of());
+                2, "레 미제라블", "빅토르 위고", "삼성출판사", null, null, List.of("9788915030688"), List.of(), 0);
 
         assertEquals(MultiCheckService.score(plain, attempt), MultiCheckService.score(volume, attempt), 0.001,
                 "권차만 다를 뿐 제목은 똑같이 맞습니다");
@@ -292,4 +297,52 @@ class MultiCheckServiceTest {
                 "줄 전체로 걸린 작품집을 그대로 확정하면 안 됩니다");
     }
 
+    /**
+     * <b>한 권 검색과 여러 권 확인이 같은 제목에 서로 다른 저작을 앞에 세웠습니다.</b>
+     * 한 권 검색은 같은 등급 안에서 대출건수로 세우는데, 여기서는 판본 수로 보너스를
+     * 주고 있어서 덜 알려진 판이 첫 후보가 되었고, 그 판의 소장 도서관만 나갔습니다.
+     * 같은 책인데 화면에 따라 소장 도서관이 다르게 보인 원인입니다.
+     */
+    @Test
+    @DisplayName("제목이 똑같이 맞으면 많이 빌려 간 책을 첫 후보로 세운다")
+    void popularWorkComesFirstAmongExactTitleMatches() {
+        var transport = new FakeD4L();
+        transport.answer = q -> docs(
+                doc("코스모스", "이름없음 지음", "2001", "9788983711892", 12),
+                doc("코스모스", "칼 세이건 지음", "2006", "9791158510015", 48_000));
+
+        var line = service(transport).resolve(List.of("코스모스")).lines().get(0);
+
+        assertEquals("칼 세이건", line.candidates().get(0).author(),
+                "제목이 같으면 대출건수가 많은 쪽이 첫 후보여야 합니다");
+    }
+
+    @Test
+    @DisplayName("인기 보너스는 제목이 그대로 맞는 것을 뒤집을 만큼 커지지 않는다")
+    void popularityBonusIsBounded() {
+        assertEquals(0.0, MultiCheckService.popularityBonus(0), 1e-9);
+        assertEquals(0.0, MultiCheckService.popularityBonus(-5), 1e-9);
+        assertTrue(MultiCheckService.popularityBonus(100) < MultiCheckService.popularityBonus(10_000));
+        assertTrue(MultiCheckService.popularityBonus(100_000_000) <= 0.1 + 1e-9);
+    }
+
+    @Test
+    @DisplayName("여러 줄을 겹쳐 확정해도 줄 순서는 그대로다")
+    void parallelResolutionKeepsLineOrder() {
+        var transport = new FakeD4L();
+        transport.answer = q -> {
+            if (q.contains("title=사피엔스")) return docs(doc("사피엔스", "유발 하라리 지음", "2015", "9788934972464"));
+            if (q.contains("title=코스모스")) return docs(doc("코스모스", "칼 세이건 지음", "2006", "9788983711892"));
+            if (q.contains("title=데미안")) return docs(doc("데미안", "헤르만 헤세 지음", "2009", "9788937460449"));
+            return docs();
+        };
+
+        var lines = service(transport).resolve(List.of("사피엔스", "코스모스", "데미안", "없는책")).lines();
+
+        assertEquals(List.of(1, 2, 3, 4), lines.stream().map(MultiCheckService.LineResult::lineNo).toList());
+        assertEquals("사피엔스", lines.get(0).candidates().get(0).title());
+        assertEquals("코스모스", lines.get(1).candidates().get(0).title());
+        assertEquals("데미안", lines.get(2).candidates().get(0).title());
+        assertEquals(MultiCheckService.LineStatus.NOT_FOUND, lines.get(3).status());
+    }
 }

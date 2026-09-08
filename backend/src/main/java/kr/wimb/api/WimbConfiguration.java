@@ -1,6 +1,7 @@
 package kr.wimb.api;
 
 import kr.wimb.data4library.Data4LibraryClient;
+import kr.wimb.holdings.CachingHoldingsClient;
 import kr.wimb.holdings.HoldingsLookup;
 import kr.wimb.ingest.ApiBudget;
 import kr.wimb.ingest.InMemoryApiBudget;
@@ -18,6 +19,7 @@ import java.time.Clock;
 import java.time.ZoneId;
 import java.time.Duration;
 import java.util.Map;
+import java.util.concurrent.locks.ReentrantLock;
 
 @Configuration
 public class WimbConfiguration implements WebMvcConfigurer {
@@ -77,11 +79,27 @@ public class WimbConfiguration implements WebMvcConfigurer {
         return kr.wimb.opac.OpacTemplates.load();
     }
 
+    /**
+     * (ISBN, 지역) 한 쌍의 소장 답을 기억해 두는 시간.
+     *
+     * <p>정보나루의 소장 데이터는 하루 단위로 갱신되므로 몇 시간 안의 답은 다시 물어도
+     * 같습니다. 도서관을 하나 더 고르고 「확인」을 다시 누르는 것이 이 도구의 가장 흔한
+     * 동작인데, 그때 스무 권을 정보나루에 다시 물으면 사람이 몇 초를 다시 기다리고 하루
+     * 예산도 그만큼 새어 나갑니다. 화면은 답을 실제로 받은 날짜를 「조회 기준」으로 보여
+     * 주므로, 캐시에서 나온 답이라는 사실이 감춰지지 않습니다.
+     */
+    static final Duration HOLDINGS_CACHE_TTL = Duration.ofHours(6);
+
+    /** 메모리 1GB 기계에서 캐시가 자라는 대로 두면 안 됩니다. 넘으면 비웁니다. */
+    static final int HOLDINGS_CACHE_MAX_ENTRIES = 5_000;
+
     @Bean
     public HoldingsLookup holdingsLookup(Data4LibraryClient client) {
         // 매뉴얼 13절이 region 을 필수로 명시하므로 탐색 비용 없이 PER_REGION 으로 시작합니다.
         return new HoldingsLookup(
-                client.asHoldingsClient(ApiBudget.Priority.USER),
+                new CachingHoldingsClient(
+                        client.asHoldingsClient(ApiBudget.Priority.USER),
+                        HOLDINGS_CACHE_TTL, HOLDINGS_CACHE_MAX_ENTRIES, Clock.systemUTC()),
                 HoldingsLookup.RegionModeStore.documented());
     }
 
@@ -98,6 +116,13 @@ public class WimbConfiguration implements WebMvcConfigurer {
                 .build();
         private final long minIntervalMs;
         private long lastCallMs;
+        /**
+         * {@code synchronized} 가 아니라 잠금 객체를 씁니다. 요청 처리와 줄 확정이 가상
+         * 스레드에서 돌기 때문인데, 가상 스레드는 {@code synchronized} 안에서 잠들면
+         * 운반 스레드를 붙잡아 다른 가상 스레드가 그동안 돌지 못합니다. 잠금 객체 안에서
+         * 잠들면 운반 스레드를 놓아 줍니다.
+         */
+        private final ReentrantLock gate = new ReentrantLock();
 
         ThrottledHttpTransport(long minIntervalMs) {
             this.minIntervalMs = minIntervalMs;
@@ -128,16 +153,26 @@ public class WimbConfiguration implements WebMvcConfigurer {
             }
         }
 
-        private synchronized void pace() {
-            long wait = minIntervalMs - (System.currentTimeMillis() - lastCallMs);
-            if (wait > 0) {
-                try {
-                    Thread.sleep(wait);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
+        /**
+         * 요청 사이의 간격만 지키고 <b>호출 자체는 잠금 밖에서</b> 합니다. 그래서 여러 요청의
+         * 왕복 시간이 서로 겹치고, 서버가 해외에 있어도 느려지지 않습니다. 호출을 이 안으로
+         * 옮기면 그 순간 직렬화되어 왕복 시간이 그대로 쌓입니다.
+         */
+        private void pace() {
+            gate.lock();
+            try {
+                long wait = minIntervalMs - (System.currentTimeMillis() - lastCallMs);
+                if (wait > 0) {
+                    try {
+                        Thread.sleep(wait);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
                 }
+                lastCallMs = System.currentTimeMillis();
+            } finally {
+                gate.unlock();
             }
-            lastCallMs = System.currentTimeMillis();
         }
     }
 }

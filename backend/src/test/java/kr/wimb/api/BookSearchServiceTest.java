@@ -1,5 +1,6 @@
 package kr.wimb.api;
 
+import kr.wimb.data4library.BookInfo;
 import kr.wimb.data4library.Data4LibraryClient;
 import kr.wimb.holdings.HoldingsLookup;
 import kr.wimb.ingest.InMemoryApiBudget;
@@ -265,7 +266,7 @@ class BookSearchServiceTest {
         for (int i = 0; i < count; i++) {
             many.add(new BookSearchService.WorkResult(
                     i, "코스모스 " + i, "지은이", "출판사", null, null,
-                    List.of("978898371189" + (i % 10)), List.of()));
+                    List.of("978898371189" + (i % 10)), List.of(), 0));
         }
         return many;
     }
@@ -395,6 +396,7 @@ class BookSearchServiceTest {
               <publisher><![CDATA[웅진씽크빅]]></publisher>
               <publication_year>2010</publication_year>
               <isbn13>9788901109954</isbn13>
+              <loan_count>500</loan_count>
             </doc>
           </docs>
         </response>
@@ -412,6 +414,7 @@ class BookSearchServiceTest {
               <publisher><![CDATA[삼성출판사]]></publisher>
               <publication_year>2015</publication_year>
               <isbn13>9788915030688</isbn13>
+              <loan_count>300</loan_count>
             </doc>
           </docs>
         </response>
@@ -437,6 +440,7 @@ class BookSearchServiceTest {
               <publication_year>2012</publication_year>
               <isbn13>9788937463013</isbn13>
               <vol>1</vol>
+              <loan_count>2000</loan_count>
             </doc>
             <doc>
               <bookname><![CDATA[레 미제라블]]></bookname>
@@ -445,6 +449,7 @@ class BookSearchServiceTest {
               <publication_year>2012</publication_year>
               <isbn13>9788937463020</isbn13>
               <vol>2</vol>
+              <loan_count>1500</loan_count>
             </doc>
             <doc>
               <bookname><![CDATA[파리의 노트르담]]></bookname>
@@ -519,11 +524,11 @@ class BookSearchServiceTest {
     @DisplayName("권차가 붙은 낱권도 제목이 맞는 것으로 센다")
     void volumesRankAsExactTitleMatch() {
         var one = new BookSearchService.WorkResult(
-                1, "레 미제라블 1권", "빅토르 위고", "민음사", null, null, List.of("9788937463013"), List.of());
+                1, "레 미제라블 1권", "빅토르 위고", "민음사", null, null, List.of("9788937463013"), List.of(), 0);
         var other = new BookSearchService.WorkResult(
-                2, "레 미제라블", "빅토르 위고", "삼성출판사", null, null, List.of("9788915030688"), List.of());
+                2, "레 미제라블", "빅토르 위고", "삼성출판사", null, null, List.of("9788915030688"), List.of(), 0);
         var unrelated = new BookSearchService.WorkResult(
-                3, "레미제라블 읽기의 즐거움", "윤순식", "살림", null, null, List.of("9788952204134"), List.of());
+                3, "레미제라블 읽기의 즐거움", "윤순식", "살림", null, null, List.of("9788952204134"), List.of(), 0);
 
         var ranked = BookSearchService.rank("레미제라블", List.of(unrelated, one, other));
 
@@ -603,4 +608,228 @@ class BookSearchServiceTest {
                 "제목이 맞는 책이 있어도 띄어 쓴 판은 되찾아야 합니다");
     }
 
+    // ── 띄어쓰기 표기 통일 ─────────────────────────────────────────────
+
+    /** 표기마다 다르게 답하는 정보나루. 실제 「레미제라블」 검색의 모양을 줄인 것입니다. */
+    private static Data4LibraryClient.Transport spellingAware(List<String> log) {
+        return uri -> {
+            String q = java.net.URLDecoder.decode(uri.toString(), java.nio.charset.StandardCharsets.UTF_8);
+            log.add(q);
+            if (q.contains("author=")) return LESMIS_BY_AUTHOR;          // 민음사 낱권 + 노트르담
+            if (q.contains("title=레 미제라블")) return SPACED_ONLY;       // 삼성출판사 「레 미제라블」
+            if (q.contains("title=레미제라블")) return LESMIS_SAME_TITLE;  // 웅진 「레미제라블」
+            return EMPTY_RESPONSE;
+        };
+    }
+
+    private static BookSearchService serviceWith(Data4LibraryClient.Transport transport) {
+        var budget = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 1000),
+                Clock.fixed(Instant.parse("2026-09-05T00:00:00Z"), ZoneId.of("UTC")));
+        var client = new Data4LibraryClient(transport, "테스트키", budget);
+        return new BookSearchService(client, new HoldingsLookup(
+                (isbn, region) -> List.of(), HoldingsLookup.RegionModeStore.documented()));
+    }
+
+    private static java.util.Set<String> isbnsOf(BookSearchService.SearchResponse response) {
+        return response.works().stream()
+                .flatMap(w -> w.isbn13List().stream())
+                .collect(java.util.stream.Collectors.toSet());
+    }
+
+    private static List<String> titlesOf(BookSearchService.SearchResponse response) {
+        return response.works().stream().map(BookSearchService.WorkResult::title).toList();
+    }
+
+    /**
+     * <b>어느 표기로 넣었는지에 따라 목록이 달라지면 안 됩니다.</b> 정보나루는 어절 단위로
+     * 그대로 찾으므로 「레미제라블」과 「레 미제라블」이 다른 검색인데, 예전에는 「레미제라블」로는
+     * 삼성출판사의 「레 미제라블」이, 「레 미제라블」로는 웅진의 「레미제라블」이 빠졌습니다.
+     * 사용자에게는 그것이 「어떤 때는 있고 어떤 때는 없는 책」으로 보입니다.
+     */
+    @Test
+    @DisplayName("띄어 쓴 검색과 붙여 쓴 검색이 같은 책을 같은 순서로 준다")
+    void spacingVariantsGiveTheSameWorks() {
+        var compact = serviceWith(spellingAware(new java.util.ArrayList<>())).search("레미제라블");
+        var spaced = serviceWith(spellingAware(new java.util.ArrayList<>())).search("레 미제라블");
+
+        assertEquals(isbnsOf(spaced), isbnsOf(compact), "표기에 따라 책이 달라지면 안 됩니다");
+        assertTrue(isbnsOf(compact).containsAll(List.of(
+                "9788901109954", "9788915030688", "9788937463013", "9788937463020")),
+                "붙여 쓴 판, 띄어 쓴 판, 저자로 되찾은 낱권이 모두 있어야 합니다: " + isbnsOf(compact));
+        assertFalse(isbnsOf(compact).contains("9788937462412"), "표제가 다른 노트르담은 들어오면 안 됩니다");
+        assertEquals(titlesOf(spaced), titlesOf(compact), "순서도 같아야 합니다");
+    }
+
+    @Test
+    @DisplayName("함께 찾아본 다른 표기를 화면에 밝힌다")
+    void reportsWhichOtherSpellingsWereSearched() {
+        var compact = serviceWith(spellingAware(new java.util.ArrayList<>())).search("레미제라블");
+        var spaced = serviceWith(spellingAware(new java.util.ArrayList<>())).search("레 미제라블");
+
+        assertEquals(List.of("레 미제라블"), compact.alsoSearchedTitles(),
+                "되찾기가 보여 준 띄어 쓴 표기로 다시 찾았어야 합니다");
+        assertEquals(List.of("레미제라블"), spaced.alsoSearchedTitles(),
+                "띄어 쓴 입력은 붙여 쓴 표기로도 찾았어야 합니다");
+        assertTrue(compact.recoveredByAuthor());
+        assertTrue(spaced.recoveredByAuthor());
+    }
+
+    @Test
+    @DisplayName("같은 표기는 한 번만 찾고, 다른 표기는 상한 안에서만 더 찾는다")
+    void doesNotSearchTheSameSpellingTwice() {
+        var log = new java.util.ArrayList<String>();
+        serviceWith(spellingAware(log)).search("레 미제라블");
+
+        long spacedSearches = log.stream().filter(q -> q.contains("title=레 미제라블")).count();
+        long compactSearches = log.stream().filter(q -> q.contains("title=레미제라블")).count();
+        assertEquals(1, spacedSearches, log.toString());
+        assertEquals(1, compactSearches, log.toString());
+        assertEquals(3, log.size(), "입력 그대로 + 붙여 쓴 표기 + 저자 되찾기: " + log);
+    }
+
+    @Test
+    @DisplayName("결과에서 본 표기 가운데 글자가 같고 띄어쓰기만 다른 것만 다시 찾는다")
+    void alternateSpellingsAreRespacingsOnly() {
+        List<BookInfo> books = List.of(
+                book("레 미제라블"), book("레 미제라블"), book("레미제라블 읽기의 즐거움"),
+                book("레  미제라블"), book("코스모스"), book("레미제라블 :특별판"));
+
+        var spellings = BookSearchService.alternateSpellings("레미제라블", books, List.of("레미제라블"));
+
+        assertEquals(List.of("레 미제라블"), spellings,
+                "두 번 나온 「레 미제라블」만, 공백 묶음은 하나로 보아야 합니다: " + spellings);
+        assertTrue(BookSearchService.alternateSpellings(null, books, List.of()).isEmpty());
+        assertTrue(BookSearchService.alternateSpellings("레미제라블", books,
+                List.of("레미제라블", "레 미제라블")).isEmpty(), "이미 찾은 표기는 다시 찾지 않습니다");
+    }
+
+    private static BookInfo book(String title) {
+        return BookInfo.from(Map.of("bookname", title, "isbn13", "9788937463013"));
+    }
+
+    // ── 둘째 쪽 ───────────────────────────────────────────────────────
+
+    /** 체크디지트가 맞는 ISBN 을 번호로 만듭니다. */
+    private static String isbnNumber(int n) {
+        String body = "97800000" + "%04d".formatted(n);
+        int sum = 0;
+        for (int i = 0; i < 12; i++) sum += (body.charAt(i) - '0') * (i % 2 == 0 ? 1 : 3);
+        return body + ((10 - sum % 10) % 10);
+    }
+
+    private static String cosmosPage(int from, int count) {
+        StringBuilder xml = new StringBuilder("<response><docs>");
+        for (int i = from; i < from + count; i++) {
+            xml.append("<doc><bookname><![CDATA[코스모스]]></bookname>")
+               .append("<authors><![CDATA[칼 세이건 지음]]></authors>")
+               .append("<publisher><![CDATA[사이언스북스]]></publisher>")
+               .append("<isbn13>").append(isbnNumber(i)).append("</isbn13></doc>");
+        }
+        return xml.append("</docs></response>").toString();
+    }
+
+    /** 쪽 번호에 따라 답하는 정보나루. 저자 되찾기에는 아무것도 주지 않습니다. */
+    private static Data4LibraryClient.Transport paged(List<String> log, int firstPageSize) {
+        return uri -> {
+            String q = uri.toString();
+            log.add(q);
+            if (q.contains("author=")) return EMPTY_RESPONSE;
+            if (q.contains("pageNo=1&")) return cosmosPage(1, firstPageSize);
+            if (q.contains("pageNo=2&")) return cosmosPage(1001, 1);
+            return EMPTY_RESPONSE;
+        };
+    }
+
+    /**
+     * <b>목록에 없는 판은 소장을 물어보지도 못합니다.</b> 첫 쪽이 가득 찼으면 뒤에 판이 더
+     * 있을 수 있고, 그 판만 가진 도서관은 「없음」으로 나갑니다.
+     */
+    @Test
+    @DisplayName("첫 쪽이 가득 찼으면 둘째 쪽까지 받는다")
+    void fetchesASecondPageWhenTheFirstIsFull() {
+        var log = new java.util.ArrayList<String>();
+        var response = serviceWith(paged(log, Data4LibraryClient.PAGE_SIZE)).search("코스모스");
+
+        assertEquals(Data4LibraryClient.PAGE_SIZE + 1, response.foundBooks());
+        assertTrue(log.stream().anyMatch(q -> q.contains("pageNo=2&")), log.toString());
+        assertTrue(log.stream().noneMatch(q -> q.contains("pageNo=3&")), "둘째 쪽까지만 받습니다");
+    }
+
+    @Test
+    @DisplayName("첫 쪽이 덜 찼으면 둘째 쪽을 부르지 않는다")
+    void doesNotFetchASecondPageWhenTheFirstIsNotFull() {
+        var log = new java.util.ArrayList<String>();
+        var response = serviceWith(paged(log, 5)).search("코스모스");
+
+        assertEquals(5, response.foundBooks());
+        assertTrue(log.stream().noneMatch(q -> q.contains("pageNo=2&")), "예산을 헛되이 쓰면 안 됩니다: " + log);
+    }
+
+    @Test
+    @DisplayName("여러 검색에서 같은 자료가 와도 한 번만 센다")
+    void countsEachRecordOnce() {
+        // 표기를 달리해 여러 번 찾으면 같은 판이 여러 번 옵니다. 그대로 두면 화면이
+        // 「정보나루가 600건을 줬다」고 말하고 군집화에도 같은 ISBN 이 두 번 들어갑니다.
+        Data4LibraryClient.Transport always = uri -> uri.toString().contains("author=")
+                ? EMPTY_RESPONSE : SPACED_ONLY;
+        var response = serviceWith(always).search("레 미제라블");   // 입력 그대로 + 붙여 쓴 표기
+
+        assertEquals(1, response.foundBooks());
+        assertEquals(1, response.works().size());
+    }
+
+    // ── 소장 조회의 상한과 기준 날짜 ─────────────────────────────────────
+
+    @Test
+    @DisplayName("판본이 상한을 넘으면 앞의 것만 묻고 빠짐없이 확인했다고 하지 않는다")
+    void tooManyEditionsAreTruncatedNotRefused() {
+        // 예전에는 400 으로 거절했고, 화면은 그것을 「확인 불가」로 그렸습니다. 판본이 많은
+        // 책일수록 아무것도 알려 주지 못한 셈입니다.
+        var asked = new java.util.concurrent.ConcurrentLinkedQueue<String>();
+        var service = service((isbn, region) -> {
+            asked.add(isbn);
+            return isbn.equals("E01") ? List.of("111001") : List.of();
+        });
+        List<String> editions = java.util.stream.IntStream.rangeClosed(1, 25)
+                .mapToObj(i -> "E%02d".formatted(i)).toList();
+
+        var holdings = service.holdingsOf(editions, List.of("11"), List.of("111001"));
+
+        assertEquals(BookSearchService.MAX_EDITIONS_PER_LOOKUP, asked.size());
+        assertEquals(List.of("111001"), holdings.libCodes(), "물어본 판본에서 찾았으면 있음입니다");
+        assertFalse(holdings.complete(), "묻지 못한 판본이 남았으므로 빠짐없이 확인한 것이 아닙니다");
+        assertFalse(holdings.unreadable());
+    }
+
+    @Test
+    @DisplayName("소장 답의 기준 날짜는 답을 실제로 받은 날이다")
+    void asOfComesFromWhenTheAnswerWasFetched() {
+        // 캐시에서 나온 답이면 캐시된 날짜입니다. 오늘로 말하면 옛 답이 새 답처럼 읽힙니다.
+        var fetched = Instant.parse("2026-09-07T20:00:00Z");   // 한국 시각으로는 9월 8일 새벽
+        HoldingsLookup.HoldingsClient client = new HoldingsLookup.HoldingsClient() {
+            @Override public List<String> libCodesFor(String isbn13, String regionCode) {
+                return List.of("111001");
+            }
+            @Override public Answer answerFor(String isbn13, String regionCode) {
+                return new Answer(List.of("111001"), fetched);
+            }
+        };
+        var service = service(client);
+
+        var holdings = service.holdingsOf(cosmosEditions(service), List.of("11"), List.of("111001"));
+
+        assertEquals(java.time.LocalDate.of(2026, 9, 8), holdings.asOf());
+    }
+
+    @Test
+    @DisplayName("답을 하나도 못 받았으면 기준 날짜도 없다")
+    void noAnswerMeansNoAsOf() {
+        var service = service((isbn, region) -> {
+            throw new IllegalStateException("정보나루가 응답하지 않습니다");
+        });
+        var holdings = service.holdingsOf(cosmosEditions(service), List.of("11"), List.of("111001"));
+
+        assertTrue(holdings.unreadable());
+        assertNull(holdings.asOf());
+    }
 }

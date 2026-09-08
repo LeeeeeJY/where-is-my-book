@@ -138,6 +138,21 @@ public final class BibNormalizer {
         return parseTitle(title == null ? "" : title).titleKeyCore();
     }
 
+    /**
+     * <b>띄어쓰기와 구두점만 다른 표기인지</b> 견주는 키. 판본·각색 표기는 떼지 않습니다.
+     *
+     * <p>{@link #normalizeKey} 는 「코스모스(특별판)」도 「코스모스」와 같은 키로 만듭니다.
+     * 같은 저작으로 묶는 데는 그것이 맞지만, <b>정보나루에 다시 물어볼 표기를 고르는 데는
+     * 맞지 않습니다.</b> 정보나루의 제목 검색은 어절 단위로 맞추므로 「레미제라블」과
+     * 「레 미제라블」은 서로 다른 검색인데, 「코스모스(특별판)」은 「코스모스」 검색에 이미
+     * 걸려 있어 다시 물어볼 이유가 없습니다. 그래서 글자는 그대로 두고 공백과 구두점만
+     * 지운 키로 「같은 글자를 달리 띄어 쓴 것」만 골라냅니다.
+     */
+    public static String spellingKey(String s) {
+        if (s == null || s.isBlank()) return "";
+        return stripAll(Normalizer.normalize(s, Normalizer.Form.NFKC).toLowerCase(Locale.ROOT));
+    }
+
     /** 정규화 결과와, 그 과정에서 떼어 낸 표기들. */
     public record Normalized(String key, List<String> editionTokens,
                              List<String> adaptationTokens, List<String> aliasKeys) {}
