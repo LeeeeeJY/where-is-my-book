@@ -109,7 +109,10 @@ public class WimbController {
         }
         return catalog.values().stream()
                 .map(info -> LibraryDto.from(info, opacTemplates))
-                .sorted(Comparator.comparing(LibraryDto::sido).thenComparing(LibraryDto::name))
+                // 시도를 못 알아낸 도서관은 끝으로 보냅니다. 목록에서 빼지는 않습니다.
+                .sorted(Comparator.comparing(LibraryDto::sido,
+                                Comparator.nullsLast(Comparator.naturalOrder()))
+                        .thenComparing(LibraryDto::name))
                 .toList();
     }
 
@@ -382,13 +385,21 @@ public class WimbController {
             }
         }
 
-        /** 주소 앞머리에서 시도와 시군구를 뽑습니다. */
+        /**
+         * 주소 앞머리에서 시도와 시군구를 뽑습니다. <b>못 알아내면 null 을 줍니다.</b>
+         *
+         * <p>예전에는 「기타」라는 묶음에 몰아넣었는데, 지역으로 훑는 사람에게 「기타」는
+         * 아무것도 알려 주지 않는 이름이라 열어 볼 이유가 없습니다. 그렇다고 목록에서 아예
+         * 빼면 이름으로 검색해도 안 나와서 <b>「그런 도서관이 없다」로 읽히는데</b>, 그것이
+         * 더 나쁩니다. 그래서 값을 비우고, 지역 트리에서만 빠지게 합니다. 이름 검색에서는
+         * 그대로 나옵니다.
+         */
         private static String[] splitAddress(String address) {
-            if (address == null || address.isBlank()) return new String[] {"기타", "기타"};
+            if (address == null || address.isBlank()) return new String[] {null, null};
             String[] tokens = address.trim().split("\\s+");
-            String sido = RegionCode.ofSido(tokens[0]).map(RegionCode::sido).orElse(tokens[0]);
-            String sigungu = tokens.length > 1 ? tokens[1] : "기타";
-            return new String[] {sido, sigungu};
+            String sido = RegionCode.ofSido(tokens[0]).map(RegionCode::sido).orElse(null);
+            if (sido == null) return new String[] {null, null};
+            return new String[] {sido, tokens.length > 1 ? tokens[1] : null};
         }
     }
 }

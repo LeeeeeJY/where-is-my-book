@@ -8,8 +8,13 @@ export type Library = {
    */
   shortId: number;
   name: string;
-  sido: string;
-  sigungu: string;
+  /**
+   * 주소에서 시도를 알아내지 못하면 비어 있습니다. 그런 도서관은 **지역 트리에만** 나오지
+   * 않고 이름 검색에서는 그대로 찾힙니다. 목록에서 아예 빼면 사용자가 「그런 도서관이 없다」로
+   * 읽게 됩니다.
+   */
+  sido: string | null;
+  sigungu: string | null;
   latitude: number | null;
   longitude: number | null;
   homepageUrl: string | null;

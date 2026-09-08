@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { buildRegionTree, groupState, haversineKm, toggleGroup, toggleOne } from '../selection';
 import type { Library } from '../types';
 
-const lib = (libCode: string, shortId: number, sido: string, sigungu: string, name: string): Library => ({
+const lib = (
+  libCode: string,
+  shortId: number,
+  sido: string | null,
+  sigungu: string | null,
+  name: string,
+): Library => ({
   libCode, shortId, sido, sigungu, name, latitude: null, longitude: null, homepageUrl: null,
 });
 
@@ -74,5 +80,33 @@ describe('거리 계산', () => {
     const far = { ...GYEONGGI, latitude: 35.1, longitude: 129.0 };
     expect(haversineKm(37.5, 127.0, near)!).toBeLessThan(1);
     expect(haversineKm(37.5, 127.0, far)!).toBeGreaterThan(300);
+  });
+});
+
+describe('지역 트리에 자리가 없는 도서관', () => {
+  // 주소를 해석하지 못한 도서관입니다. 예전에는 「기타」라는 묶음에 몰아넣었는데,
+  // 지역으로 훑는 사람에게 「기타」는 아무것도 알려 주지 않아 열어 볼 이유가 없습니다.
+  const NO_ADDRESS = lib('999999', 99, null, null, '주소없는도서관');
+
+  it('트리에서는 빠진다', () => {
+    const tree = buildRegionTree([...ALL, NO_ADDRESS]);
+
+    expect(tree.map((node) => node.sido)).toEqual(['경기도', '서울특별시']);
+    expect(tree.reduce((sum, node) => sum + node.libraryCount, 0)).toBe(ALL.length);
+  });
+
+  it('그래도 목록 자체에서 사라지지는 않는다', () => {
+    // 목록에서 빼 버리면 이름으로 검색해도 안 나오고, 사용자는 그것을
+    // 「그런 도서관이 없다」로 읽습니다. 트리에서 빠지는 것과는 전혀 다른 이야기입니다.
+    const all = [...ALL, NO_ADDRESS];
+    expect(all.filter((l) => l.name.includes('주소없는'))).toHaveLength(1);
+  });
+
+  it('시군구만 없어도 트리에서 빠진다', () => {
+    const sidoOnly = lib('999998', 98, '서울특별시', null, '시군구없는도서관');
+    const tree = buildRegionTree([SEOUL_A, sidoOnly]);
+
+    expect(tree).toHaveLength(1);
+    expect(tree[0].libraryCount).toBe(1);
   });
 });

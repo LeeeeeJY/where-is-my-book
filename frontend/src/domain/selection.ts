@@ -51,6 +51,10 @@ export type RegionTree = {
 export function buildRegionTree(libraries: readonly Library[]): RegionTree {
   const bySido = new Map<string, Map<string, Library[]>>();
   for (const library of libraries) {
+    // 주소를 해석하지 못한 도서관은 지역 트리에 자리가 없습니다. 「기타」라는 묶음을 만들면
+    // 지역으로 훑는 사람에게 아무것도 알려 주지 못합니다. 목록에서 사라지는 것은 아니고
+    // 이름 검색에서는 그대로 찾힙니다.
+    if (library.sido === null || library.sigungu === null) continue;
     let sigungus = bySido.get(library.sido);
     if (!sigungus) bySido.set(library.sido, (sigungus = new Map()));
     const list = sigungus.get(library.sigungu);

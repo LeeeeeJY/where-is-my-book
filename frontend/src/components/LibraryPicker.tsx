@@ -217,7 +217,7 @@ function SearchTab({
               {library.name}
               <span className="muted">
                 {' '}
-                {library.sido} {library.sigungu}
+                {[library.sido, library.sigungu].filter(Boolean).join(' ')}
               </span>
             </label>
           </li>

@@ -27,8 +27,8 @@ type LibraryDto = {
   libCode: string;
   shortId: number;
   name: string;
-  sido: string;
-  sigungu: string;
+  sido: string | null;
+  sigungu: string | null;
   latitude: number | null;
   longitude: number | null;
   homepageUrl: string | null;
