@@ -32,18 +32,26 @@ export type SearchResponse = {
    * 사라지므로 화면이 이것을 밝힙니다.
    */
   droppedNoIsbn: number;
+  /**
+   * 처음 제목으로 한 건도 못 찾아 **띄어쓰기를 달리해 다시 찾은** 경우 그 제목.
+   *
+   * <p>화면이 이것을 밝혀야 사용자가 자기가 넣은 것과 다른 결과를 보고 어리둥절하지
+   * 않습니다. 재시도가 없었으면 null 입니다.
+   */
+  retriedTitle: string | null;
   asOf: string | null;
 };
 
-/** 검색 조건. **셋 다 비면 부르지 않습니다.** */
+/** 검색 조건. **모두 비면 부르지 않습니다.** */
 export type SearchCriteria = {
   title: string;
   author: string;
   publisher: string;
+  isbn: string;
 };
 
 export function hasCriteria(criteria: SearchCriteria): boolean {
-  return [criteria.title, criteria.author, criteria.publisher].some((v) => v.trim().length > 0);
+  return Object.values(criteria).some((v) => v.trim().length > 0);
 }
 
 type LibraryDto = {
@@ -118,6 +126,7 @@ export async function searchBooks(
   if (criteria.title.trim()) params.set('q', criteria.title.trim());
   if (criteria.author.trim()) params.set('author', criteria.author.trim());
   if (criteria.publisher.trim()) params.set('publisher', criteria.publisher.trim());
+  if (criteria.isbn.trim()) params.set('isbn', criteria.isbn.trim());
   for (const code of libCodes) params.append('libs', code);
   return get<SearchResponse>(`/api/search?${params}`);
 }

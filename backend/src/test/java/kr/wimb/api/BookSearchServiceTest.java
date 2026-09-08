@@ -156,6 +156,19 @@ class BookSearchServiceTest {
         """;
 
     @Test
+    @DisplayName("띄어쓰기만 다른 제목을 우리가 대신 찾아 준다")
+    void retriesWithoutSpaces() {
+        // 정보나루는 넣은 글자를 그대로 찾습니다. 「마의 산」과 「마의산」이 다른 검색이고,
+        // 사용자에게는 그것이 「그런 책이 없다」로 보입니다. 안내만 하고 마는 것은
+        // 우리가 할 수 있는 일을 사용자에게 미루는 것입니다.
+        assertEquals("마의산", BookSearchService.respacedTitle("마의 산"));
+        assertEquals("총균쇠", BookSearchService.respacedTitle("총 균 쇠"));
+        assertNull(BookSearchService.respacedTitle("코스모스"), "바꿀 것이 없으면 다시 찾지 않습니다");
+        assertNull(BookSearchService.respacedTitle(null));
+        assertNull(BookSearchService.respacedTitle("   "));
+    }
+
+    @Test
     @DisplayName("ISBN 이 없어 뺀 자료는 몇 건인지 밝힌다")
     void reportsWhatItHadToDrop() {
         // 조용히 빼면 사용자는 그것을 「그런 책이 없다」로 읽습니다. 찾던 책이 하필

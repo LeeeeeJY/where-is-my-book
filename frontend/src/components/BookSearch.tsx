@@ -19,7 +19,7 @@ const CONCURRENCY = 4;
  */
 const PAGE = 20;
 
-const EMPTY_CRITERIA: SearchCriteria = { title: '', author: '', publisher: '' };
+const EMPTY_CRITERIA: SearchCriteria = { title: '', author: '', publisher: '', isbn: '' };
 
 type State =
   | { kind: 'idle' }
@@ -42,8 +42,6 @@ export function BookSearch({
   selected: ReadonlySet<string>;
 }) {
   const [criteria, setCriteria] = useState<SearchCriteria>(EMPTY_CRITERIA);
-  /** 저자·출판사 칸을 펼쳤는지. 제목만 찾는 사람이 대부분이라 접어 둡니다. */
-  const [moreFields, setMoreFields] = useState(false);
   const [state, setState] = useState<State>({ kind: 'idle' });
   /** 지금까지 펼쳐 보인 저작 수. 「더 보기」가 이것을 늘립니다. */
   const [shown, setShown] = useState(PAGE);
@@ -196,30 +194,36 @@ export function BookSearch({
           </button>
         </div>
 
-        {moreFields ? (
-          <div className="search-more">
-            <input
-              className="text-input"
-              type="search"
-              value={criteria.author}
-              placeholder="저자"
-              onChange={(e) => setCriteria({ ...criteria, author: e.target.value })}
-              aria-label="저자"
-            />
-            <input
-              className="text-input"
-              type="search"
-              value={criteria.publisher}
-              placeholder="출판사"
-              onChange={(e) => setCriteria({ ...criteria, publisher: e.target.value })}
-              aria-label="출판사"
-            />
-          </div>
-        ) : (
-          <button type="button" className="link-button" onClick={() => setMoreFields(true)}>
-            저자·출판사로 좁히기
-          </button>
-        )}
+        <div className="search-more">
+          <input
+            className="text-input"
+            type="search"
+            value={criteria.author}
+            placeholder="저자"
+            onChange={(e) => setCriteria({ ...criteria, author: e.target.value })}
+            aria-label="저자"
+          />
+          <input
+            className="text-input"
+            type="search"
+            value={criteria.publisher}
+            placeholder="출판사"
+            onChange={(e) => setCriteria({ ...criteria, publisher: e.target.value })}
+            aria-label="출판사"
+          />
+          <input
+            className="text-input"
+            type="search"
+            inputMode="numeric"
+            value={criteria.isbn}
+            placeholder="ISBN"
+            onChange={(e) => setCriteria({ ...criteria, isbn: e.target.value })}
+            aria-label="ISBN"
+          />
+        </div>
+        <p className="search-hint muted">
+          여러 칸을 채우면 모두 만족하는 책만 찾습니다. ISBN 은 하이픈을 넣어도 됩니다.
+        </p>
       </form>
 
       {selected.size === 0 && (
@@ -310,7 +314,7 @@ function SearchState({
     );
   }
 
-  const { works, totalWorks, droppedNoIsbn } = state.response;
+  const { works, totalWorks, droppedNoIsbn, retriedTitle } = state.response;
   if (works.length === 0) {
     return (
       <div className="banner banner--warn">
@@ -340,6 +344,17 @@ function SearchState({
 
   return (
     <>
+      {/*
+        띄어쓰기를 바꿔 다시 찾았으면 반드시 밝힙니다. 넣은 것과 다른 결과가 말없이
+        나오면 사용자는 검색이 엉뚱하게 동작한다고 생각합니다.
+      */}
+      {retriedTitle && (
+        <div className="banner banner--info">
+          넣으신 제목으로는 한 건도 없어서 <strong>「{retriedTitle}」</strong>로 다시
+          찾았습니다. 정보나루는 넣은 글자를 그대로 찾기 때문에 띄어쓰기가 다르면
+          걸리지 않습니다.
+        </div>
+      )}
       <p className="asof">
         {checking ? (
           <>

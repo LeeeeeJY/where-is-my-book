@@ -168,6 +168,11 @@ public final class Data4LibraryClient {
             return new BookQuery(null, null, null, isbn13, true);
         }
 
+        /** 제목만 바꾼 사본. 띄어쓰기를 달리해 다시 찾아볼 때 씁니다. */
+        public BookQuery withTitle(String newTitle) {
+            return new BookQuery(newTitle, author, publisher, isbn13, exactMatch);
+        }
+
         Map<String, String> toParams() {
             Map<String, String> params = new LinkedHashMap<>();
             putIfPresent(params, "title", title);

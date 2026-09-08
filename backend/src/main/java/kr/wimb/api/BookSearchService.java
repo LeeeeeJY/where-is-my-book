@@ -83,13 +83,41 @@ public class BookSearchService {
      */
     public SearchResponse search(Data4LibraryClient.BookQuery query) {
         List<BookInfo> found = client.searchBooks(query, 1, ApiBudget.Priority.USER);
+
+        // 한 건도 못 찾았으면 띄어쓰기를 달리해 한 번만 더 찾아봅니다. 자세한 이유는
+        // respacedTitle 에 적어 두었습니다. 0건일 때만이라 호출이 곱해지지 않습니다.
+        String retried = found.isEmpty() ? respacedTitle(query.title()) : null;
+        if (retried != null) {
+            found = client.searchBooks(query.withTitle(retried), 1, ApiBudget.Priority.USER);
+            if (found.isEmpty()) retried = null;
+        }
+
         List<BookInfo> usable = withIsbn(found);
-        List<WorkResult> ranked = rank(query.title(), worksOf(usable));
+        List<WorkResult> ranked = rank(
+                retried != null ? retried : query.title(), worksOf(usable));
         return new SearchResponse(
                 ranked.stream().limit(MAX_WORKS).toList(),
                 ranked.size(),
                 found.size() - usable.size(),
+                retried,
                 LocalDate.now(SEOUL).toString());
+    }
+
+    /**
+     * 띄어쓰기를 달리한 제목. 다시 찾아볼 값이 없으면 {@code null} 입니다.
+     *
+     * <p><b>정보나루는 넣은 글자를 그대로 찾습니다.</b> 우리 정규화({@code normalizeKey})는
+     * 받아온 뒤 순위를 매길 때만 쓰이므로 검색 자체에는 아무 영향이 없습니다. 그래서
+     * 「마의 산」과 「마의산」이 서로 다른 검색이 되고, 도서관마다 표기가 갈리는 한국어
+     * 서명에서는 한쪽으로만 찾으면 멀쩡히 있는 책을 놓칩니다.
+     *
+     * <p>사용자에게는 그것이 <b>「그런 책이 없다」로 보입니다.</b> 띄어쓰기를 바꿔 보라고
+     * 안내만 하는 것은 우리가 할 수 있는 일을 사용자에게 미루는 것입니다.
+     */
+    static String respacedTitle(String title) {
+        if (title == null) return null;
+        String compact = title.replaceAll("\\s+", "");
+        return compact.isEmpty() || compact.equals(title.trim()) ? null : compact;
     }
 
     /**
@@ -320,8 +348,11 @@ public class BookSearchService {
      *                   잘린 것인지 알 수 없습니다.
      * @param droppedNoIsbn ISBN 을 판별할 수 없어 결과에서 뺀 자료 수. <b>화면이 이것을
      *                      밝혀야 합니다.</b> 조용히 빼면 사용자는 「그런 책이 없다」로 읽습니다.
+     * @param retriedTitle 처음 제목으로 한 건도 못 찾아 <b>띄어쓰기를 달리해 다시 찾은</b>
+     *                     경우 그 제목. 화면이 이것을 밝혀야 사용자가 자기가 넣은 것과
+     *                     다른 결과를 보고 어리둥절하지 않습니다. 재시도가 없었으면 null.
      * @param asOf 이 검색을 한 날짜.
      */
     public record SearchResponse(List<WorkResult> works, int totalWorks, int droppedNoIsbn,
-                                 String asOf) {}
+                                 String retriedTitle, String asOf) {}
 }

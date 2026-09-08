@@ -132,12 +132,17 @@ public class WimbController {
             @RequestParam(required = false) String q,
             @RequestParam(required = false) String author,
             @RequestParam(required = false) String publisher,
+            @RequestParam(required = false) String isbn,
             @RequestParam(required = false) List<String> libs) {
 
         String title = trimToNull(q);
         String byAuthor = trimToNull(author);
         String byPublisher = trimToNull(publisher);
-        if (title == null && byAuthor == null && byPublisher == null) {
+        // ISBN 은 사람이 하이픈이나 공백을 섞어 옮겨 적습니다. 그대로 넘기면 0건이 나오고
+        // 사용자는 그것을 「이 책이 없다」로 읽습니다. 숫자와 X 만 남깁니다.
+        String byIsbn = trimToNull(
+                isbn == null ? null : isbn.replaceAll("[^0-9Xx]", "").toUpperCase());
+        if (title == null && byAuthor == null && byPublisher == null && byIsbn == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "검색 조건이 비어 있습니다.");
         }
         // 고른 도서관은 소장 조회에만 쓰이는데 그것은 /api/holdings 가 따로 답합니다.
@@ -146,7 +151,7 @@ public class WimbController {
 
         try {
             return searchService.search(new Data4LibraryClient.BookQuery(
-                    title, byAuthor, byPublisher, null, false));
+                    title, byAuthor, byPublisher, byIsbn, false));
         } catch (ResponseStatusException e) {
             throw e;
         } catch (RuntimeException e) {

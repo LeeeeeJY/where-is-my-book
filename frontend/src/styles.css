@@ -52,6 +52,11 @@ body {
   line-height: 1.55;
 }
 .banner--warn { background: var(--warn-bg); border: 1px solid var(--warn-line); }
+/*
+  알림용 중립 상자. **노란 상자는 「확인 불가」에만 씁니다.** 안내까지 같은 색으로 칠하면
+  정작 확인하지 못한 책이 눈에 띄지 않습니다.
+*/
+.banner--info { background: var(--surface); border: 1px solid var(--line); }
 
 /* 좁은 화면에서는 세로로 쌓고, 넓은 화면에서만 좌우로 나눕니다. */
 .layout { display: grid; gap: 16px; }
@@ -108,11 +113,12 @@ body {
 }
 .recheck { margin: 0 0 12px; }
 
-/* 저자·출판사 칸. 좁은 화면에서는 세로로 쌓입니다. */
+/* 저자·출판사·ISBN 칸. 좁은 화면에서는 세로로 쌓입니다. */
 .search-more { display: grid; gap: 8px; margin: 8px 0 0; }
 @media (min-width: 560px) {
-  .search-more { grid-template-columns: 1fr 1fr; }
+  .search-more { grid-template-columns: repeat(3, 1fr); }
 }
+.search-hint { margin: 6px 0 0; font-size: 12px; line-height: 1.5; }
 
 .sort-toggle { margin: 0 0 10px; font-size: 13px; }
 .sort-toggle label { display: inline-flex; align-items: center; gap: 2px; cursor: pointer; }
