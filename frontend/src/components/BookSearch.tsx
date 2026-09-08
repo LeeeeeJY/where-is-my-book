@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ApiUnavailable, fetchHoldings, fetchLoanStatus, hasCriteria, libraryLink, searchBooks } from '../api';
-import type { LoanStatus } from '../api';
+import { ApiUnavailable, fetchHoldings, hasCriteria, libraryLink, searchBooks } from '../api';
 import { anyHomepageOnly, linkBadge, linkLabel } from '../domain/opacLink';
-import { LOAN_DISCLAIMER, loanPhrase } from '../domain/loanStatus';
 import type { DroppedBook, SearchCriteria, SearchResponse, WorkResult } from '../api';
 import { holdingState } from '../domain/holdingState';
 import type { HoldingFacts } from '../domain/holdingState';
+import { allChecked, checkedCount, orderByHolding } from '../domain/resultOrder';
 import type { Library } from '../domain/types';
+import { LoanCheck } from './LoanCheck';
+import { ProgressBar } from './ProgressBar';
 
 /**
  * ISBN 을 판별하지 못해 뺀 자료를 이름으로 보여 줍니다.
@@ -53,11 +54,14 @@ type State =
   | { kind: 'offline' }
   | { kind: 'error'; message: string };
 
+/** 도착한 소장 결과와 **그것이 어느 선택 기준인지**. */
+type Checked = { key: string; facts: Map<number, HoldingFacts> };
+
 /**
  * 한 권 검색 화면.
  *
- * <b>표시하지 않는 것이 표시하는 것만큼 중요합니다.</b> 대출 가능 여부는 어떤 경우에도
- * 보여주지 않고, 조회에 실패한 것을 미소장으로 섞지 않습니다.
+ * <b>표시하지 않는 것이 표시하는 것만큼 중요합니다.</b> 대출 가능 여부는 누를 때만, 날짜와
+ * 함께 보여주고, 조회에 실패한 것을 미소장으로 섞지 않습니다.
  */
 export function BookSearch({
   libraries,
@@ -70,8 +74,6 @@ export function BookSearch({
   const [state, setState] = useState<State>({ kind: 'idle' });
   /** 지금까지 펼쳐 보인 저작 수. 「더 보기」가 이것을 늘립니다. */
   const [shown, setShown] = useState(PAGE);
-  /** 소장한 책을 위로 올릴지. 기본은 검색어와의 일치도 순입니다. */
-  const [heldFirst, setHeldFirst] = useState(false);
   /**
    * 도착한 소장 결과와 **그것이 어느 선택 기준인지**.
    *
@@ -79,10 +81,14 @@ export function BookSearch({
    * 낸 답이 되므로 그대로 보여 주면 안 됩니다. 방금 체크를 푼 도서관이 「여기 있습니다」에
    * 남아 있게 됩니다. 키가 다르면 아예 쓰지 않습니다.
    */
-  const [checked, setChecked] = useState<{ key: string; facts: Map<number, HoldingFacts> } | null>(
-    null,
-  );
+  const [checked, setChecked] = useState<Checked | null>(null);
   const [checking, setChecking] = useState(false);
+  /**
+   * 소장 정보의 기준 날짜. **여러 답 가운데 가장 오래된 날짜**입니다.
+   *
+   * <p>서버가 (ISBN, 지역) 답을 몇 시간 기억해 두므로 스무 권의 답이 서로 다른 날짜일 수
+   * 있습니다. 가장 최근 날짜로 말하면 옛 답을 새 답인 것처럼 읽게 됩니다.
+   */
   const [asOf, setAsOf] = useState<string | null>(null);
   const running = useRef<{ cancelled: boolean } | null>(null);
 
@@ -90,7 +96,7 @@ export function BookSearch({
   const selectedKey = useMemo(() => [...selected].sort().join(','), [selected]);
 
   /**
-   * 저작마다 소장을 따로 물어 도착하는 대로 채웁니다.
+   * 저작마다 소장을 따로 물어 도착하는 대로 기록합니다.
    *
    * <p>**검색 응답에 소장을 함께 실으면 안 됩니다.** 예전에는 서버가 저작마다 조회를 돌리고
    * 한꺼번에 답했는데, 저작이 스무 개면 그만큼 순서대로 기다려야 해서 검색이 수십 초가
@@ -100,6 +106,9 @@ export function BookSearch({
    * 묻게 되는데, 도서관을 열 곳 고르는 동안 200번이 나갑니다. 화면은 계속 버벅이고
    * 하루 호출 예산도 그만큼 새어 나갑니다. 검색할 때 한 번 부르고, 그 뒤로 선택이
    * 바뀌면 사용자가 누를 때만 다시 부릅니다.
+   *
+   * <p>답이 도착하는 대로 목록을 다시 그리지는 않습니다. 묶음의 답이 다 오면 그때 세워서
+   * 한 번에 그립니다. 그동안은 진행 막대가 어디까지 왔는지 말합니다.
    */
   const check = useCallback(async (works: WorkResult[], key: string, mode: 'reset' | 'add') => {
     if (running.current) running.current.cancelled = true;
@@ -112,6 +121,7 @@ export function BookSearch({
     setChecked((prev) =>
       mode === 'add' && prev !== null && prev.key === key ? prev : { key, facts: new Map() },
     );
+    if (mode === 'reset') setAsOf(null);
     if (libCodes.length === 0 || works.length === 0) return;
 
     setChecking(true);
@@ -129,7 +139,10 @@ export function BookSearch({
         const work = works[next++];
         try {
           const result = await fetchHoldings(work.isbn13List, libCodes);
-          if (!token.cancelled) setAsOf(result.asOf);
+          if (!token.cancelled) {
+            // 날짜 문자열(YYYY-MM-DD)은 그대로 견줘도 앞선 날짜가 작습니다.
+            setAsOf((prev) => (prev === null || result.asOf < prev ? result.asOf : prev));
+          }
           record(work.workId, result);
         } catch {
           // 한 권이 실패해도 나머지는 계속합니다. 실패는 확인 불가로 남기고
@@ -248,6 +261,7 @@ export function BookSearch({
         </div>
         <p className="search-hint muted">
           여러 칸을 채우면 모두 만족하는 책만 찾습니다. ISBN 은 하이픈을 넣어도 됩니다.
+          띄어쓰기는 어느 쪽으로 넣어도 같은 책을 찾습니다.
         </p>
       </form>
 
@@ -267,8 +281,6 @@ export function BookSearch({
         needsCheck={needsCheck}
         shown={shown}
         onMore={showMore}
-        heldFirst={heldFirst}
-        onHeldFirst={setHeldFirst}
         onCheck={() => {
           if (state.kind === 'done') {
             void check(state.response.works.slice(0, shown), selectedKey, 'reset');
@@ -290,8 +302,6 @@ function SearchState({
   onCheck,
   shown,
   onMore,
-  heldFirst,
-  onHeldFirst,
   asOf,
 }: {
   state: State;
@@ -304,8 +314,6 @@ function SearchState({
   onCheck: () => void;
   shown: number;
   onMore: () => void;
-  heldFirst: boolean;
-  onHeldFirst: (on: boolean) => void;
   asOf: string | null;
 }) {
   if (state.kind === 'idle') {
@@ -339,14 +347,16 @@ function SearchState({
     );
   }
 
-  const { works, totalWorks, foundBooks, droppedNoIsbn, droppedBooks, retriedTitle,
+  const { works, totalWorks, foundBooks, droppedNoIsbn, droppedBooks, alsoSearchedTitles,
     recoveredByAuthor } = state.response;
   if (works.length === 0) {
     return (
       <div className="banner banner--warn">
-        <strong>찾은 책이 없습니다.</strong> 정보나루는 넣은 글자를 그대로 찾으므로
-        띄어쓰기가 다르면 걸리지 않습니다. 「마의 산」과 「마의산」이 서로 다른 검색입니다.
-        부제를 빼거나 띄어쓰기를 바꿔 보세요.
+        <strong>찾은 책이 없습니다.</strong>{' '}
+        {alsoSearchedTitles.length > 0
+          ? `띄어쓰기를 바꾼 ${quoteAll(alsoSearchedTitles)} 표기로도 찾아봤습니다.`
+          : '띄어쓰기를 바꿔 다시 찾을 것도 없었습니다.'}{' '}
+        정보나루는 어절의 앞에서부터 맞추므로 제목의 첫 어절만 넣거나 부제를 빼고 다시 찾아 보세요.
         {droppedNoIsbn > 0 && (
           <>
             <br />
@@ -367,41 +377,41 @@ ISBN 을 알 수 없어 소장을 확인하지 못하는 자료가 {droppedNoIsb
   }
 
   const visible = works.slice(0, shown);
-  // **확인이 끝난 뒤에만 다시 세웁니다.** 답이 도착할 때마다 순서가 바뀌면 읽던 자리가
-  // 사라집니다. 확인이 끝나는 순간에 한 번만 움직이게 해 두면 사용자가 그 움직임을
-  // 예상할 수 있습니다.
-  const ordered =
-    heldFirst && !checking && facts !== null
-      ? [...visible].sort((a, b) => heldRank(facts, a, selectedCount)
-          - heldRank(facts, b, selectedCount))
-      : visible;
+  /**
+   * 펼친 순서대로 스무 개씩 묶습니다. **묶음마다 확인이 끝나면 그 묶음만 세워서 그립니다.**
+   *
+   * <p>전체를 매번 다시 세우면 「더 보기」를 누를 때마다 위에 있던 책이 자리를 옮깁니다.
+   * 읽던 자리가 사라지는 것이라, 이미 그린 묶음은 그대로 두고 새 묶음만 그 아래에
+   * 세워서 붙입니다.
+   */
+  const blocks: WorkResult[][] = [];
+  for (let at = 0; at < visible.length; at += PAGE) blocks.push(visible.slice(at, at + PAGE));
 
   return (
     <>
       {/*
-        띄어쓰기를 바꿔 다시 찾았으면 반드시 밝힙니다. 넣은 것과 다른 결과가 말없이
-        나오면 사용자는 검색이 엉뚱하게 동작한다고 생각합니다.
+        함께 찾아본 표기와 저자로 되찾은 사실을 반드시 밝힙니다. 넣은 것과 다른 표기의 책이
+        목록에 섞여 있는 것이라, 말하지 않으면 검색이 엉뚱한 것을 가져왔다고 읽힙니다.
       */}
-      {retriedTitle && (
+      {(alsoSearchedTitles.length > 0 || recoveredByAuthor) && (
         <div className="banner banner--info">
-넣으신 제목으로는 한 건도 없어 <strong>「{retriedTitle}」</strong>로 다시 찾았습니다.
-        </div>
-      )}
-      {/*
-        저자로 되찾은 것도 반드시 밝힙니다. 넣은 제목과 다른 표기의 책이 목록에 섞여
-        있는 것이라, 말하지 않으면 검색이 엉뚱한 것을 가져왔다고 읽힙니다.
-      */}
-      {recoveredByAuthor && (
-        <div className="banner banner--info">
-띄어쓰기가 다른 판을 <strong>같은 저자의 책</strong>에서 더 찾았습니다.
+          {alsoSearchedTitles.length > 0 && (
+            <>
+              띄어쓰기가 다른 <strong>{quoteAll(alsoSearchedTitles)}</strong> 표기로도 함께
+              찾았습니다.
+            </>
+          )}
+          {alsoSearchedTitles.length > 0 && recoveredByAuthor && ' '}
+          {recoveredByAuthor && (
+            <>
+              제목으로는 걸리지 않던 판을 <strong>같은 저자의 책</strong>에서 더 찾았습니다.
+            </>
+          )}
         </div>
       )}
       <p className="asof">
         {checking ? (
-          <>
-            소장 확인 중 {facts?.size ?? 0}/{Math.min(shown, works.length)} · 출처: 도서관
-            정보나루
-          </>
+          <>소장 확인 중 · 출처: 도서관 정보나루</>
         ) : (
           <>소장 정보 {formatAsOf(asOf ?? state.response.asOf)} 조회 기준 · 출처: 도서관 정보나루</>
         )}
@@ -430,31 +440,44 @@ ISBN 을 알 수 없어 소장을 확인하지 못하는 자료가 {droppedNoIsb
           </button>
         </p>
       )}
-      {/* 소장한 책을 위로 올릴지는 사용자가 정합니다. 저절로 움직이면 읽던 자리를 잃습니다. */}
-      {selectedCount > 0 && facts !== null && (
-        <p className="sort-toggle">
-          <label>
-            <input
-              type="checkbox"
-              checked={heldFirst}
-              onChange={(e) => onHeldFirst(e.target.checked)}
-            />{' '}
-            있는 책 먼저 보기
-          </label>
-        </p>
-      )}
-      <ul className="book-list">
-        {ordered.map((work) => (
-          <BookCard
-            key={work.workId}
-            work={work}
-            byCode={byCode}
-            selectedCount={selectedCount}
-            facts={facts?.get(work.workId) ?? null}
-            checking={checking}
-          />
-        ))}
-      </ul>
+      {/*
+        **확인이 끝난 묶음만 그립니다.** 예전에는 답이 도착하는 대로 채우고 「있는 책 먼저
+        보기」를 켜야 소장한 책이 위로 올라왔습니다. 이제 묶음의 답이 다 오면 소장 → 미소장 →
+        확인 불가 순으로 한 번 세워서 그리고, 그때까지는 진행 막대가 어디까지 왔는지 말합니다.
+        답이 올 때마다 순서가 바뀌면 읽던 자리가 사라지므로, 세우는 것은 한 번뿐입니다.
+
+        도서관을 고르지 않았거나 아직 「확인」을 누르지 않았으면 기다릴 것이 없으므로
+        검색어 일치도 순으로 바로 그립니다.
+      */}
+      {blocks.map((block, index) => {
+        const ready = selectedCount === 0 || facts === null || !checking || allChecked(block, facts);
+        if (!ready) {
+          return (
+            <ProgressBar
+              key={`progress-${index}`}
+              done={checkedCount(block, facts)}
+              total={block.length}
+              label={`고른 도서관 ${selectedCount}곳에서 확인하는 중`}
+            />
+          );
+        }
+        const ordered =
+          selectedCount > 0 && facts !== null ? orderByHolding(block, facts, selectedCount) : block;
+        return (
+          <ul className="book-list" key={`block-${index}`}>
+            {ordered.map((work) => (
+              <BookCard
+                key={work.workId}
+                work={work}
+                byCode={byCode}
+                selectedCount={selectedCount}
+                facts={facts?.get(work.workId) ?? null}
+                checking={checking}
+              />
+            ))}
+          </ul>
+        );
+      })}
 
       {/*
         **지금 보는 것이 전부인지 잘린 것인지 밝힙니다.** 스무 개만 보여 주고 아무 말도
@@ -488,6 +511,11 @@ ISBN 을 알 수 없어 소장을 확인하지 못하는 자료가 {droppedNoIsb
       </p>
     </>
   );
+}
+
+/** 「레 미제라블」, 「레미제라블」처럼 표기를 겹낫표로 묶어 이어 붙입니다. */
+function quoteAll(titles: string[]): string {
+  return titles.map((title) => `「${title}」`).join(', ');
 }
 
 function BookCard({
@@ -682,34 +710,6 @@ function checkedEveryEdition(facts: HoldingFacts | null, selectedCount: number):
 }
 
 /** 표시는 전부 Asia/Seoul 기준입니다. */
-/**
- * 소장한 책을 위로 올릴 때 쓰는 등급. 작을수록 위입니다.
- *
- * <p>**확인 불가를 맨 아래에 둡니다.** 「있는 책 먼저」는 확실한 것부터 보겠다는 뜻이고,
- * 확인 불가는 그 축 위에 있지 않습니다. 값을 모르는 것을 아는 것들 사이에 끼워 넣으면
- * 목록을 위에서부터 읽어 내려가는 흐름이 끊깁니다.
- *
- * <p>다만 **미소장과 한 덩어리로 묶은 것은 아닙니다.** 둘은 다음에 할 일이 다릅니다.
- * 미소장은 서점으로 넘어가야 하는 책이고 확인 불가는 다시 확인하면 있을 수 있는 책이라,
- * 배지와 문구에서는 끝까지 갈라 놓습니다. 여기서 정하는 것은 순서뿐입니다.
- */
-function heldRank(
-  facts: Map<number, HoldingFacts>,
-  work: WorkResult,
-  selectedCount: number,
-): number {
-  switch (holdingState(facts.get(work.workId) ?? null, selectedCount)) {
-    case 'held':
-      return 0;
-    case 'none':
-      return 1;
-    case 'pending':
-      return 2;
-    default:
-      return 3;   // 확인 불가
-  }
-}
-
 function formatAsOf(asOf: string | null): string {
   if (!asOf) return '방금';
   const date = new Date(`${asOf}T00:00:00+09:00`);
@@ -720,65 +720,4 @@ function formatAsOf(asOf: string | null): string {
     day: 'numeric',
     timeZone: 'Asia/Seoul',
   }).format(date);
-}
-
-/**
- * 그 도서관에 지금 빌릴 수 있는지. **누를 때만 물어봅니다.**
- *
- * <p>이 조회는 (도서관 하나 × 책 하나)라서, 목록에 미리 달면 30권 확인 한 번에 1,800회가
- * 나가고 하루 한도가 열여섯 번 만에 사라집니다. 「이 도서관에 가려는데 빌릴 수 있나」가
- * 실제 행동이고, 그건 한 곳만 물어보면 됩니다.
- *
- * <p>그리고 <b>결과에서 기준 날짜를 떼지 않습니다.</b> 정보나루가 주는 값은 조회일 기준
- * 전날의 상태입니다. 「대출 가능」 네 글자만 남으면 사용자는 그것을 지금 상태로 읽고,
- * 그 믿음으로 갔다가 허탕치는 것이 이 도구를 못 쓰게 만드는 가장 큰 요인입니다.
- */
-/**
- * 누를 때만 대출 상태를 물어봅니다.
- *
- * <p>목록에 미리 붙이면 안 됩니다. `bookExist` 는 (도서관 하나 × ISBN 하나)라, 여러 권
- * 확인 화면에 그냥 달면 30권 × 판본 3개 × 도서관 20곳 = 1,800회가 되고 하루 한도가
- * 열여섯 번 만에 사라집니다.
- */
-function LoanCheck({ libCode, isbn13List }: { libCode: string; isbn13List: string[] }) {
-  const [state, setState] = useState<'idle' | 'asking' | 'failed'>('idle');
-  const [status, setStatus] = useState<LoanStatus | null>(null);
-
-  if (isbn13List.length === 0) return null;
-
-  if (status) {
-    const phrase = loanPhrase(status);
-    return (
-      <span className={phrase.caution ? 'loan loan--caution' : 'loan'}>
-        {' · '}
-        {phrase.text}
-      </span>
-    );
-  }
-
-  if (state === 'failed') {
-    // 못 물어본 것이지 「빌릴 수 없다」가 아닙니다. 둘을 섞으면 헛걸음이 됩니다.
-    return <span className="muted"> · 대출 상태를 확인하지 못했습니다</span>;
-  }
-
-  return (
-    <button
-      type="button"
-      className="link-button"
-      disabled={state === 'asking'}
-      title={LOAN_DISCLAIMER}
-      onClick={() => {
-        setState('asking');
-        fetchLoanStatus(libCode, isbn13List).then(
-          (result) => {
-            setStatus(result);
-            setState('idle');
-          },
-          () => setState('failed'),
-        );
-      }}
-    >
-      {state === 'asking' ? '확인 중' : '대출 상태 확인'}
-    </button>
-  );
 }

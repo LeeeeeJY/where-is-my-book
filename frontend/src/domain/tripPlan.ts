@@ -27,6 +27,8 @@ export type LibraryRank = {
   name: string;
   /** 이 도서관에 있는 책 제목 */
   held: string[];
+  /** `held` 와 같은 순서의 줄 식별자. 그 도서관에서 대출 상태를 한 번에 물어볼 때 책을 되찾는 데 씁니다. */
+  heldKeys: string[];
   /** 확인했는데 이 도서관에 없는 책 제목. **확인하지 못한 책은 들어가지 않습니다.** */
   missing: string[];
 };
@@ -66,15 +68,17 @@ export function rankLibraries(
   return selected
     .map((library) => {
       const held: string[] = [];
+      const heldKeys: string[] = [];
       const missing: string[] = [];
       for (const row of checked) {
         if (row.state === 'held' && row.holdingLibCodes.includes(library.libCode)) {
           held.push(row.title);
+          heldKeys.push(row.key);
         } else {
           missing.push(row.title);
         }
       }
-      return { libCode: library.libCode, name: library.name, held, missing };
+      return { libCode: library.libCode, name: library.name, held, heldKeys, missing };
     })
     .filter((rank) => rank.held.length > 0)
     .sort((a, b) => b.held.length - a.held.length || a.name.localeCompare(b.name, 'ko'));

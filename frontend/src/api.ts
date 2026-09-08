@@ -12,6 +12,11 @@ export type WorkResult = {
   detailUrl: string | null;
   isbn13List: string[];
   editionLabels: string[];
+  /**
+   * 묶인 판본 가운데 가장 큰 대출건수. 서버가 같은 등급 안의 순서를 정하는 데 쓴 값이고,
+   * 화면은 참고만 합니다. 예전 서버는 주지 않으므로 없을 수 있습니다.
+   */
+  loanCount?: number;
 };
 
 /**
@@ -48,12 +53,6 @@ export type SearchResponse = {
   foundBooks: number;
   droppedNoIsbn: number;
   /**
-   * 처음 제목으로 한 건도 못 찾아 **띄어쓰기를 달리해 다시 찾은** 경우 그 제목.
-   *
-   * <p>화면이 이것을 밝혀야 사용자가 자기가 넣은 것과 다른 결과를 보고 어리둥절하지
-   * 않습니다. 재시도가 없었으면 null 입니다.
-   */
-  /**
    * ISBN 을 판별하지 못해 뺀 자료가 **무엇인지.** 전체 건수는 `droppedNoIsbn` 입니다.
    *
    * <p>건수만으로는 사용자가 할 수 있는 일이 없습니다. 찾던 책이 하필 그 자료였는지
@@ -61,7 +60,14 @@ export type SearchResponse = {
    * 적어도 「이 책이구나」 하고 도서관에서 직접 찾아볼 수 있습니다.
    */
   droppedBooks: DroppedBook[];
-  retriedTitle: string | null;
+  /**
+   * 넣은 제목 말고 **함께 찾아본 다른 띄어쓰기 표기**.
+   *
+   * <p>정보나루는 어절 단위로 그대로 찾으므로 「레미제라블」과 「레 미제라블」이 서로 다른
+   * 검색입니다. 서버가 두 표기를 모두 찾아 합치므로 어느 쪽으로 넣어도 같은 목록이 나오는데,
+   * 그 사실을 화면이 밝혀야 넣은 것과 다른 표기의 책을 보고 어리둥절하지 않습니다.
+   */
+  alsoSearchedTitles: string[];
   /**
    * 제목으로는 걸리지 않던 판을 **저자로 되찾아 더했는지.**
    *
@@ -179,7 +185,10 @@ export async function searchBooks(
   if (criteria.publisher.trim()) params.set('publisher', criteria.publisher.trim());
   if (criteria.isbn.trim()) params.set('isbn', criteria.isbn.trim());
   for (const code of libCodes) params.append('libs', code);
-  return get<SearchResponse>(`/api/search?${params}`);
+  const response = await get<SearchResponse>(`/api/search?${params}`);
+  // 프론트와 서버가 따로 배포되므로 예전 서버가 이 항목을 안 줄 수 있습니다. 그때도 화면이
+  // 죽지 않게 빈 목록으로 채웁니다.
+  return { ...response, alsoSearchedTitles: response.alsoSearchedTitles ?? [] };
 }
 
 /**
