@@ -1,5 +1,13 @@
 server:
   port: 8080
+  # 도서관 1,602곳을 한 번에 내보내므로 JSON 이 300KB 안팎입니다. 그대로 보내면 첫 화면에서
+  # 그 시간을 사람이 기다립니다. 압축은 Spring Boot 기본값이 꺼짐이라 직접 켭니다.
+  # 소장 조회 응답은 작아서 min-response-size 아래로 지나가고, 작은 응답을 압축하면
+  # 오히려 손해입니다.
+  compression:
+    enabled: true
+    mime-types: application/json
+    min-response-size: 2KB
 
 spring:
   application:
