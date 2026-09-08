@@ -84,10 +84,19 @@ body {
     내용보다 작아지지 않기 때문입니다.
   */
   .layout { flex: 1; min-height: 0; grid-template-rows: minmax(0, 1fr); }
-  .results-column {
+  /*
+    **`.layout >` 를 붙인 것이 의도적입니다.** 아래쪽에 `.results-column { display: grid }`
+    가 따로 있는데, 미디어 쿼리는 특정성을 올려 주지 않아 나중에 선언된 그쪽이 이깁니다.
+    실제로 그것 때문에 이 칸이 계속 격자로 남아 입력 칸이 높이를 받지 못했습니다.
+  */
+  .layout > .results-column {
     height: 100%;
     min-height: 0;
     overflow-y: auto;
+    /* 카드가 세로로 자리를 잡아야 입력 칸이 남은 높이를 받을 수 있습니다. */
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
     /* 스크롤바가 카드 테두리를 덮지 않게 안쪽으로 살짝 물립니다. */
     margin: 0 -4px;
     padding: 0 4px;
@@ -308,7 +317,19 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
 
 .tabs--mode { margin: 0 0 12px; }
 
-.multi-input { display: block; margin: 8px 0 10px; resize: vertical; font: inherit; }
+/*
+  붙여 넣은 목록이 한눈에 보여야 하는 화면입니다. 쉰 줄까지 받으면서 여섯 줄만 보여
+  주면, 넣은 것이 맞는지 확인하려고 좁은 칸을 스크롤하게 됩니다.
+*/
+.multi-form { display: flex; flex-direction: column; gap: 10px; }
+.multi-input { display: block; resize: vertical; font: inherit; min-height: 7.5em; }
+/* 아직 결과가 없을 때는 남은 높이를 입력 칸이 채웁니다. */
+.multi-form--tall { flex: 1; min-height: 0; }
+.multi-form--tall .multi-input { flex: 1; min-height: 12em; }
+.multi-form__foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+}
+.multi-form__foot .muted { font-size: 12px; }
 
 .section-title { margin: 18px 0 8px; font-size: 14px; }
 
@@ -392,3 +413,11 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
 
 /* 오차가 작을 때의 안내. 있는 듯 없는 듯 두되 다시 잡는 길은 항상 열어 둡니다. */
 .nearby__accuracy { margin: 0 0 8px; font-size: 12px; }
+
+/*
+  결과가 아직 없는 동안에는 입력 카드가 남은 높이를 차지합니다.
+  `flex: 1` 이 빠지면 카드가 내용 높이에 머물러, 쉰 줄까지 받는 화면인데 입력 칸이
+  여섯 줄로 쪼그라들고 아래가 통째로 빕니다. 좁은 화면에서는 부모가 flex 가 아니라
+  이 값이 무시되므로 따로 막지 않아도 됩니다.
+*/
+.results--fill { flex: 1; display: flex; flex-direction: column; min-height: 0; }

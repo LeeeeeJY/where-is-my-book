@@ -350,8 +350,7 @@ function SearchState({
         {droppedNoIsbn > 0 && (
           <>
             <br />
-            찾기는 했지만 ISBN 이 없어 뺀 자료가 {droppedNoIsbn}건 있습니다. 소장 조회를
-            ISBN 으로만 할 수 있어서 어느 도서관에 있는지 알려 드릴 수 없는 자료입니다.
+ISBN 을 알 수 없어 소장을 확인하지 못하는 자료가 {droppedNoIsbn}건 있습니다.
             <DroppedList books={droppedBooks} total={droppedNoIsbn} />
           </>
         )}
@@ -385,9 +384,7 @@ function SearchState({
       */}
       {retriedTitle && (
         <div className="banner banner--info">
-          넣으신 제목으로는 한 건도 없어서 <strong>「{retriedTitle}」</strong>로 다시
-          찾았습니다. 정보나루는 넣은 글자를 그대로 찾기 때문에 띄어쓰기가 다르면
-          걸리지 않습니다.
+넣으신 제목으로는 한 건도 없어 <strong>「{retriedTitle}」</strong>로 다시 찾았습니다.
         </div>
       )}
       {/*
@@ -396,9 +393,7 @@ function SearchState({
       */}
       {recoveredByAuthor && (
         <div className="banner banner--info">
-          넣으신 제목으로는 걸리지 않는 판이 있어 <strong>같은 저자의 책</strong>에서 더
-          찾았습니다. 정보나루는 제목을 어절 단위로 맞추기 때문에, 「레미제라블」로는
-          「레 미제라블」이 걸리지 않습니다.
+띄어쓰기가 다른 판을 <strong>같은 저자의 책</strong>에서 더 찾았습니다.
         </div>
       )}
       <p className="asof">
@@ -486,8 +481,7 @@ function SearchState({
         {droppedNoIsbn > 0 && (
           <>
             <br />
-            ISBN 이 없어 뺀 자료가 {droppedNoIsbn}건 있습니다. 소장 조회를 ISBN 으로만 할 수
-            있어서 어느 도서관에 있는지 알려 드릴 수 없는 자료입니다.
+ISBN 을 알 수 없어 소장을 확인하지 못하는 자료가 {droppedNoIsbn}건 있습니다.
             <DroppedList books={droppedBooks} total={droppedNoIsbn} />
           </>
         )}

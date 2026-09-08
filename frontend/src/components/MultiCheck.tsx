@@ -207,35 +207,44 @@ export function MultiCheck({
       }, () => setCopied(false));
   }
 
+  // 쉰 줄 한도가 있는 화면이라 지금 몇 줄인지 그 자리에서 보여야 합니다.
+  const lineCount = text.split('\n').filter((l) => l.trim() !== '').length;
+
   return (
-    <section className="results">
+    <section className={phase.kind === 'ready' ? 'results' : 'results results--fill'}>
       <header className="picker__head">
         <h2>여러 권 한 번에 확인</h2>
-        {selected.size === 0 && <span className="picker__count">도서관 미선택</span>}
+        <span className="picker__count">
+          {selected.size === 0 ? '도서관 미선택' : `도서관 ${selected.size}곳`}
+        </span>
       </header>
 
-      <form onSubmit={submit}>
-        <label className="muted" htmlFor="multi-input">
-          한 줄에 한 권씩 넣어 주세요. 제목, ISBN, 서점 주소를 섞어도 됩니다. 최대 {MAX_LINES}줄입니다.
-        </label>
+      {/*
+        **결과가 없을 때는 입력 칸이 남은 높이를 채웁니다.** 예전에는 여섯 줄로 고정해 두어,
+        쉰 줄까지 받는 화면인데 아래가 통째로 비어 있었습니다. 목록을 붙여 넣는 화면에서
+        가장 중요한 것은 넣은 것이 한눈에 보이는 일입니다.
+      */}
+      <form className={phase.kind === 'ready' ? 'multi-form' : 'multi-form multi-form--tall'}
+            onSubmit={submit}>
         <textarea
           id="multi-input"
           className="text-input multi-input"
-          rows={6}
           value={text}
           placeholder={'코스모스\n미움받을 용기\n9788934972464\n총 균 쇠 - 재레드 다이아몬드'}
           onChange={(e) => setText(e.target.value)}
         />
-        <button className="button" type="submit" disabled={phase.kind === 'resolving'}>
-          {phase.kind === 'resolving' ? '읽는 중' : '확인'}
-        </button>
+        <div className="multi-form__foot">
+          <span className="muted">
+            한 줄에 한 권씩. 제목·ISBN·서점 주소를 섞어도 됩니다{lineCount > 0 && ` · ${lineCount}줄`}
+          </span>
+          <button className="button" type="submit" disabled={phase.kind === 'resolving'}>
+            {phase.kind === 'resolving' ? '읽는 중' : '확인'}
+          </button>
+        </div>
       </form>
 
       {selected.size === 0 && (
-        <p className="muted">
-          도서관을 고르지 않으면 책만 찾고 소장 여부는 확인하지 않습니다.
-          도서관 선택에서 자주 가는 곳을 먼저 골라 주세요.
-        </p>
+        <p className="muted">도서관을 고르면 어디에 있는지까지 알려 드립니다.</p>
       )}
 
       {phase.kind === 'offline' && (
@@ -254,7 +263,7 @@ export function MultiCheck({
         <>
           {phase.truncated && (
             <div className="banner banner--warn">
-              {MAX_LINES}줄까지만 확인했습니다. 나머지는 다음에 나눠서 넣어 주세요.
+{MAX_LINES}줄까지만 확인했습니다. 나머지는 나눠서 넣어 주세요.
             </div>
           )}
 

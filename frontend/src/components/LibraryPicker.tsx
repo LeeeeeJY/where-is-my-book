@@ -253,12 +253,12 @@ const LOCATE_GIVE_UP_MS = 12_000;
 
 function reasonOf(e: GeolocationPositionError): string {
   if (e.code === e.PERMISSION_DENIED) {
-    return '브라우저가 위치 사용을 막고 있습니다. 주소창의 자물쇠나 위치 아이콘에서 허용으로 바꿔 주세요.';
+    return '브라우저가 위치 사용을 막고 있습니다. 주소창의 위치 아이콘에서 허용해 주세요.';
   }
   if (e.code === e.POSITION_UNAVAILABLE) {
-    return '기기가 지금 위치를 알아내지 못했습니다. 잠시 뒤 다시 눌러 보세요.';
+    return '기기가 위치를 알아내지 못했습니다. 잠시 뒤 다시 눌러 보세요.';
   }
-  return '시간 안에 위치를 잡지 못했습니다. 잠시 뒤 다시 눌러 보세요.';
+  return '시간 안에 잡지 못했습니다. 잠시 뒤 다시 눌러 보세요.';
 }
 
 /** 다시 잡은 값이 앞과 사실상 같은지. 1e-6도는 10cm 남짓이라 같은 자리로 봅니다. */
@@ -317,9 +317,7 @@ function NearbyTab({
       settled = true;
       setStatus({
         kind: 'failed',
-        reason:
-          '브라우저가 응답하지 않습니다. 위치 사용을 묻는 중이거나 막고 있을 수 있으니 ' +
-          '주소창의 자물쇠나 위치 아이콘을 확인해 주세요.',
+        reason: '브라우저가 응답하지 않습니다. 주소창의 위치 아이콘을 확인해 주세요.',
       });
     }, LOCATE_GIVE_UP_MS);
 
@@ -370,9 +368,7 @@ function NearbyTab({
           {asking ? '위치를 잡는 중입니다' : '현재 위치로 가까운 도서관 찾기'}
         </button>
         {status.kind === 'failed' && (
-          <p className="muted">
-            {status.reason} 지역 탭이나 이름 검색으로도 고를 수 있습니다.
-          </p>
+          <p className="muted">{status.reason}</p>
         )}
       </div>
     );
@@ -387,9 +383,8 @@ function NearbyTab({
       */}
       {position.accuracyM > 2000 ? (
         <p className="muted">
-          지금 위치가 <strong>약 {Math.round(position.accuracyM / 1000)}km</strong> 오차로
-          잡혔습니다. 아래 순서가 실제와 다를 수 있으니 지역 탭이나 이름 검색을 함께 써
-          주세요.{' '}
+          위치 오차 <strong>약 {Math.round(position.accuracyM / 1000)}km</strong>. 아래 순서가
+          실제와 다를 수 있습니다.{' '}
           {/*
             **오차를 알려 주면 다시 잡을 방법도 함께 주어야 합니다.** 예전에는 사실만 말하고
             끝내서, 사용자가 할 수 있는 일이 탭을 바꾸는 것뿐이었습니다. 유선 데스크톱은 IP 로
@@ -402,7 +397,7 @@ function NearbyTab({
         </p>
       ) : (
         <p className="muted nearby__accuracy">
-          지금 위치가 약 {Math.round(position.accuracyM)}m 오차로 잡혔습니다.{' '}
+          위치 오차 약 {Math.round(position.accuracyM)}m.{' '}
           <button className="link-button" onClick={locate} disabled={asking}>
             {asking ? '다시 잡는 중입니다' : '내 위치 다시 잡기'}
           </button>
@@ -413,9 +408,7 @@ function NearbyTab({
         새로 잡힌 것처럼 보이는데, 실제로는 예전 값입니다.
       */}
       {status.kind === 'failed' && (
-        <p className="muted">
-          {status.reason} 아래 목록은 <strong>앞서 잡은 위치</strong> 기준입니다.
-        </p>
+        <p className="muted">{status.reason} 아래는 <strong>앞서 잡은 위치</strong> 기준입니다.</p>
       )}
       {/*
         **같은 값이 다시 온 이유는 오차를 봐야 알 수 있습니다.** 수십 미터로 잡혀 있는데
@@ -427,18 +420,11 @@ function NearbyTab({
       {status.kind === 'same' &&
         (position.accuracyM > 2000 ? (
           <p className="muted">
-            다시 잡아도 <strong>같은 위치</strong>입니다. 이 정도 오차면 기기가 Wi-Fi 나 GPS 를
-            쓰지 못하고 <strong>IP 주소로만 위치를 짐작하고 있는 것</strong>이라, 같은 인터넷을
-            쓰는 한 몇 번을 눌러도 값이 달라지지 않습니다. <strong>유선 데스크톱에서 흔한
-            일입니다.</strong> 집에 공유기가 있어도 그 PC 가 Wi-Fi 신호를 잡지 못하면 소용이
-            없고, 운영체제의 위치 서비스가 꺼져 있어도 마찬가지입니다. 이럴 때는 지역 탭에서
-            시군구로 고르는 편이 빠릅니다.
+            같은 위치입니다. <strong>IP 주소로만 잡고 있어</strong> 다시 눌러도 달라지지
+            않습니다. 유선 데스크톱에서 흔합니다. 지역 탭이 빠릅니다.
           </p>
         ) : (
-          <p className="muted">
-            다시 잡아도 <strong>같은 위치</strong>입니다. 이미 정확하게 잡혀 있어 더 좁힐 것이
-            없습니다.
-          </p>
+          <p className="muted">같은 위치입니다. 이미 정확해 더 좁힐 것이 없습니다.</p>
         ))}
       {/*
         반경을 넘겨 보여 주는 중이면 반드시 밝힙니다. 잠자코 넓히면 사용자는 30km 떨어진
