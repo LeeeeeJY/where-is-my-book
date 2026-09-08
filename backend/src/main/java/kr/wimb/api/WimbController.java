@@ -4,6 +4,8 @@ import kr.wimb.data4library.Data4LibraryClient;
 import kr.wimb.data4library.LibraryInfo;
 import kr.wimb.data4library.RegionCode;
 import kr.wimb.ingest.ApiBudget;
+import kr.wimb.opac.OpacLink;
+import kr.wimb.opac.OpacTemplates;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
@@ -43,6 +45,7 @@ public class WimbController {
     private final BookSearchService searchService;
     private final MultiCheckService multiCheckService;
     private final ApiBudget budget;
+    private final OpacTemplates opacTemplates;
 
     /**
      * 도서관 마스터를 메모리에 담아 둡니다. 1,604건뿐이라 이걸로 충분하고,
@@ -71,13 +74,16 @@ public class WimbController {
      */
     @Autowired
     public WimbController(Data4LibraryClient client, BookSearchService searchService,
-                          MultiCheckService multiCheckService, ApiBudget budget) {
-        this(client, searchService, multiCheckService, budget, Clock.systemUTC());
+                          MultiCheckService multiCheckService, ApiBudget budget,
+                          OpacTemplates opacTemplates) {
+        this(client, searchService, multiCheckService, budget, opacTemplates, Clock.systemUTC());
     }
 
     /** 재시도 시각을 시험할 수 있도록 시계를 받는 생성자입니다. */
     WimbController(Data4LibraryClient client, BookSearchService searchService,
-                   MultiCheckService multiCheckService, ApiBudget budget, Clock clock) {
+                   MultiCheckService multiCheckService, ApiBudget budget,
+                   OpacTemplates opacTemplates, Clock clock) {
+        this.opacTemplates = opacTemplates;
         this.client = client;
         this.searchService = searchService;
         this.multiCheckService = multiCheckService;
@@ -103,7 +109,7 @@ public class WimbController {
             }
         }
         return catalog.values().stream()
-                .map(LibraryDto::from)
+                .map(info -> LibraryDto.from(info, opacTemplates))
                 .sorted(Comparator.comparing(LibraryDto::sido).thenComparing(LibraryDto::name))
                 .toList();
     }
@@ -206,14 +212,21 @@ public class WimbController {
      * 사용자는 검색 결과 자체가 틀렸다고 생각합니다.
      */
     @GetMapping("/go/{libCode}")
-    public ResponseEntity<Void> go(@PathVariable String libCode) {
+    public ResponseEntity<Void> go(@PathVariable String libCode,
+                                   @RequestParam(required = false) String isbn,
+                                   @RequestParam(required = false) String title) {
         loadCatalogQuietly(List.of(libCode));
         LibraryInfo library = catalog.get(libCode);
-        if (library == null || library.homepage() == null || library.homepage().isBlank()) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "홈페이지 주소가 없습니다.");
+        if (library == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "모르는 도서관입니다.");
         }
-        return ResponseEntity.status(HttpStatus.FOUND)
-                .location(URI.create(library.homepage())).build();
+        String url = opacTemplates.bestFor(libCode, isbn, title)
+                .map(OpacLink::url)
+                .orElse(library.homepage());
+        if (url == null || url.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "보낼 주소가 없습니다.");
+        }
+        return ResponseEntity.status(HttpStatus.FOUND).location(URI.create(url)).build();
     }
 
     /** 호출 예산이 얼마나 남았는지. 한도가 예상과 다른지 여기서 드러납니다. */
@@ -338,9 +351,14 @@ public class WimbController {
     public record LibraryDto(
             String libCode, int shortId, String name, String sido, String sigungu,
             Double latitude, Double longitude, String homepageUrl,
-            String closed, String operatingTime
+            String closed, String operatingTime,
+            /**
+             * 이 도서관 링크가 어느 단계까지 가는지. 화면이 이것을 그대로 밝혀야 합니다.
+             * 홈페이지로 내려앉은 것을 감추면 사용자는 검색 결과 자체를 의심합니다.
+             */
+            OpacLink.Kind linkKind
     ) {
-        static LibraryDto from(LibraryInfo info) {
+        static LibraryDto from(LibraryInfo info, OpacTemplates templates) {
             String[] parts = splitAddress(info.address());
             return new LibraryDto(
                     info.libCode(),
@@ -348,7 +366,8 @@ public class WimbController {
                     info.libName(),
                     parts[0], parts[1],
                     info.latitude(), info.longitude(),
-                    info.homepage(), info.closed(), info.operatingTime());
+                    info.homepage(), info.closed(), info.operatingTime(),
+                    templates.kindFor(info.libCode()));
         }
 
         /**

@@ -80,7 +80,8 @@ class WimbControllerTest {
             public Clock withZone(ZoneId zone) { return this; }
             public Instant instant() { return now.get(); }
         };
-        return new WimbController(client, search, new MultiCheckService(search), budget, moving);
+        return new WimbController(client, search, new MultiCheckService(search), budget,
+                kr.wimb.opac.OpacTemplates.load(), moving);
     }
 
     @Test

@@ -1,0 +1,127 @@
+package kr.wimb.opac;
+
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+/**
+ * 도서관별 OPAC 주소 규칙.
+ *
+ * <p>여기서 틀린 규칙을 통과시키면 그 도서관은 <b>HTTP 200 을 주면서 결과만 0건</b>이 되고,
+ * 사용자에게는 「소장한다더니 그 책이 없네」로 보입니다. 링크가 깨지는 것보다 나쁩니다.
+ * 깨진 링크는 눈에 보이지만 이것은 보이지 않습니다.
+ */
+class OpacTemplatesTest {
+
+    private static OpacTemplates of(String... lines) {
+        return OpacTemplates.parse(List.of(lines));
+    }
+
+    @Test
+    @DisplayName("규칙이 없는 도서관은 비어 있는 값을 준다")
+    void noTemplateMeansNoLink() {
+        var templates = of("# 주석뿐입니다");
+        assertTrue(templates.bestFor("111111", "9788983711892", "코스모스").isEmpty());
+        assertEquals(OpacLink.Kind.HOMEPAGE, templates.kindFor("111111"));
+    }
+
+    @Test
+    @DisplayName("ISBN 검색 규칙이 있으면 그 주소로 보낸다")
+    void buildsIsbnSearchUrl() {
+        var templates = of("111111,ISBN_SEARCH,UTF-8,https://lib.example.kr/search?q={isbn13}");
+
+        var link = templates.bestFor("111111", "9788983711892", "코스모스").orElseThrow();
+
+        assertEquals("https://lib.example.kr/search?q=9788983711892", link.url());
+        assertEquals(OpacLink.Kind.ISBN_SEARCH, link.kind());
+        assertEquals(OpacLink.Kind.ISBN_SEARCH, templates.kindFor("111111"));
+    }
+
+    @Test
+    @DisplayName("상세 규칙이 있으면 검색보다 상세를 고른다")
+    void prefersDetailOverSearch() {
+        var templates = of(
+                "111111,ISBN_SEARCH,UTF-8,https://lib.example.kr/search?q={isbn13}",
+                "111111,ISBN_DETAIL,UTF-8,https://lib.example.kr/book/{isbn13}");
+
+        assertEquals(OpacLink.Kind.ISBN_DETAIL,
+                templates.bestFor("111111", "9788983711892", "코스모스").orElseThrow().kind());
+    }
+
+    @Test
+    @DisplayName("ISBN 이 없으면 제목 검색으로 내려간다")
+    void fallsBackToTitleWhenIsbnMissing() {
+        var templates = of(
+                "111111,ISBN_SEARCH,UTF-8,https://lib.example.kr/search?q={isbn13}",
+                "111111,TITLE_SEARCH,UTF-8,https://lib.example.kr/search?q={title}");
+
+        var link = templates.bestFor("111111", null, "코스모스").orElseThrow();
+
+        assertEquals(OpacLink.Kind.TITLE_SEARCH, link.kind());
+        assertTrue(link.url().endsWith("q=%EC%BD%94%EC%8A%A4%EB%AA%A8%EC%8A%A4"), link.url());
+    }
+
+    @Test
+    @DisplayName("제목 규칙만 있는데 제목도 없으면 비어 있는 값을 준다")
+    void noValueMeansNoLink() {
+        var templates = of("111111,TITLE_SEARCH,UTF-8,https://lib.example.kr/search?q={title}");
+        assertTrue(templates.bestFor("111111", "9788983711892", null).isEmpty());
+    }
+
+    @Test
+    @DisplayName("EUC-KR 로 적힌 OPAC 은 그 인코딩으로 질의어를 만든다")
+    void honoursEucKr() {
+        // UTF-8 로 보내면 200 이 오면서 결과만 0건이 되는 OPAC 이 아직 있습니다.
+        var templates = of("111111,TITLE_SEARCH,EUC-KR,https://lib.example.kr/s?q={title}");
+
+        var link = templates.bestFor("111111", null, "코스모스").orElseThrow();
+
+        assertTrue(link.url().endsWith("q=%C4%DA%BD%BA%B8%F0%BD%BA"), link.url());
+    }
+
+    @Test
+    @DisplayName("자리표가 없는 규칙은 실행을 실패시킨다")
+    void placeholderIsRequired() {
+        // 자리표가 없으면 어느 책을 눌러도 같은 페이지가 나옵니다. 조용히 엉뚱한 곳으로
+        // 보내느니 뜰 때 실패하는 편이 낫습니다.
+        var thrown = assertThrows(IllegalStateException.class,
+                () -> of("111111,ISBN_SEARCH,UTF-8,https://lib.example.kr/search"));
+        assertTrue(thrown.getMessage().contains("{isbn13}"), thrown.getMessage());
+    }
+
+    @Test
+    @DisplayName("HOMEPAGE 를 규칙으로 적으면 실패시킨다")
+    void homepageIsNotATemplate() {
+        assertThrows(IllegalStateException.class,
+                () -> of("111111,HOMEPAGE,UTF-8,https://lib.example.kr"));
+    }
+
+    @Test
+    @DisplayName("칸이 모자라거나 모르는 값이면 실패시킨다")
+    void malformedLinesFail() {
+        assertThrows(IllegalStateException.class, () -> of("111111,ISBN_SEARCH,UTF-8"));
+        assertThrows(IllegalStateException.class,
+                () -> of("111111,ISBN_XXX,UTF-8,https://x.kr/{isbn13}"));
+        assertThrows(IllegalStateException.class,
+                () -> of("111111,ISBN_SEARCH,모르는인코딩,https://x.kr/{isbn13}"));
+    }
+
+    @Test
+    @DisplayName("주소에 쉼표가 있어도 규칙이 깨지지 않는다")
+    void urlMayContainCommas() {
+        var templates = of("111111,ISBN_SEARCH,UTF-8,https://lib.example.kr/s?q={isbn13}&f=a,b,c");
+
+        assertEquals("https://lib.example.kr/s?q=9788983711892&f=a,b,c",
+                templates.bestFor("111111", "9788983711892", null).orElseThrow().url());
+    }
+
+    @Test
+    @DisplayName("저장소에 든 실제 규칙 파일이 읽힌다")
+    void shippedFileParses() {
+        // 규칙을 한 줄 잘못 적으면 서버가 뜨지 않습니다. 그 사실을 배포가 아니라 여기서 압니다.
+        assertDoesNotThrow(() -> OpacTemplates.load());
+    }
+}

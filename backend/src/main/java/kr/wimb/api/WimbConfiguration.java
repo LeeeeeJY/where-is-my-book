@@ -67,6 +67,16 @@ public class WimbConfiguration implements WebMvcConfigurer {
         return new Data4LibraryClient(new ThrottledHttpTransport(minIntervalMs), authKey, budget);
     }
 
+    /**
+     * 도서관별 OPAC 주소 규칙. 정보나루가 홈페이지 주소만 주기 때문에 우리가 들고 있어야
+     * 합니다. 규칙이 잘못된 줄이 있으면 여기서 예외가 나 서버가 뜨지 않는데, 조용히 빠진
+     * 채로 배포되는 것보다 낫습니다.
+     */
+    @Bean
+    public kr.wimb.opac.OpacTemplates opacTemplates() {
+        return kr.wimb.opac.OpacTemplates.load();
+    }
+
     @Bean
     public HoldingsLookup holdingsLookup(Data4LibraryClient client) {
         // 매뉴얼 13절이 region 을 필수로 명시하므로 탐색 비용 없이 PER_REGION 으로 시작합니다.

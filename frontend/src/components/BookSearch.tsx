@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { ApiUnavailable, libraryLink, searchBooks } from '../api';
+import { linkLabel } from '../domain/opacLink';
 import type { SearchResponse, WorkResult } from '../api';
 import { holdingState } from '../domain/holdingState';
 import type { Library } from '../domain/types';
@@ -254,14 +255,18 @@ function Holdings({
           const library = byCode.get(code);
           return (
             <li key={code}>
-              <a href={libraryLink(code)} target="_blank" rel="noreferrer">
+              <a
+                href={libraryLink(code, work.isbn13List[0], work.title)}
+                target="_blank"
+                rel="noreferrer"
+              >
                 {library ? library.name : code}
               </a>
               {/*
                 어느 단계의 링크인지 밝힙니다. 조용히 홈페이지로 보내면 사용자는
                 검색 결과 자체가 틀렸다고 생각합니다.
               */}
-              <span className="muted"> 도서관 홈페이지로 이동</span>
+              <span className="muted"> {linkLabel(library?.linkKind)}</span>
             </li>
           );
         })}

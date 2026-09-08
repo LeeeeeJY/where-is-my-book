@@ -13,6 +13,14 @@ export type Library = {
   latitude: number | null;
   longitude: number | null;
   homepageUrl: string | null;
+  /**
+   * 이 도서관 링크가 어느 단계까지 가는지. 서버가 주소 규칙 표를 보고 알려 줍니다.
+   * 샘플 목록에는 없으므로 선택 항목이고, 없으면 홈페이지로 봅니다.
+   */
+  linkKind?: LinkKind;
 };
+
+/** 위에 있을수록 좋은 링크입니다. 백엔드 `OpacLink.Kind` 와 같은 값입니다. */
+export type LinkKind = 'ISBN_DETAIL' | 'ISBN_SEARCH' | 'TITLE_SEARCH' | 'HOMEPAGE';
 
 export type CheckState = 'all' | 'some' | 'none';

@@ -1,4 +1,4 @@
-import type { Library } from './domain/types';
+import type { Library, LinkKind } from './domain/types';
 
 const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8080';
 
@@ -32,6 +32,7 @@ type LibraryDto = {
   latitude: number | null;
   longitude: number | null;
   homepageUrl: string | null;
+  linkKind: LinkKind;
 };
 
 /** 서버에 닿지도 못한 경우. 서버가 안 떠 있거나 주소가 틀린 것입니다. */
@@ -76,6 +77,7 @@ export async function fetchLibraries(): Promise<Library[]> {
     latitude: row.latitude,
     longitude: row.longitude,
     homepageUrl: row.homepageUrl,
+    linkKind: row.linkKind,
   }));
 }
 
@@ -85,8 +87,19 @@ export async function searchBooks(query: string, libCodes: string[]): Promise<Se
   return get<SearchResponse>(`/api/search?${params}`);
 }
 
-export function libraryLink(libCode: string): string {
-  return `${BASE}/api/go/${encodeURIComponent(libCode)}`;
+/**
+ * 도서관으로 넘기는 링크.
+ *
+ * <p>책을 함께 넘기면 서버가 그 도서관의 주소 규칙을 보고 **그 책의 페이지나 검색 결과**로
+ * 보냅니다. 규칙이 없는 도서관은 홈페이지로 내려앉는데, 그 사실은 `linkLabel` 이 화면에
+ * 밝힙니다. 책 없이 부르면(도서관 순위처럼 한 권을 가리키지 않을 때) 홈페이지로 갑니다.
+ */
+export function libraryLink(libCode: string, isbn13?: string, title?: string): string {
+  const params = new URLSearchParams();
+  if (isbn13) params.set('isbn', isbn13);
+  if (title) params.set('title', title);
+  const query = params.toString();
+  return `${BASE}/api/go/${encodeURIComponent(libCode)}${query ? `?${query}` : ''}`;
 }
 
 // ── 여러 권 동시 확인 ────────────────────────────────────────────────
