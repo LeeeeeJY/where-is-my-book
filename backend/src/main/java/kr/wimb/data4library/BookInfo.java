@@ -1,5 +1,6 @@
 package kr.wimb.data4library;
 
+import kr.wimb.bib.BibNormalizer;
 import kr.wimb.bib.Isbn;
 
 import java.util.Map;
@@ -61,13 +62,7 @@ public record BookInfo(
      * 표제를 파싱하는 것보다 이 값이 믿을 만합니다.
      */
     public Optional<Integer> volumeNumber() {
-        if (vol == null || vol.isBlank()) return Optional.empty();
-        String digits = vol.replaceAll("[^0-9]", "");
-        try {
-            return digits.isEmpty() ? Optional.empty() : Optional.of(Integer.valueOf(digits));
-        } catch (NumberFormatException e) {
-            return Optional.empty();
-        }
+        return Optional.ofNullable(BibNormalizer.volumeOrdinal(vol));
     }
 
     private static Integer asInt(String value) {

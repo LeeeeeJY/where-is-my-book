@@ -56,8 +56,20 @@ public final class BibNormalizer {
     );
     private static final Pattern VOLUME_ROMAN =
             Pattern.compile("^(.*?)\\s+([IVX]{1,4})$");
-    private static final Pattern VOLUME_SANG_HA =
-            Pattern.compile("^(.*?)\\s*[(\\[]?\\s*(상|중|하)\\s*[)\\]]?권?$");
+    /**
+     * 「상·중·하」로 나뉜 낱권. <b>공백이나 괄호로 떨어져 있을 때만 권차로 봅니다.</b>
+     *
+     * <p>예전에는 붙여 쓴 것까지 잡았습니다. 그래서 <b>「천하」가 「천」의 3권이 되고
+     * 「명상」이 「명」의 1권이 되었습니다.</b> 표제가 한 글자로 잘리면 그 책의 제목 키가
+     * 달라지므로, 「명상」을 찾는 사람에게 그 책이 <b>「제목이 안 맞는 것」으로 밀려</b>
+     * 목록 아래로 내려갑니다. 상·중·하로 나온 책이 아닌데 낱권으로 갈라지기도 합니다.
+     */
+    private static final Pattern VOLUME_SANG_HA = Pattern.compile(
+            "^(.*?)(?:\\s+(상|중|하)\\s*권?|\\s*[(\\[]\\s*(상|중|하)\\s*[)\\]]\\s*권?)$");
+
+    /** 권차 필드 하나가 「상」처럼 통째로 올 때 씁니다. 표제가 아니라 값 하나를 봅니다. */
+    private static final Pattern BARE_SANG_HA =
+            Pattern.compile("^\\s*[(\\[]?\\s*(상|중|하)\\s*[)\\]]?\\s*권?\\s*$");
 
     /** 한글 뒤 괄호 안의 한자는 키에서 빼고 별칭으로 보관합니다. 「난중일기(亂中日記)」 */
     private static final Pattern HANJA_IN_PARENS =
@@ -313,7 +325,9 @@ public final class BibNormalizer {
         }
         Matcher sangHa = VOLUME_SANG_HA.matcher(title);
         if (sangHa.matches()) {
-            VolumeMatch vm = accept(sangHa.group(1), SANG_HA.get(sangHa.group(2)));
+            // 공백으로 떨어진 것과 괄호에 싸인 것을 따로 잡으므로 걸린 쪽을 씁니다.
+            String mark = sangHa.group(2) != null ? sangHa.group(2) : sangHa.group(3);
+            VolumeMatch vm = accept(sangHa.group(1), SANG_HA.get(mark));
             if (vm != null) return vm;
         }
         return null;
@@ -324,6 +338,31 @@ public final class BibNormalizer {
         String r = remainder.trim();
         boolean hasLetter = r.codePoints().anyMatch(Character::isLetter);
         return hasLetter ? new VolumeMatch(r, volNo) : null;
+    }
+
+    /**
+     * 권차 <b>필드 하나</b>를 숫자로 읽습니다. 정보나루가 {@code vol} 로 주는 값이 여기로 옵니다.
+     * 표제에서 뽑는 것과 달리 값 전체가 권차이므로 떼어 낼 표제가 없습니다.
+     *
+     * <p><b>매뉴얼(v20260210)은 이 항목을 「권」이라고만 적어 두고 형식을 말하지 않습니다.</b>
+     * 지금까지 받아 본 값은 전부 숫자였지만, 숫자가 아니라고 버리면 그 책들은 권차가 없는
+     * 것이 되어 <b>상·중·하가 한 저작으로 합쳐집니다.</b> 그러면 상권만 가진 도서관이
+     * 「있음」으로 나와서, 찾는 권이 없는데 있다고 답하게 됩니다. 그래서 숫자를 먼저 보고
+     * 없으면 상·중·하와 로마 숫자를 봅니다. 읽지 못하면 {@code null} 입니다.
+     */
+    public static Integer volumeOrdinal(String rawVol) {
+        if (rawVol == null || rawVol.isBlank()) return null;
+        String digits = rawVol.replaceAll("[^0-9]", "");
+        if (!digits.isEmpty()) {
+            try {
+                return Integer.valueOf(digits);
+            } catch (NumberFormatException e) {
+                return null;
+            }
+        }
+        Matcher m = BARE_SANG_HA.matcher(rawVol);
+        if (m.matches()) return SANG_HA.get(m.group(1));
+        return ROMAN.get(rawVol.trim().toUpperCase(Locale.ROOT));
     }
 
     private static int lastIndexOf(String s, Pattern p) {

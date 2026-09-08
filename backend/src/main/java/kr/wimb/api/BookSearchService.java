@@ -16,6 +16,7 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -435,21 +436,76 @@ public class BookSearchService {
      * 넣었는가」에 따라 그 순서가 달랐습니다. 정보나루도 기본을 대출건수 순으로 주므로
      * 뜻이 달라지는 것은 아니고, 표기와 무관하게 <b>같은 순서</b>가 나오게 됩니다.
      *
+     * <p><b>다만 대출건수로 세우는 것은 묶음 사이의 순서입니다.</b> 낱권은 대출건수가 제각각이라
+     * 그대로 두면 3권 다음에 1권이 나옵니다. 그래서 <b>표제 키와 출판사가 같은 것을 한 묶음</b>
+     * 으로 보고, 묶음 사이는 그 묶음에서 가장 큰 대출건수로, <b>묶음 안은 권차 순</b>으로
+     * 세웁니다. 찾던 낱권 묶음이 위로 올라오는 성질을 잃지 않으면서 1권 2권 3권이 차례로
+     * 읽힙니다. 한 묶음은 표제 키가 같으므로 등급도 같아서, 묶음이 등급을 가로지르지 않습니다.
+     *
+     * <p><b>출판사를 묶음 키에 넣는 이유:</b> 「레미제라블」에는 민음사 낱권도 있고 열린책들
+     * 낱권도 있는데 표제 키가 같습니다. 표제만으로 묶어 권차 순으로 세우면 <b>민음사 1권,
+     * 열린책들 1권, 민음사 2권처럼 출판사가 번갈아 나오는 목록</b>이 되어 지금보다 나빠집니다.
+     * 저작을 묶을 때 출판사가 다르면 합치지 않는 규칙을 여기서도 그대로 씁니다. 출판사를
+     * 모르는 것끼리는 한 묶음으로 둡니다. 모르는 것을 근거로 쪼개지 않는 것도 같은 규칙입니다.
+     *
+     * <p><b>권차가 없는 세트와 합본은 묶음의 맨 뒤입니다.</b> 찾는 사람은 대개 낱권을
+     * 원하고, 세트 ISBN 은 도서관이 낱권으로 등록하는 일이 많아 미소장으로 나오기 쉽습니다.
+     * 묶음의 첫 줄은 가장 눈에 띄는 자리라 거기에 헛일이 되기 쉬운 것을 두지 않습니다.
+     *
+     * <p><b>「더 보기」 경계는 보정하지 않습니다.</b> 낱권 묶음이 스무 번째 자리에 걸치면
+     * 뒷권이 다음 묶음으로 넘어갑니다. 그런데 묶음 정렬 자체가 찾던 낱권을 앞자리로 올리므로
+     * 경계에 걸리는 것은 대개 찾던 책이 아니고, 소장 정렬이 낱권을 훨씬 자주 갈라 놓습니다.
+     * 순서는 그대로 살아 있어서 뒤엉키지 않습니다. 보정하려면 묶음 키를 응답에 실어야 하고
+     * 화면의 묶음 크기가 변하는데, 드물게 걸리는 일에 치를 값이 아닙니다.
+     *
      * <p><b>여기서 자르지 않습니다.</b> 자르는 것은 부르는 쪽의 몫입니다. 그래야 전체가
      * 몇 개인지 셀 수 있고, 화면이 「n개 중 20개」라고 말할 수 있습니다.
      */
     static List<WorkResult> rank(String query, List<WorkResult> works) {
         String queryKey = BibNormalizer.normalizeKey(query == null ? "" : query);
         if (queryKey.isEmpty()) return works;
-        Comparator<WorkResult> byTier = Comparator.comparingInt(work -> titleTier(queryKey, work.title()));
-        Comparator<WorkResult> byLoans = Comparator.comparingInt(WorkResult::loanCount);
-        // 대출건수까지 같으면 ISBN 으로 정합니다. 여기까지 와서 「먼저 받은 순서」에 맡기면
-        // 어느 표기로 검색했는지에 따라 순서가 달라집니다.
-        Comparator<WorkResult> byIsbn = Comparator.comparing(
-                work -> work.isbn13List().isEmpty() ? "" : work.isbn13List().get(0));
-        return works.stream()
-                .sorted(byTier.thenComparing(byLoans.reversed()).thenComparing(byIsbn))
+
+        // 표제를 한 번만 뜯어 놓고 견줍니다. 비교자 안에서 뜯으면 정렬하는 동안 같은 표제를
+        // 수십 번 다시 파싱합니다.
+        record Sortable(WorkResult work, int tier, String group, Integer volNo, String isbn) {}
+        List<Sortable> rows = works.stream()
+                .map(work -> new Sortable(
+                        work,
+                        titleTier(queryKey, work.title()),
+                        groupKey(work),
+                        BibNormalizer.parseTitle(work.title()).volNo(),
+                        work.isbn13List().isEmpty() ? "" : work.isbn13List().get(0)))
                 .toList();
+
+        // 묶음의 자리는 그 묶음에서 가장 많이 대출된 판이 정합니다. 낱권 하나가 덜 빌린다고
+        // 그 묶음 전체가 아래로 내려가면 안 됩니다.
+        Map<String, Integer> bestLoans = new HashMap<>();
+        for (Sortable row : rows) bestLoans.merge(row.group(), row.work().loanCount(), Integer::max);
+
+        Comparator<Sortable> order = Comparator
+                .<Sortable>comparingInt(Sortable::tier)
+                .thenComparing(Comparator.comparingInt(
+                        (Sortable row) -> bestLoans.getOrDefault(row.group(), 0)).reversed())
+                // 대출건수가 같은 묶음이 둘이면 여기서 갈라 놓아야 두 묶음이 섞이지 않습니다.
+                .thenComparing(Sortable::group)
+                // 권차가 없는 세트와 합본은 묶음의 맨 뒤입니다.
+                .thenComparing(Sortable::volNo, Comparator.nullsLast(Comparator.naturalOrder()))
+                // 여기까지 와서 「먼저 받은 순서」에 맡기면 어느 표기로 검색했는지에 따라
+                // 순서가 달라집니다.
+                .thenComparing(Sortable::isbn);
+
+        return rows.stream().sorted(order).map(Sortable::work).toList();
+    }
+
+    /**
+     * 낱권을 한 묶음으로 보는 키. <b>권차를 뗀 표제 키와 출판사</b>입니다.
+     *
+     * <p>권차를 떼는 데 {@link BibNormalizer#comparisonKey} 를 쓰므로 등급을 매길 때와 같은
+     * 키입니다. 그래서 한 묶음은 반드시 한 등급 안에 들어갑니다.
+     */
+    private static String groupKey(WorkResult work) {
+        return BibNormalizer.comparisonKey(work.title())
+                + '\u0000' + BibNormalizer.normalizePublisher(work.publisher());
     }
 
     /**
