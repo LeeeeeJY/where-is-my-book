@@ -511,6 +511,30 @@ class BookSearchServiceTest {
     }
 
     /**
+     * <b>여러 권 확인도 같은 되찾기를 거쳐야 합니다.</b> 예전에는 되찾기가 {@code search}
+     * 안에만 있고 {@code worksFor} 는 그냥 받아 왔습니다. 그래서 같은 「레미제라블」인데
+     * 한 권 검색에서는 민음사 낱권이 나오고 여러 권 확인에서는 한 권도 나오지 않았습니다.
+     * 화면에 따라 결과가 달랐던 것입니다.
+     */
+    @Test
+    @DisplayName("여러 권 확인 경로도 저자로 되찾는다")
+    void worksForAlsoRecovers() {
+        var budget = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 1000),
+                Clock.fixed(Instant.parse("2026-09-05T00:00:00Z"), ZoneId.of("UTC")));
+        var client = new Data4LibraryClient(
+                uri -> uri.toString().contains("author=") ? LESMIS_BY_AUTHOR : LESMIS_SAME_TITLE,
+                "테스트키", budget);
+        var service = new BookSearchService(client, new HoldingsLookup(
+                (isbn, region) -> List.of(), HoldingsLookup.RegionModeStore.documented()));
+
+        var works = service.worksFor(Data4LibraryClient.BookQuery.byTitle("레미제라블"));
+        var titles = works.stream().map(BookSearchService.WorkResult::title).toList();
+
+        assertTrue(titles.stream().anyMatch(t -> t.contains("레 미제라블")),
+                "여러 권 확인에서도 띄어 쓴 판이 나와야 합니다: " + titles);
+    }
+
+    /**
      * <b>저자를 알아내지 못하면 부르지 않습니다.</b> 0건 검색에서까지 호출이 늘면 하루
      * 예산이 그만큼 빨리 사라집니다.
      */

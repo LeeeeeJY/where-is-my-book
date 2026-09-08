@@ -25,7 +25,15 @@ import java.util.List;
 public class MultiCheckService {
 
     /** 모호한 줄에 펼쳐 보여 줄 후보 수. 더 늘리면 고르는 일이 일이 됩니다. */
-    private static final int MAX_CANDIDATES = 5;
+    /**
+     * 한 줄에 보여 줄 후보 수.
+     *
+     * <p><b>다섯은 너무 적었습니다.</b> 출판사가 다른 번역본을 갈라 놓은 뒤로 「레미제라블」
+     * 같은 고전은 저작이 서른 개를 넘는데, 다섯만 보여 주면 <b>찾는 판이 목록에 아예
+     * 없습니다.</b> 사용자는 그것을 「내 책이 없다」로 읽습니다. 화면이 처음에는 몇 개만
+     * 보여 주고 나머지는 눌러서 펼치므로, 여기서 넉넉히 보내는 편이 낫습니다.
+     */
+    private static final int MAX_CANDIDATES = 24;
 
     /** 1위가 2위의 이만큼이면 확정으로 봅니다. */
     private static final double CONFIRM_RATIO = 2.0;

@@ -87,21 +87,48 @@ public class BookSearchService {
      * <p>정렬 기준은 <b>제목</b>입니다. 제목 없이 저자나 출판사로만 찾으면 우리가 더 나은
      * 근거를 갖고 있지 않으므로 정보나루가 준 순서를 그대로 둡니다.
      */
-    public SearchResponse search(Data4LibraryClient.BookQuery query) {
-        List<BookInfo> found = client.searchBooks(query, 1, ApiBudget.Priority.USER);
+    /**
+     * 조건으로 서지를 받아 옵니다.
+     *
+     * <p><b>한 권 검색과 여러 권 확인이 같은 코드를 쓰게 하려고 여기 하나로 모읍니다.</b>
+     * 예전에는 띄어쓰기 재시도와 저자 되찾기가 {@code search} 안에만 있었고,
+     * {@code worksFor} 는 그냥 받아 왔습니다. 그래서 <b>여러 권 확인에서는 「레미제라블」로
+     * 민음사 「레 미제라블」 낱권을 한 권도 찾지 못했습니다.</b> 같은 검색어인데 화면에 따라
+     * 결과가 달랐던 것입니다. 개선이 한쪽 경로에만 들어가면 반드시 이렇게 갈립니다.
+     *
+     * @param pages 받아 올 쪽 수. 여러 권 확인은 후보를 넓게 봐야 해서 더 받습니다.
+     */
+    private Fetched fetchBooks(Data4LibraryClient.BookQuery query, int pages) {
+        List<BookInfo> found = new ArrayList<>();
+        for (int page = 1; page <= pages; page++) {
+            var batch = client.searchBooks(query, page, ApiBudget.Priority.USER);
+            found.addAll(batch);
+            if (batch.isEmpty()) break;
+        }
 
         // 한 건도 못 찾았으면 띄어쓰기를 달리해 한 번만 더 찾아봅니다. 자세한 이유는
         // respacedTitle 에 적어 두었습니다. 0건일 때만이라 호출이 곱해지지 않습니다.
         String retried = found.isEmpty() ? respacedTitle(query.title()) : null;
         if (retried != null) {
-            found = client.searchBooks(query.withTitle(retried), 1, ApiBudget.Priority.USER);
+            found = new ArrayList<>(
+                    client.searchBooks(query.withTitle(retried), 1, ApiBudget.Priority.USER));
             if (found.isEmpty()) retried = null;
         }
 
         // 어절 경계 때문에 놓친 판이 있으면 저자로 되찾습니다.
         int beforeRecovery = found.size();
-        found = recoverByAuthor(query, found);
-        boolean recovered = found.size() > beforeRecovery;
+        List<BookInfo> withRecovered = recoverByAuthor(query, found);
+        return new Fetched(withRecovered, retried, withRecovered.size() > beforeRecovery);
+    }
+
+    /** {@link #fetchBooks} 의 결과. 무엇을 더 해서 찾았는지까지 함께 들고 다닙니다. */
+    private record Fetched(List<BookInfo> books, String retriedTitle, boolean recovered) {}
+
+    public SearchResponse search(Data4LibraryClient.BookQuery query) {
+        Fetched fetched = fetchBooks(query, 1);
+        List<BookInfo> found = fetched.books();
+        String retried = fetched.retriedTitle();
+        boolean recovered = fetched.recovered();
 
         List<BookInfo> usable = withIsbn(found);
         List<WorkResult> ranked = rank(
@@ -300,13 +327,7 @@ public class BookSearchService {
      * 그래야 사용자가 빈 화면을 보며 기다리지 않습니다.
      */
     public List<WorkResult> worksFor(Data4LibraryClient.BookQuery query) {
-        List<BookInfo> books = new ArrayList<>();
-        for (int page = 1; page <= FETCH_PAGES; page++) {
-            var batch = client.searchBooks(query, page, ApiBudget.Priority.USER);
-            books.addAll(batch);
-            if (batch.isEmpty()) break;
-        }
-        return worksOf(withIsbn(books));
+        return worksOf(withIsbn(fetchBooks(query, FETCH_PAGES).books()));
     }
 
     private List<WorkResult> worksOf(List<BookInfo> books) {
