@@ -236,7 +236,9 @@ function NearbyTab({
   selected: Set<string>;
   onChange: (next: Set<string>) => void;
 }) {
-  const [position, setPosition] = useState<{ lat: number; lon: number } | null>(null);
+  const [position, setPosition] = useState<{ lat: number; lon: number; accuracyM: number } | null>(
+    null,
+  );
   const [status, setStatus] = useState<'idle' | 'asking' | 'denied'>('idle');
 
   const nearby = useMemo(() => {
@@ -259,11 +261,23 @@ function NearbyTab({
             setStatus('asking');
             navigator.geolocation.getCurrentPosition(
               (p) => {
-                setPosition({ lat: p.coords.latitude, lon: p.coords.longitude });
+                setPosition({
+                  lat: p.coords.latitude,
+                  lon: p.coords.longitude,
+                  // 브라우저가 알려 주는 오차 반경(미터). 이걸 화면에 밝히지 않으면
+                  // 20km 떨어진 곳을 「가까운 도서관」이라고 내놓게 됩니다.
+                  accuracyM: p.coords.accuracy,
+                });
                 setStatus('idle');
               },
               () => setStatus('denied'),
-              { timeout: 10_000 },
+              {
+                // 옵션 없이 부르면 브라우저가 가장 싸고 거친 방법을 쓰고, 캐시된 예전 위치를
+                // 그대로 주기도 합니다. 회사에서 눌렀는데 집 근처 도서관이 나오는 것이 그것입니다.
+                enableHighAccuracy: true,
+                maximumAge: 0,
+                timeout: 10_000,
+              },
             );
           }}
         >
@@ -279,7 +293,19 @@ function NearbyTab({
   }
 
   return (
-    <ul className="flat-list">
+    <>
+      {/*
+        위치 정확도를 밝힙니다. 노트북은 주변 Wi-Fi 로, 유선 데스크톱은 IP 로 위치를 잡는데
+        후자는 수 킬로미터가 어긋납니다. 그 사실을 감추면 사용자는 엉뚱한 목록을 보고
+        「이 도구가 틀렸다」고 생각합니다.
+      */}
+      {position.accuracyM > 2000 && (
+        <p className="muted">
+          지금 위치가 <strong>약 {Math.round(position.accuracyM / 1000)}km</strong> 오차로
+          잡혔습니다. 아래 순서가 실제와 다를 수 있으니 지역 탭이나 이름 검색을 함께 써 주세요.
+        </p>
+      )}
+      <ul className="flat-list">
       {nearby.map((library) => {
         const km = haversineKm(position.lat, position.lon, library);
         return (
@@ -297,6 +323,7 @@ function NearbyTab({
           </li>
         );
       })}
-    </ul>
+      </ul>
+    </>
   );
 }
