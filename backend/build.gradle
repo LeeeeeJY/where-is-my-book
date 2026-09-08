@@ -4,6 +4,26 @@ plugins {
     id 'java'
     id 'org.springframework.boot' version '3.4.1'
     id 'io.spring.dependency-management' version '1.1.7'
+    id 'com.diffplug.spotless' version '7.0.2'
+}
+
+// 전체 재포매팅은 일부러 하지 않습니다. 이 코드는 한글 주석이 많고 줄바꿈이 의도적으로
+// 잡혀 있어서, 자동 포매터를 통째로 걸면 첫 커밋이 전 파일 변경이 되고 그 뒤로 git blame 이
+// 쓸모없어집니다. 손으로는 잘 못 잡고 기계는 확실히 잡는 것만 맡깁니다.
+spotless {
+    java {
+        target 'src/**/*.java'
+        removeUnusedImports()
+        trimTrailingWhitespace()
+        endWithNewline()
+        // 탭이 섞이면 편집기마다 들여쓰기가 달라 보입니다. 이 프로젝트는 공백 4칸입니다.
+        indentWithSpaces(4)
+    }
+    format 'misc', {
+        target '*.gradle', 'src/**/*.yml', 'src/**/*.csv', 'src/**/*.tsv'
+        trimTrailingWhitespace()
+        endWithNewline()
+    }
 }
 
 group = 'kr.wimb'

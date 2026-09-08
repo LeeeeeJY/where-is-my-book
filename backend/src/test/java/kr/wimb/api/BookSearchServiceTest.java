@@ -2,7 +2,6 @@ package kr.wimb.api;
 
 import kr.wimb.data4library.Data4LibraryClient;
 import kr.wimb.holdings.HoldingsLookup;
-import kr.wimb.ingest.ApiBudget;
 import kr.wimb.ingest.InMemoryApiBudget;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
