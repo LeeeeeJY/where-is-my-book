@@ -5,6 +5,8 @@ import kr.wimb.data4library.LibraryInfo;
 import kr.wimb.data4library.RegionCode;
 import kr.wimb.ingest.ApiBudget;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -252,12 +254,58 @@ public class WimbController {
      * @throws ResponseStatusException 한 시도도 받지 못한 경우. 빈 목록을 정상인 척
      *                                 돌려주면 화면이 도서관이 없는 것으로 그립니다.
      */
+    /**
+     * 서버가 뜨면 곧바로 도서관 목록을 받아 둡니다.
+     *
+     * <p>예전에는 <b>첫 요청이 들어온 뒤에야</b> 받기 시작해서, 처음 들어온 사람이 그 시간을
+     * 통째로 기다렸습니다. 서버는 미국에 있고 정보나루는 한국에 있어 왕복이 붙는데, 그것을
+     * 사람이 기다릴 이유가 없습니다. 실패해도 삼킵니다. 목록을 못 받았다고 서버가 뜨지
+     * 못하면 그때는 아무것도 할 수 없게 됩니다.
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void warmCatalog() {
+        Thread.ofVirtual().name("catalog-warm").start(() -> {
+            try {
+                loadCatalog();
+            } catch (RuntimeException e) {
+                // 다음 요청에서 다시 받습니다.
+            }
+        });
+    }
+
+    /**
+     * 전국을 한 번에 받아 봅니다.
+     *
+     * <p><b>{@code libSrch} 의 {@code region} 은 선택 항목입니다(매뉴얼 1절).</b> 없으면 모든
+     * 지역을 돌려주므로, 시도 17번을 도는 대신 쪽수만큼만 부르면 됩니다. 호출이 3분의 1로
+     * 줄고 그만큼 왕복도 줄어듭니다. {@code libSrchByBook} 의 {@code region} 이 필수인 것과
+     * 혼동하지 마세요. 그쪽은 여전히 시도마다 불러야 합니다.
+     *
+     * @return 받았으면 true. 실패하면 false 를 주고 시도별로 다시 받습니다. 시도별로 받으면
+     *         일부만 실패했을 때 나머지라도 건집니다.
+     */
+    private boolean loadEveryRegionAtOnce() {
+        try {
+            for (LibraryInfo library : client.libraries(null, ApiBudget.Priority.BACKGROUND)) {
+                if (library.libCode() != null) catalog.put(library.libCode(), library);
+            }
+        } catch (RuntimeException e) {
+            return false;
+        }
+        if (catalog.isEmpty()) return false;
+        for (RegionCode region : RegionCode.values()) loadedRegions.add(region.code());
+        return true;
+    }
+
     private synchronized void loadCatalog() {
         if (isComplete()) return;
         if (clock.instant().isBefore(nextRetry) && !catalog.isEmpty()) return;
 
+        if (loadedRegions.isEmpty() && loadEveryRegionAtOnce()) return;
+
         int failures = 0;
-        // 시도별로 나눠 받습니다. region 없이 전부 받으면 한 번에 오는 양이 커집니다.
+        // 전국 한 번에 받기가 실패했을 때의 길입니다. 시도별로 나누면 일부만 실패해도
+        // 나머지는 건집니다.
         for (RegionCode region : RegionCode.values()) {
             if (loadedRegions.contains(region.code())) continue;
             try {

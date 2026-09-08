@@ -1,6 +1,7 @@
 package kr.wimb.api;
 
 import kr.wimb.data4library.Data4LibraryClient;
+import kr.wimb.data4library.RegionCode;
 import kr.wimb.holdings.HoldingsLookup;
 import kr.wimb.ingest.InMemoryApiBudget;
 import org.junit.jupiter.api.DisplayName;
@@ -38,11 +39,23 @@ class WimbControllerTest {
 
     /** 특정 지역에서만 실패하는 가짜 정보나루입니다. */
     private static final class RegionAware implements Data4LibraryClient.Transport {
+        /** region 없이(전국) 부른 호출을 기록할 때 쓰는 표시입니다. */
+        static final String ALL = "ALL";
         final List<String> asked = new ArrayList<>();
         java.util.function.Predicate<String> failsFor = region -> false;
 
         @Override public String get(URI uri) {
             String url = uri.toString();
+            if (!url.contains("region=")) {
+                // 전국을 한 번에 받는 길입니다. 어느 시도든 문제가 있는 상황이면 이쪽도
+                // 실패한다고 봅니다. 그래야 시도별로 나눠 받는 길로 넘어갑니다.
+                asked.add(ALL);
+                boolean anyBroken = java.util.Arrays.stream(RegionCode.values())
+                        .anyMatch(r -> failsFor.test(r.code()));
+                if (anyBroken) throw new IllegalStateException("전국 조회 실패");
+                return libsOf(java.util.Arrays.stream(RegionCode.values())
+                        .map(r -> r.code() + "0001").toArray(String[]::new));
+            }
             String region = url.replaceAll(".*[?&]region=([0-9]+).*", "$1");
             asked.add(region);
             if (failsFor.test(region)) throw new IllegalStateException("이 지역만 실패");
@@ -68,6 +81,19 @@ class WimbControllerTest {
             public Instant instant() { return now.get(); }
         };
         return new WimbController(client, search, new MultiCheckService(search), budget, moving);
+    }
+
+    @Test
+    @DisplayName("정상일 때는 전국을 한 번에 받고 시도별로 부르지 않는다")
+    void healthyPathAsksOnceForEveryRegion() {
+        // 시도 17번을 하나씩 도는 동안 왕복이 그만큼 쌓입니다. libSrch 의 region 은 선택
+        // 항목이라 한 번으로 끝낼 수 있고, 그 시간을 사람이 기다릴 이유가 없습니다.
+        var transport = new RegionAware();
+        var libraries = controller(transport).libraries();
+
+        assertEquals(RegionCode.values().length, libraries.size());
+        assertEquals(List.of(RegionAware.ALL), transport.asked,
+                "전국 조회 한 번으로 끝나야 하는데 시도별로도 불렀습니다: " + transport.asked);
     }
 
     @Test
