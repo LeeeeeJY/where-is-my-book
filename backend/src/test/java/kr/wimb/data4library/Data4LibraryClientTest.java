@@ -196,6 +196,25 @@ class Data4LibraryClientTest {
     }
 
     @Test
+    @DisplayName("제목의 공백을 + 가 아니라 %20 으로 보낸다")
+    void sendsSpacesAsPercentTwenty() {
+        // URLEncoder 는 공백을 + 로 바꿉니다. 그것은 HTML 폼 본문의 규칙이고, 질의
+        // 문자열에서 + 를 공백으로 되돌려 주는 것은 서버 마음입니다. 되돌리지 않는
+        // 서버에서는 「마의+산」이라는 글자를 그대로 찾는 검색이 되어 0건이 나오고,
+        // 사용자에게는 「그런 책이 없다」로 보입니다. 오류도 로그도 남지 않고,
+        // 제목에 공백이 없는 책은 멀쩡히 나오기 때문에 의심하기도 어렵습니다.
+        var transport = new RecordingTransport();
+        transport.response = BOOK_XML;
+
+        client(transport).searchBooks(
+                Data4LibraryClient.BookQuery.byTitle("마의 산"), 1, ApiBudget.Priority.USER);
+
+        String url = transport.requests.get(0).toString();
+        assertTrue(url.contains("title=%EB%A7%88%EC%9D%98%20%EC%82%B0"), url);
+        assertFalse(url.contains("+"), "질의 문자열에 + 가 남아 있으면 안 됩니다: " + url);
+    }
+
+    @Test
     @DisplayName("검색 조건이 하나도 없으면 부르지 않는다")
     void rejectsEmptyQuery() {
         // 조건 없이 부르면 전체 대출데이터를 훑게 되어 예산만 쓰고 쓸모가 없습니다.

@@ -261,8 +261,24 @@ public final class Data4LibraryClient {
         return "authErr".equals(error.code()) || "vitalizationErr".equals(error.code());
     }
 
+    /**
+     * 질의 문자열에 넣을 수 있게 인코딩합니다.
+     *
+     * <p><b>{@code URLEncoder} 가 공백을 {@code +} 로 바꾸는 것을 되돌립니다.</b> 그것은
+     * HTML 폼 본문(application/x-www-form-urlencoded)의 규칙이고, 질의 문자열에서 {@code +}
+     * 를 공백으로 되돌려 주는 것은 서버 마음입니다. 되돌리지 않는 서버에서는
+     * {@code title=마의+산} 이 <b>「마의+산」이라는 글자를 그대로 찾는 검색</b>이 되어
+     * 0건이 나옵니다.
+     *
+     * <p>사용자에게는 그것이 「그런 책이 없다」로 보입니다. 오류도 아니고 로그도 남지
+     * 않으며, <b>제목에 공백이 없는 책은 멀쩡히 나오기 때문에</b> 검색 기능 자체가 고장
+     * 났다고 의심하기도 어렵습니다. 「코스모스」는 되는데 「마의 산」은 안 되는 식입니다.
+     *
+     * <p>{@code %20} 은 질의 문자열에서든 경로에서든 언제나 공백입니다. {@code +} 를 받아
+     * 주는 서버도 {@code %20} 은 함께 받아 주므로 이쪽이 모든 경우에 안전합니다.
+     */
     private static String encode(String value) {
-        return URLEncoder.encode(value, StandardCharsets.UTF_8);
+        return URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20");
     }
 
     /**

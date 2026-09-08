@@ -636,8 +636,13 @@ function checkedEveryEdition(facts: HoldingFacts | null, selectedCount: number):
 /**
  * 소장한 책을 위로 올릴 때 쓰는 등급. 작을수록 위입니다.
  *
- * <p>**미소장을 맨 아래에 둡니다.** 확인 불가는 다시 확인하면 있을 수 있는 책이라
- * 미소장보다 위입니다. 둘을 같이 두면 「없는 책」과 「모르는 책」이 섞입니다.
+ * <p>**확인 불가를 맨 아래에 둡니다.** 「있는 책 먼저」는 확실한 것부터 보겠다는 뜻이고,
+ * 확인 불가는 그 축 위에 있지 않습니다. 값을 모르는 것을 아는 것들 사이에 끼워 넣으면
+ * 목록을 위에서부터 읽어 내려가는 흐름이 끊깁니다.
+ *
+ * <p>다만 **미소장과 한 덩어리로 묶은 것은 아닙니다.** 둘은 다음에 할 일이 다릅니다.
+ * 미소장은 서점으로 넘어가야 하는 책이고 확인 불가는 다시 확인하면 있을 수 있는 책이라,
+ * 배지와 문구에서는 끝까지 갈라 놓습니다. 여기서 정하는 것은 순서뿐입니다.
  */
 function heldRank(
   facts: Map<number, HoldingFacts>,
@@ -647,12 +652,12 @@ function heldRank(
   switch (holdingState(facts.get(work.workId) ?? null, selectedCount)) {
     case 'held':
       return 0;
-    case 'unknown':
+    case 'none':
       return 1;
     case 'pending':
       return 2;
     default:
-      return 3;
+      return 3;   // 확인 불가
   }
 }
 
