@@ -108,6 +108,45 @@ body {
 }
 .recheck { margin: 0 0 12px; }
 
+/* 저자·출판사 칸. 좁은 화면에서는 세로로 쌓입니다. */
+.search-more { display: grid; gap: 8px; margin: 8px 0 0; }
+@media (min-width: 560px) {
+  .search-more { grid-template-columns: 1fr 1fr; }
+}
+
+.sort-toggle { margin: 0 0 10px; font-size: 13px; }
+.sort-toggle label { display: inline-flex; align-items: center; gap: 2px; cursor: pointer; }
+
+/* 지금 보는 것이 전부인지 밝히는 줄. 「더 보기」가 여기 붙습니다. */
+.more {
+  margin: 12px 0 0; font-size: 13px; color: var(--muted); line-height: 1.7;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+}
+.more .button--quiet { padding: 6px 12px; font-size: 13px; }
+
+/*
+  모호한 줄의 후보 고르기.
+  제목과 저자만 있던 칩으로는 어느 판인지 알 수 없어 표지와 출판사를 함께 보여 줍니다.
+*/
+.picks { margin: 8px 0 0; }
+.picks__ask { margin: 0 0 6px; font-size: 13px; }
+.picks__list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.pick {
+  appearance: none; width: 100%; text-align: left; cursor: pointer;
+  display: flex; gap: 10px; align-items: center;
+  padding: 8px 10px; font: inherit;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+}
+.pick--on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.pick__cover {
+  width: 36px; height: 52px; flex: none; object-fit: cover;
+  border: 1px solid var(--line); border-radius: 3px; background: var(--bg);
+}
+.pick__cover--empty { display: block; }
+.pick__body { min-width: 0; display: grid; gap: 2px; }
+.pick__title { font-size: 14px; font-weight: 600; line-height: 1.35; }
+.pick__meta { font-size: 12px; }
+
 
 .placeholder { padding: 8px 0; display: grid; gap: 10px; }
 .placeholder p { margin: 0; }

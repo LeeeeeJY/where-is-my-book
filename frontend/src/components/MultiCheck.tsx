@@ -16,6 +16,14 @@ const CONCURRENCY = 4;
 type Row = LineResult & {
   /** 모호한 줄에서 사용자가 고른 후보 */
   chosen: number;
+  /**
+   * 사용자가 실제로 골랐는지.
+   *
+   * <p>{@code chosen} 만으로는 알 수 없습니다. 처음부터 0이라 「첫 후보를 골랐다」와
+   * 「아직 안 골랐다」가 같은 값입니다. 이것을 구분하지 않으면 골라 놓아도 배지가
+   * 「골라 주세요」에 머물러, 사용자는 자기가 누른 것이 먹히지 않았다고 읽습니다.
+   */
+  picked: boolean;
   holdings: { libCodes: string[]; complete: boolean; unreadable: boolean } | null;
   /** 조회를 시도했지만 답을 받지 못했는지 */
   failed: boolean;
@@ -92,7 +100,7 @@ export function MultiCheck({
     // 줄 해석은 외부 호출 없이 끝나므로 여기서 곧바로 목록을 그립니다.
     // 소장 조회는 아래에서 도착하는 대로 채워 넣습니다.
     const initial: Row[] = resolved.lines.map((line) => ({
-      ...line, chosen: 0, holdings: null, failed: false,
+      ...line, chosen: 0, picked: false, holdings: null, failed: false,
     }));
     setRows(initial);
     setPhase({ kind: 'ready', truncated: resolved.truncated });
@@ -165,7 +173,8 @@ export function MultiCheck({
   );
 
   function choose(index: number, candidate: number) {
-    setRows((prev) => replace(prev, index, { chosen: candidate, holdings: null, failed: false }));
+    setRows((prev) =>
+      replace(prev, index, { chosen: candidate, picked: true, holdings: null, failed: false }));
     // 고른 책이 바뀌었으므로 그 줄만 다시 물어봅니다. 다만 도서관 선택이 이미 어긋나
     // 있으면 지금 물어봐야 그 줄만 기준이 달라집니다. 그때는 「다시 확인」에 맡깁니다.
     const row = rows[index];
@@ -516,7 +525,7 @@ function LineRow({
       <div className="line__head">
         <span className="line__no">{row.lineNo}</span>
         <span className="line__raw">{row.raw}</span>
-        <StatusBadge status={row.status} state={state} />
+        <StatusBadge status={row.status} state={state} picked={row.picked} />
       </div>
 
       {/* 어떻게 읽었는지 항상 되돌려 보여 줍니다. 그래야 사용자가 스스로 고칠 수 있습니다. */}
@@ -525,18 +534,45 @@ function LineRow({
         {row.mergedFrom.length > 0 && ` · ${row.mergedFrom.join(', ')}줄과 같은 책으로 보았습니다`}
       </p>
 
+      {/*
+        **제목과 저자만으로는 어느 책인지 모릅니다.** 같은 제목의 번역본이 출판사마다
+        있고, 사용자가 찾는 것은 대개 자기가 아는 그 판입니다. 표지와 출판사가 있으면
+        한눈에 가려집니다.
+      */}
       {row.status === 'AMBIGUOUS' && (
-        <div className="chips">
-          {row.candidates.map((candidate, i) => (
-            <button
-              key={candidate.workId}
-              className={i === row.chosen ? 'chip chip--on' : 'chip'}
-              onClick={() => onChoose(index, i)}
-            >
-              {candidate.title}
-              <span className="muted"> {candidate.author ?? ''}</span>
-            </button>
-          ))}
+        <div className="picks">
+          {!row.picked && <p className="picks__ask muted">어느 책인가요?</p>}
+          <ul className="picks__list">
+            {row.candidates.map((candidate, i) => (
+              <li key={candidate.workId}>
+                <button
+                  type="button"
+                  className={i === row.chosen && row.picked ? 'pick pick--on' : 'pick'}
+                  aria-pressed={i === row.chosen && row.picked}
+                  onClick={() => onChoose(index, i)}
+                >
+                  {candidate.coverUrl ? (
+                    <img
+                      className="pick__cover"
+                      src={candidate.coverUrl}
+                      alt=""
+                      loading="lazy"
+                      // 표지 주소가 죽어 있을 수 있습니다. 깨진 그림 자리를 남기지 않습니다.
+                      onError={(e) => { e.currentTarget.style.visibility = 'hidden'; }}
+                    />
+                  ) : (
+                    <span className="pick__cover pick__cover--empty" aria-hidden="true" />
+                  )}
+                  <span className="pick__body">
+                    <span className="pick__title">{candidate.title}</span>
+                    <span className="pick__meta muted">
+                      {[candidate.author, candidate.publisher].filter(Boolean).join(' · ')}
+                    </span>
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
@@ -625,15 +661,21 @@ function LineHoldings({
 }
 
 function StatusBadge({
-  status, state,
+  status, state, picked,
 }: {
   status: LineResult['status'];
   state: BookRow['state'] | null;
+  /** 모호한 줄에서 사용자가 실제로 골랐는지. */
+  picked: boolean;
 }) {
   if (status === 'UNREADABLE') return <span className="badge badge--warn">읽지 못함</span>;
   if (status === 'LOOKUP_FAILED') return <span className="badge badge--warn">확인 불가</span>;
   if (status === 'NOT_FOUND') return <span className="badge badge--warn">책을 찾지 못함</span>;
-  if (status === 'AMBIGUOUS') return <span className="badge badge--warn">골라 주세요</span>;
+  // 골랐으면 더 이상 고르라고 하지 않습니다. 계속 띄워 두면 사용자는 자기가 누른 것이
+  // 먹히지 않았다고 읽고 같은 자리를 다시 누릅니다.
+  if (status === 'AMBIGUOUS' && !picked) {
+    return <span className="badge badge--warn">골라 주세요</span>;
+  }
   if (state === 'pending') return <span className="badge">확인 중</span>;
   if (state === 'unknown') return <span className="badge badge--warn">확인 불가</span>;
   if (state === 'held') return <span className="badge badge--ok">소장</span>;

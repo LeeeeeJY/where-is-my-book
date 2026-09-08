@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ApiUnavailable, fetchHoldings, fetchLoanStatus, libraryLink, searchBooks } from '../api';
+import { ApiUnavailable, fetchHoldings, fetchLoanStatus, hasCriteria, libraryLink, searchBooks } from '../api';
 import type { LoanStatus } from '../api';
 import { anyHomepageOnly, linkBadge, linkLabel } from '../domain/opacLink';
 import { LOAN_DISCLAIMER, loanPhrase } from '../domain/loanStatus';
-import type { SearchResponse, WorkResult } from '../api';
+import type { SearchCriteria, SearchResponse, WorkResult } from '../api';
 import { holdingState } from '../domain/holdingState';
 import type { HoldingFacts } from '../domain/holdingState';
 import type { Library } from '../domain/types';
@@ -11,10 +11,20 @@ import type { Library } from '../domain/types';
 /** 소장을 동시에 몇 권까지 물어볼지. 남의 서버를 몰아치지 않는 선입니다. */
 const CONCURRENCY = 4;
 
+/**
+ * 한 번에 펼쳐 보이는 저작 수.
+ *
+ * <p>서버는 100개까지 주지만 화면은 이만큼씩 보여 줍니다. **펼친 것만 소장을 물어보므로
+ * 이 숫자가 곧 「더 보기」 한 번에 나가는 조회 횟수**입니다. 서버를 다시 부르지는 않습니다.
+ */
+const PAGE = 20;
+
+const EMPTY_CRITERIA: SearchCriteria = { title: '', author: '', publisher: '' };
+
 type State =
   | { kind: 'idle' }
-  | { kind: 'searching'; query: string }
-  | { kind: 'done'; query: string; response: SearchResponse }
+  | { kind: 'searching' }
+  | { kind: 'done'; criteria: SearchCriteria; response: SearchResponse }
   | { kind: 'offline' }
   | { kind: 'error'; message: string };
 
@@ -31,8 +41,14 @@ export function BookSearch({
   libraries: readonly Library[];
   selected: ReadonlySet<string>;
 }) {
-  const [query, setQuery] = useState('');
+  const [criteria, setCriteria] = useState<SearchCriteria>(EMPTY_CRITERIA);
+  /** 저자·출판사 칸을 펼쳤는지. 제목만 찾는 사람이 대부분이라 접어 둡니다. */
+  const [moreFields, setMoreFields] = useState(false);
   const [state, setState] = useState<State>({ kind: 'idle' });
+  /** 지금까지 펼쳐 보인 저작 수. 「더 보기」가 이것을 늘립니다. */
+  const [shown, setShown] = useState(PAGE);
+  /** 소장한 책을 위로 올릴지. 기본은 검색어와의 일치도 순입니다. */
+  const [heldFirst, setHeldFirst] = useState(false);
   /**
    * 도착한 소장 결과와 **그것이 어느 선택 기준인지**.
    *
@@ -62,13 +78,17 @@ export function BookSearch({
    * 하루 호출 예산도 그만큼 새어 나갑니다. 검색할 때 한 번 부르고, 그 뒤로 선택이
    * 바뀌면 사용자가 누를 때만 다시 부릅니다.
    */
-  const check = useCallback(async (works: WorkResult[], key: string) => {
+  const check = useCallback(async (works: WorkResult[], key: string, mode: 'reset' | 'add') => {
     if (running.current) running.current.cancelled = true;
     const token = { cancelled: false };
     running.current = token;
 
     const libCodes = key === '' ? [] : key.split(',');
-    setChecked({ key, facts: new Map() });
+    // 「더 보기」로 펼친 것만 새로 물어봅니다. 이미 받아 둔 답을 버리고 다시 물으면
+    // 스무 권이 그대로 다시 나갑니다.
+    setChecked((prev) =>
+      mode === 'add' && prev !== null && prev.key === key ? prev : { key, facts: new Map() },
+    );
     if (libCodes.length === 0 || works.length === 0) return;
 
     setChecking(true);
@@ -121,20 +141,32 @@ export function BookSearch({
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    const trimmed = query.trim();
-    if (!trimmed) return;
+    if (!hasCriteria(criteria)) return;
 
-    setState({ kind: 'searching', query: trimmed });
+    setState({ kind: 'searching' });
+    setShown(PAGE);
     try {
-      const response = await searchBooks(trimmed, [...selected]);
-      setState({ kind: 'done', query: trimmed, response });
+      const response = await searchBooks(criteria, [...selected]);
+      setState({ kind: 'done', criteria, response });
       // 검색은 「이 책 어디 있나」를 묻는 것이므로 그 자리에서 한 번 확인합니다.
       // 되풀이해서 부르지 않는 것과 아예 안 부르는 것은 다릅니다.
-      void check(response.works, selectedKey);
+      // **펼쳐 보이는 만큼만 물어봅니다.** 나머지는 「더 보기」를 눌러야 나갑니다.
+      void check(response.works.slice(0, PAGE), selectedKey, 'reset');
     } catch (error) {
       if (error instanceof ApiUnavailable) setState({ kind: 'offline' });
       else setState({ kind: 'error', message: (error as Error).message });
     }
+  }
+
+  /** 스무 개를 더 펼치고, **새로 펼친 것만** 소장을 물어봅니다. */
+  function showMore() {
+    if (state.kind !== 'done') return;
+    const works = state.response.works;
+    const next = Math.min(shown + PAGE, works.length);
+    const fresh = works.slice(shown, next);
+    setShown(next);
+    // 아직 확인하지 않은 상태라면 펼치기만 합니다. 「확인」을 누를 때 함께 나갑니다.
+    if (facts !== null && selected.size > 0) void check(fresh, selectedKey, 'add');
   }
 
   return (
@@ -144,18 +176,50 @@ export function BookSearch({
         {selected.size === 0 && <span className="picker__count">도서관 미선택</span>}
       </header>
 
-      <form className="search-bar" onSubmit={submit}>
-        <input
-          className="text-input"
-          type="search"
-          value={query}
-          placeholder="책 제목"
-          onChange={(e) => setQuery(e.target.value)}
-          aria-label="책 제목"
-        />
-        <button className="button" type="submit" disabled={state.kind === 'searching'}>
-          {state.kind === 'searching' ? '찾는 중' : '검색'}
-        </button>
+      {/*
+        제목·저자·출판사를 따로 받습니다. 정보나루가 이 셋을 각각 받고 둘 이상 주면
+        AND 로 걸어 주므로, 한 칸에 다 넣고 우리가 쪼개는 것보다 정확합니다.
+        다만 대부분은 제목만 넣으므로 나머지는 접어 둡니다.
+      */}
+      <form onSubmit={submit}>
+        <div className="search-bar">
+          <input
+            className="text-input"
+            type="search"
+            value={criteria.title}
+            placeholder="책 제목"
+            onChange={(e) => setCriteria({ ...criteria, title: e.target.value })}
+            aria-label="책 제목"
+          />
+          <button className="button" type="submit" disabled={state.kind === 'searching'}>
+            {state.kind === 'searching' ? '찾는 중' : '검색'}
+          </button>
+        </div>
+
+        {moreFields ? (
+          <div className="search-more">
+            <input
+              className="text-input"
+              type="search"
+              value={criteria.author}
+              placeholder="저자"
+              onChange={(e) => setCriteria({ ...criteria, author: e.target.value })}
+              aria-label="저자"
+            />
+            <input
+              className="text-input"
+              type="search"
+              value={criteria.publisher}
+              placeholder="출판사"
+              onChange={(e) => setCriteria({ ...criteria, publisher: e.target.value })}
+              aria-label="출판사"
+            />
+          </div>
+        ) : (
+          <button type="button" className="link-button" onClick={() => setMoreFields(true)}>
+            저자·출판사로 좁히기
+          </button>
+        )}
       </form>
 
       {selected.size === 0 && (
@@ -172,8 +236,14 @@ export function BookSearch({
         facts={facts}
         checking={checking}
         needsCheck={needsCheck}
+        shown={shown}
+        onMore={showMore}
+        heldFirst={heldFirst}
+        onHeldFirst={setHeldFirst}
         onCheck={() => {
-          if (state.kind === 'done') void check(state.response.works, selectedKey);
+          if (state.kind === 'done') {
+            void check(state.response.works.slice(0, shown), selectedKey, 'reset');
+          }
         }}
         asOf={asOf}
       />
@@ -189,6 +259,10 @@ function SearchState({
   checking,
   needsCheck,
   onCheck,
+  shown,
+  onMore,
+  heldFirst,
+  onHeldFirst,
   asOf,
 }: {
   state: State;
@@ -199,6 +273,10 @@ function SearchState({
   checking: boolean;
   needsCheck: boolean;
   onCheck: () => void;
+  shown: number;
+  onMore: () => void;
+  heldFirst: boolean;
+  onHeldFirst: (on: boolean) => void;
   asOf: string | null;
 }) {
   if (state.kind === 'idle') {
@@ -210,7 +288,7 @@ function SearchState({
   }
 
   if (state.kind === 'searching') {
-    return <p className="muted">「{state.query}」을(를) 찾고 있습니다.</p>;
+    return <p className="muted">찾고 있습니다.</p>;
   }
 
   if (state.kind === 'offline') {
@@ -232,22 +310,41 @@ function SearchState({
     );
   }
 
-  const { works } = state.response;
+  const { works, totalWorks, droppedNoIsbn } = state.response;
   if (works.length === 0) {
     return (
-      <p className="muted">
-        「{state.query}」으로 찾은 책이 없습니다. 띄어쓰기를 바꾸거나 부제를 빼고 다시
-        해 보세요.
-      </p>
+      <div className="banner banner--warn">
+        <strong>찾은 책이 없습니다.</strong> 정보나루는 넣은 글자를 그대로 찾으므로
+        띄어쓰기가 다르면 걸리지 않습니다. 「마의 산」과 「마의산」이 서로 다른 검색입니다.
+        부제를 빼거나 띄어쓰기를 바꿔 보세요.
+        {droppedNoIsbn > 0 && (
+          <>
+            <br />
+            찾기는 했지만 ISBN 이 없어 뺀 자료가 {droppedNoIsbn}건 있습니다. 소장 조회를
+            ISBN 으로만 할 수 있어서 어느 도서관에 있는지 알려 드릴 수 없는 자료입니다.
+          </>
+        )}
+      </div>
     );
   }
+
+  const visible = works.slice(0, shown);
+  // **확인이 끝난 뒤에만 다시 세웁니다.** 답이 도착할 때마다 순서가 바뀌면 읽던 자리가
+  // 사라집니다. 확인이 끝나는 순간에 한 번만 움직이게 해 두면 사용자가 그 움직임을
+  // 예상할 수 있습니다.
+  const ordered =
+    heldFirst && !checking && facts !== null
+      ? [...visible].sort((a, b) => heldRank(facts, a, selectedCount)
+          - heldRank(facts, b, selectedCount))
+      : visible;
 
   return (
     <>
       <p className="asof">
         {checking ? (
           <>
-            소장 확인 중 {facts?.size ?? 0}/{works.length} · 출처: 도서관 정보나루
+            소장 확인 중 {facts?.size ?? 0}/{Math.min(shown, works.length)} · 출처: 도서관
+            정보나루
           </>
         ) : (
           <>소장 정보 {formatAsOf(asOf ?? state.response.asOf)} 조회 기준 · 출처: 도서관 정보나루</>
@@ -272,8 +369,21 @@ function SearchState({
           </button>
         </p>
       )}
+      {/* 소장한 책을 위로 올릴지는 사용자가 정합니다. 저절로 움직이면 읽던 자리를 잃습니다. */}
+      {selectedCount > 0 && facts !== null && (
+        <p className="sort-toggle">
+          <label>
+            <input
+              type="checkbox"
+              checked={heldFirst}
+              onChange={(e) => onHeldFirst(e.target.checked)}
+            />{' '}
+            있는 책 먼저 보기
+          </label>
+        </p>
+      )}
       <ul className="book-list">
-        {works.map((work) => (
+        {ordered.map((work) => (
           <BookCard
             key={work.workId}
             work={work}
@@ -284,6 +394,37 @@ function SearchState({
           />
         ))}
       </ul>
+
+      {/*
+        **지금 보는 것이 전부인지 잘린 것인지 밝힙니다.** 스무 개만 보여 주고 아무 말도
+        하지 않으면 사용자는 찾던 책이 없다고 결론짓습니다. 실제로는 스물한 번째에
+        있을 수 있습니다.
+      */}
+      <p className="more">
+        {totalWorks > works.length
+          ? `${totalWorks}개를 찾아 위에서 ${works.length}개까지 봅니다 · ${shown}개 보는 중`
+          : `${totalWorks}개 중 ${Math.min(shown, works.length)}개 보는 중`}
+        {shown < works.length && (
+          <>
+            {' '}
+            <button
+              type="button"
+              className="button button--quiet"
+              onClick={onMore}
+              disabled={checking}
+            >
+              {checking ? '확인 중' : `${Math.min(PAGE, works.length - shown)}개 더 보기`}
+            </button>
+          </>
+        )}
+        {droppedNoIsbn > 0 && (
+          <>
+            <br />
+            ISBN 이 없어 뺀 자료가 {droppedNoIsbn}건 있습니다. 소장 조회를 ISBN 으로만 할 수
+            있어서 어느 도서관에 있는지 알려 드릴 수 없는 자료입니다.
+          </>
+        )}
+      </p>
     </>
   );
 }
@@ -472,6 +613,29 @@ function checkedEveryEdition(facts: HoldingFacts | null, selectedCount: number):
 }
 
 /** 표시는 전부 Asia/Seoul 기준입니다. */
+/**
+ * 소장한 책을 위로 올릴 때 쓰는 등급. 작을수록 위입니다.
+ *
+ * <p>**미소장을 맨 아래에 둡니다.** 확인 불가는 다시 확인하면 있을 수 있는 책이라
+ * 미소장보다 위입니다. 둘을 같이 두면 「없는 책」과 「모르는 책」이 섞입니다.
+ */
+function heldRank(
+  facts: Map<number, HoldingFacts>,
+  work: WorkResult,
+  selectedCount: number,
+): number {
+  switch (holdingState(facts.get(work.workId) ?? null, selectedCount)) {
+    case 'held':
+      return 0;
+    case 'unknown':
+      return 1;
+    case 'pending':
+      return 2;
+    default:
+      return 3;
+  }
+}
+
 function formatAsOf(asOf: string | null): string {
   if (!asOf) return '방금';
   const date = new Date(`${asOf}T00:00:00+09:00`);

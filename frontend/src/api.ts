@@ -22,8 +22,29 @@ export type WorkResult = {
  */
 export type SearchResponse = {
   works: WorkResult[];
+  /** 자르기 전의 전체 저작 수. 지금 보는 것이 전부인지 잘린 것인지 알려면 필요합니다. */
+  totalWorks: number;
+  /**
+   * ISBN 을 판별할 수 없어 결과에서 뺀 자료 수.
+   *
+   * <p>소장 조회가 ISBN 으로만 되기 때문에 빼는 것 자체는 맞지만, **조용히 빼면 사용자는
+   * 그것을 「그런 책이 없다」로 읽습니다.** 찾던 책이 하필 그 자료였을 때 아무 단서도 없이
+   * 사라지므로 화면이 이것을 밝힙니다.
+   */
+  droppedNoIsbn: number;
   asOf: string | null;
 };
+
+/** 검색 조건. **셋 다 비면 부르지 않습니다.** */
+export type SearchCriteria = {
+  title: string;
+  author: string;
+  publisher: string;
+};
+
+export function hasCriteria(criteria: SearchCriteria): boolean {
+  return [criteria.title, criteria.author, criteria.publisher].some((v) => v.trim().length > 0);
+}
 
 type LibraryDto = {
   libCode: string;
@@ -83,8 +104,20 @@ export async function fetchLibraries(): Promise<Library[]> {
   }));
 }
 
-export async function searchBooks(query: string, libCodes: string[]): Promise<SearchResponse> {
-  const params = new URLSearchParams({ q: query });
+/**
+ * 책 검색. **제목·저자·출판사를 따로 보냅니다.**
+ *
+ * <p>한 칸에 다 넣고 우리가 쪼개는 것보다 정보나루에 그대로 넘기는 편이 정확합니다.
+ * 정보나루는 이 셋을 각각 받고 둘 이상 주면 AND 로 겁니다.
+ */
+export async function searchBooks(
+  criteria: SearchCriteria,
+  libCodes: string[],
+): Promise<SearchResponse> {
+  const params = new URLSearchParams();
+  if (criteria.title.trim()) params.set('q', criteria.title.trim());
+  if (criteria.author.trim()) params.set('author', criteria.author.trim());
+  if (criteria.publisher.trim()) params.set('publisher', criteria.publisher.trim());
   for (const code of libCodes) params.append('libs', code);
   return get<SearchResponse>(`/api/search?${params}`);
 }
