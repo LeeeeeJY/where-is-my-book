@@ -77,13 +77,19 @@ class Data4LibraryClientTest {
         """;
 
     private static final class RecordingTransport implements Data4LibraryClient.Transport {
-        final List<URI> requests = new ArrayList<>();
+        final List<URI> requests = java.util.Collections.synchronizedList(new ArrayList<>());
         String response = "<response><libs/></response>";
         /** 비어 있지 않으면 호출마다 앞에서 하나씩 꺼내 씁니다. 쪽 넘김을 시험할 때 씁니다. */
         final List<String> pages = new ArrayList<>();
+        /** 쪽 번호마다 다른 답. 둘째 쪽부터는 동시에 오므로 순서에 기대면 안 됩니다. */
+        final java.util.Map<Integer, String> byPage = new java.util.concurrent.ConcurrentHashMap<>();
 
-        @Override public String get(URI uri) {
+        @Override public synchronized String get(URI uri) {
             requests.add(uri);
+            if (!byPage.isEmpty()) {
+                int page = Integer.parseInt(uri.toString().replaceAll(".*[?&]pageNo=([0-9]+).*", "$1"));
+                return byPage.getOrDefault(page, "<response><libs/></response>");
+            }
             if (pages.isEmpty()) return response;
             return pages.remove(0);
         }
@@ -227,6 +233,25 @@ class Data4LibraryClientTest {
         assertEquals(2, transport.requests.size(), "두 쪽을 받아야 합니다");
         assertTrue(transport.requests.get(1).toString().contains("pageNo=2"),
                 transport.requests.get(1).toString());
+    }
+
+    @Test
+    @DisplayName("셋째 쪽 뒤까지 있어도 전부 받고 쪽 순서를 지킨다")
+    void fetchesLaterPagesTogetherInOrder() {
+        // 한 쪽에 4~5초가 걸려 둘째 쪽부터는 동시에 받습니다. 그래도 빠지는 쪽이 없어야 하고
+        // 순서도 쪽 순서 그대로여야 합니다.
+        var transport = new RecordingTransport();
+        transport.byPage.put(1, holdingPage(7, "111001", "111002", "111003"));
+        transport.byPage.put(2, holdingPage(7, "111004", "111005", "111006"));
+        transport.byPage.put(3, holdingPage(7, "111007"));
+
+        var libs = client(transport).librariesHolding("9788983711892", "11",
+                ApiBudget.Priority.USER);
+
+        assertEquals(List.of("111001", "111002", "111003", "111004", "111005", "111006", "111007"),
+                libs.stream().map(LibraryInfo::libCode).toList());
+        assertEquals(3, transport.requests.size(), "세 쪽을 한 번씩만 받아야 합니다");
+        assertTrue(transport.requests.stream().noneMatch(u -> u.toString().contains("pageNo=4")));
     }
 
     @Test

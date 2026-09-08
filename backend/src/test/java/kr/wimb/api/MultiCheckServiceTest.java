@@ -45,7 +45,8 @@ class MultiCheckServiceTest {
 
     /** 요청 주소를 보고 다르게 답하는 가짜 정보나루입니다. */
     private static final class FakeD4L implements Data4LibraryClient.Transport {
-        final List<String> queries = new ArrayList<>();
+        /** 검색이 회전 안에서 동시에 나가므로 목록도 동시에 써도 안전해야 합니다. */
+        final List<String> queries = java.util.Collections.synchronizedList(new ArrayList<>());
         java.util.function.Function<String, String> answer = q -> docs();
 
         @Override public String get(URI uri) {

@@ -649,8 +649,8 @@ class BookSearchServiceTest {
     @Test
     @DisplayName("띄어 쓴 검색과 붙여 쓴 검색이 같은 책을 같은 순서로 준다")
     void spacingVariantsGiveTheSameWorks() {
-        var compact = serviceWith(spellingAware(new java.util.ArrayList<>())).search("레미제라블");
-        var spaced = serviceWith(spellingAware(new java.util.ArrayList<>())).search("레 미제라블");
+        var compact = serviceWith(spellingAware(java.util.Collections.synchronizedList(new java.util.ArrayList<>()))).search("레미제라블");
+        var spaced = serviceWith(spellingAware(java.util.Collections.synchronizedList(new java.util.ArrayList<>()))).search("레 미제라블");
 
         assertEquals(isbnsOf(spaced), isbnsOf(compact), "표기에 따라 책이 달라지면 안 됩니다");
         assertTrue(isbnsOf(compact).containsAll(List.of(
@@ -663,8 +663,8 @@ class BookSearchServiceTest {
     @Test
     @DisplayName("함께 찾아본 다른 표기를 화면에 밝힌다")
     void reportsWhichOtherSpellingsWereSearched() {
-        var compact = serviceWith(spellingAware(new java.util.ArrayList<>())).search("레미제라블");
-        var spaced = serviceWith(spellingAware(new java.util.ArrayList<>())).search("레 미제라블");
+        var compact = serviceWith(spellingAware(java.util.Collections.synchronizedList(new java.util.ArrayList<>()))).search("레미제라블");
+        var spaced = serviceWith(spellingAware(java.util.Collections.synchronizedList(new java.util.ArrayList<>()))).search("레 미제라블");
 
         assertEquals(List.of("레 미제라블"), compact.alsoSearchedTitles(),
                 "되찾기가 보여 준 띄어 쓴 표기로 다시 찾았어야 합니다");
@@ -677,7 +677,7 @@ class BookSearchServiceTest {
     @Test
     @DisplayName("같은 표기는 한 번만 찾고, 다른 표기는 상한 안에서만 더 찾는다")
     void doesNotSearchTheSameSpellingTwice() {
-        var log = new java.util.ArrayList<String>();
+        var log = java.util.Collections.synchronizedList(new java.util.ArrayList<String>());
         serviceWith(spellingAware(log)).search("레 미제라블");
 
         long spacedSearches = log.stream().filter(q -> q.contains("title=레 미제라블")).count();
@@ -747,7 +747,7 @@ class BookSearchServiceTest {
     @Test
     @DisplayName("첫 쪽이 가득 찼으면 둘째 쪽까지 받는다")
     void fetchesASecondPageWhenTheFirstIsFull() {
-        var log = new java.util.ArrayList<String>();
+        var log = java.util.Collections.synchronizedList(new java.util.ArrayList<String>());
         var response = serviceWith(paged(log, Data4LibraryClient.PAGE_SIZE)).search("코스모스");
 
         assertEquals(Data4LibraryClient.PAGE_SIZE + 1, response.foundBooks());
@@ -758,7 +758,7 @@ class BookSearchServiceTest {
     @Test
     @DisplayName("첫 쪽이 덜 찼으면 둘째 쪽을 부르지 않는다")
     void doesNotFetchASecondPageWhenTheFirstIsNotFull() {
-        var log = new java.util.ArrayList<String>();
+        var log = java.util.Collections.synchronizedList(new java.util.ArrayList<String>());
         var response = serviceWith(paged(log, 5)).search("코스모스");
 
         assertEquals(5, response.foundBooks());

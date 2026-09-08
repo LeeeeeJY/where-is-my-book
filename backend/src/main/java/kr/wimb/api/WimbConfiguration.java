@@ -19,6 +19,7 @@ import java.time.Clock;
 import java.time.ZoneId;
 import java.time.Duration;
 import java.util.Map;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.locks.ReentrantLock;
 
 @Configuration
@@ -44,6 +45,18 @@ public class WimbConfiguration implements WebMvcConfigurer {
     @Value("${wimb.data4library.min-request-interval-ms:120}")
     private long minIntervalMs;
 
+    /**
+     * 정보나루에 <b>동시에</b> 나가 있을 수 있는 요청 수.
+     *
+     * <p>실측으로 정보나루 호출 하나가 3~5초 걸립니다(소장 조회 4.9초, 서지 검색 3.7초). 요청
+     * 사이의 간격이 아니라 <b>이 왕복 시간</b>이 병목이라, 겹치지 않으면 스무 권 확인에 1분이
+     * 걸립니다. 그래서 소장 조회와 서지 검색을 안에서 겹쳐 내보내는데, 그것이 곱해져 한꺼번에
+     * 수십 개가 나가지 않도록 여기서 상한을 둡니다. 남의 서버에 대한 예의이자 차단을 피하는
+     * 장치입니다. 실제 운영에서 정보나루가 느려지거나 오류를 돌려주면 이 값을 먼저 줄이세요.
+     */
+    @Value("${wimb.data4library.max-in-flight:12}")
+    private int maxInFlight;
+
     @Value("${wimb.cors.allowed-origins:http://localhost:5173}")
     private String[] allowedOrigins;
 
@@ -66,7 +79,8 @@ public class WimbConfiguration implements WebMvcConfigurer {
                       cp .env.example .env  후 D4L_AUTH_KEY 를 채우고
                       set -a; . ./.env; set +a  로 환경 변수에 올린 뒤 실행하세요.""");
         }
-        return new Data4LibraryClient(new ThrottledHttpTransport(minIntervalMs), authKey, budget);
+        return new Data4LibraryClient(
+                new ThrottledHttpTransport(minIntervalMs, maxInFlight), authKey, budget);
     }
 
     /**
@@ -108,7 +122,13 @@ public class WimbConfiguration implements WebMvcConfigurer {
         registry.addMapping("/api/**").allowedOrigins(allowedOrigins).allowedMethods("GET", "POST");
     }
 
-    /** 호출 간격을 지키는 최소한의 전송 계층. 상대 서버에 대한 예의입니다. */
+    /**
+     * 호출 간격과 동시 요청 수를 지키는 최소한의 전송 계층. 상대 서버에 대한 예의입니다.
+     *
+     * <p>둘은 서로 다른 것을 막습니다. 간격은 <b>짧은 시간에 몰아치는 것</b>을, 동시 상한은
+     * <b>답이 느릴 때 요청이 쌓이는 것</b>을 막습니다. 정보나루는 답이 느린 쪽이라 뒤엣것이
+     * 실제로 작동하는 제한입니다.
+     */
     private static final class ThrottledHttpTransport implements Data4LibraryClient.Transport {
         private final HttpClient http = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(5))
@@ -122,14 +142,31 @@ public class WimbConfiguration implements WebMvcConfigurer {
          * 운반 스레드를 붙잡아 다른 가상 스레드가 그동안 돌지 못합니다. 잠금 객체 안에서
          * 잠들면 운반 스레드를 놓아 줍니다.
          */
-        private final ReentrantLock gate = new ReentrantLock();
+        private final ReentrantLock gate = new ReentrantLock(true);
+        /** 동시에 나가 있는 요청 수의 상한. 공정 모드라 먼저 기다린 요청이 먼저 나갑니다. */
+        private final Semaphore inFlight;
 
-        ThrottledHttpTransport(long minIntervalMs) {
+        ThrottledHttpTransport(long minIntervalMs, int maxInFlight) {
             this.minIntervalMs = minIntervalMs;
+            this.inFlight = new Semaphore(Math.max(1, maxInFlight), true);
         }
 
         @Override
         public String get(URI uri) {
+            try {
+                inFlight.acquire();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("호출 차례를 기다리다 중단되었습니다.", e);
+            }
+            try {
+                return send(uri);
+            } finally {
+                inFlight.release();
+            }
+        }
+
+        private String send(URI uri) {
             pace();
             try {
                 var request = HttpRequest.newBuilder(uri)

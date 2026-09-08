@@ -2,9 +2,16 @@ package kr.wimb.holdings;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -22,8 +29,21 @@ import java.util.concurrent.atomic.AtomicReference;
  * 답과 몇 시간 전에 받은 답이 한 결과에 섞이는데, 화면은 그 가운데 <b>가장 오래된 시각</b>을
  * 기준으로 「n월 n일 조회 기준」이라고 말해야 합니다. 최신 시각으로 말하면 옛 답을 새 답인
  * 것처럼 읽게 됩니다.
+ *
+ * <p><b>(ISBN × 지역) 호출은 동시에 내보냅니다.</b> 정보나루의 소장 조회는 한 번에 4~5초가
+ * 걸립니다. 판본 아홉 개짜리 저작을 차례로 물으면 그것만으로 40초이고, 사용자는 그 시간을
+ * 진행 막대만 보며 기다립니다. 겹쳐 내보내면 가장 느린 호출 하나의 시간으로 끝납니다.
+ * 정보나루에 한꺼번에 나가는 수는 전송 계층이 따로 묶어 둡니다.
  */
 public final class HoldingsLookup {
+
+    /**
+     * 한 조회 안에서 동시에 내보낼 호출 수의 상한.
+     *
+     * <p>전송 계층의 전체 상한과는 별개입니다. 이것이 없으면 판본이 스무 개인 저작 하나가
+     * 전체 상한을 독차지해 다른 사람의 요청이 그 뒤에서 기다립니다.
+     */
+    private static final int FAN_OUT = 6;
 
     /** 정보나루가 {@code region} 을 어떻게 다루는지. */
     public enum RegionMode {
@@ -136,21 +156,97 @@ public final class HoldingsLookup {
         Oldest oldest = new Oldest();
         int calls = 0;
 
+        // 방식을 아직 모르면 차례로 탐색합니다. 탐색은 첫 답에서 끝나므로 드뭅니다.
+        List<String> pending = new ArrayList<>();
         for (String isbn : isbn13List) {
             if (modeStore.get() == RegionMode.UNKNOWN) {
                 calls += probeMode(isbn, regionCodes, found, oldest);
                 // 탐색 과정에서 이미 결과를 모았으므로 같은 ISBN 을 다시 부르지 않습니다.
                 continue;
             }
-            IsbnOutcome outcome = fetchOne(isbn, regionCodes, oldest);
+            pending.add(isbn);
+        }
+
+        // 방식을 알면 남은 (ISBN × 지역) 호출을 동시에 내보냅니다.
+        Map<String, IsbnOutcome> outcomes = fetchAll(pending, regionCodes);
+        for (String isbn : pending) {
+            IsbnOutcome outcome = outcomes.get(isbn);
             calls += outcome.calls();
             found.addAll(outcome.libCodes());
+            oldest.note(outcome.oldestFetchedAt());
             if (outcome.failedAll()) unresolved.add(isbn);
             else if (outcome.failedSome()) partial.add(isbn);
         }
 
         return new Result(found, List.copyOf(unresolved), List.copyOf(partial),
                 calls, modeStore.get(), oldest.value);
+    }
+
+    /** 한 번의 호출과 그 결과. 실패하면 {@code answer} 가 null 입니다. */
+    private record Call(String isbn, String region, HoldingsClient.Answer answer) {}
+
+    /**
+     * (ISBN × 지역) 호출을 동시에 내보내고 ISBN 마다 모읍니다.
+     *
+     * <p>실패는 그 호출 하나의 실패로 남깁니다. 한 지역이 실패해도 나머지 지역의 답은 쓰고,
+     * 그 사실을 {@code partial} 로 알리는 규칙은 차례로 부를 때와 같습니다.
+     */
+    private Map<String, IsbnOutcome> fetchAll(List<String> isbns, List<String> regionCodes) {
+        Map<String, IsbnOutcome> out = new LinkedHashMap<>();
+        if (isbns.isEmpty()) return out;
+
+        boolean nationwide = modeStore.get() == RegionMode.NATIONWIDE;
+        List<String> regions = nationwide ? java.util.Collections.singletonList(null) : regionCodes;
+
+        List<Call> calls = new ArrayList<>();
+        Semaphore permits = new Semaphore(FAN_OUT);
+        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            List<Future<Call>> futures = new ArrayList<>();
+            for (String isbn : isbns) {
+                for (String region : regions) {
+                    futures.add(executor.submit(() -> {
+                        permits.acquire();
+                        try {
+                            return new Call(isbn, region, client.answerFor(isbn, region));
+                        } catch (RuntimeException e) {
+                            // 시도 하나가 실패해도 나머지로 답을 만듭니다.
+                            // 다만 그 사실을 숨기지 않고 partial 로 알립니다.
+                            return new Call(isbn, region, null);
+                        } finally {
+                            permits.release();
+                        }
+                    }));
+                }
+            }
+            for (Future<Call> future : futures) calls.add(future.get());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("소장 조회가 중단되었습니다.", e);
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof RuntimeException runtime) throw runtime;
+            throw new IllegalStateException("소장 조회에 실패했습니다.", cause);
+        }
+
+        for (String isbn : isbns) {
+            Set<String> codes = new LinkedHashSet<>();
+            Oldest oldest = new Oldest();
+            int attempts = 0;
+            int failures = 0;
+            for (Call call : calls) {
+                if (!call.isbn().equals(isbn)) continue;
+                attempts++;
+                if (call.answer() == null) {
+                    failures++;
+                    continue;
+                }
+                codes.addAll(call.answer().libCodes());
+                oldest.note(call.answer().fetchedAt());
+            }
+            out.put(isbn, new IsbnOutcome(List.copyOf(codes), attempts, failures,
+                    Math.max(1, attempts), oldest.value));
+        }
+        return out;
     }
 
     /**
@@ -182,20 +278,7 @@ public final class HoldingsLookup {
         return calls;
     }
 
-    private IsbnOutcome fetchOne(String isbn, List<String> regionCodes, Oldest oldest) {
-        if (modeStore.get() == RegionMode.NATIONWIDE) {
-            try {
-                HoldingsClient.Answer answer = client.answerFor(isbn, null);
-                oldest.note(answer.fetchedAt());
-                return new IsbnOutcome(answer.libCodes(), 1, 0, 1);
-            } catch (RuntimeException e) {
-                return new IsbnOutcome(List.of(), 1, 1, 1);
-            }
-        }
-        // 방식을 아직 모르면 지역별로 갑니다. 호출이 늘지만 결과가 빠지지 않습니다.
-        return fetchPerRegion(isbn, regionCodes, oldest);
-    }
-
+    /** 방식을 탐색하는 동안만 씁니다. 차례로 부르므로 드물게, 첫 ISBN 에서만 일어납니다. */
     private IsbnOutcome fetchPerRegion(String isbn, List<String> regionCodes, Oldest oldest) {
         Set<String> codes = new LinkedHashSet<>();
         int calls = 0;
@@ -212,10 +295,12 @@ public final class HoldingsLookup {
                 failures++;
             }
         }
-        return new IsbnOutcome(List.copyOf(codes), calls, failures, Math.max(1, regionCodes.size()));
+        return new IsbnOutcome(List.copyOf(codes), calls, failures, Math.max(1, regionCodes.size()),
+                oldest.value);
     }
 
-    private record IsbnOutcome(List<String> libCodes, int calls, int failures, int attempts) {
+    private record IsbnOutcome(List<String> libCodes, int calls, int failures, int attempts,
+                               Instant oldestFetchedAt) {
         boolean failedAll() { return failures > 0 && failures == attempts; }
         boolean failedSome() { return failures > 0 && failures < attempts; }
     }

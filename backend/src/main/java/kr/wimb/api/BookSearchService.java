@@ -23,6 +23,10 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -123,59 +127,92 @@ public class BookSearchService {
      *
      * <p>2~4는 덤이라 실패해도 1의 결과를 그대로 내보냅니다. 1이 실패하면 검색 전체가 실패한
      * 것이고, 화면은 그것을 「확인 불가」로 그립니다.
+     *
+     * <p><b>서로 기다릴 필요가 없는 호출은 동시에 내보냅니다.</b> 정보나루의 서지 검색은 한 번에
+     * 3~4초가 걸려서, 넷을 차례로 부르면 그것만으로 15초입니다. 입력 그대로와 붙여 쓴 표기는
+     * 서로 무관하므로 1회전에 함께, 둘째 쪽과 저자 되찾기는 첫 쪽의 결과가 있어야 하므로 2회전에
+     * 함께, 다른 표기들은 3회전에 함께 부릅니다. 회전 셋이면 최대 10초 안팎, 보통은 두 회전으로
+     * 끝납니다.
      */
     private Fetched fetchBooks(Data4LibraryClient.BookQuery query) {
         Collected found = new Collected();
         List<String> alsoSearched = new ArrayList<>();
         List<String> searchedSpellings = new ArrayList<>();
         if (query.title() != null) searchedSpellings.add(query.title());
-
-        // 1. 입력 그대로.
-        found.addAll(searchPages(query, MAX_PAGES_AS_TYPED));
-
-        // 2. 띄어쓰기를 뺀 표기.
         String compact = respacedTitle(query.title());
-        if (compact != null) {
-            searchedSpellings.add(compact);
-            searchQuietly(query.withTitle(compact)).ifPresent(books -> {
-                found.addAll(books);
-                alsoSearched.add(compact);
-            });
+        if (compact != null) searchedSpellings.add(compact);
+
+        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            // 1회전: 입력 그대로의 첫 쪽과 띄어쓰기를 뺀 표기.
+            Future<List<BookInfo>> firstPage = executor.submit(
+                    () -> client.searchBooks(query, 1, ApiBudget.Priority.USER));
+            Future<Optional<List<BookInfo>>> compactBooks = compact == null ? null
+                    : executor.submit(() -> searchQuietly(query.withTitle(compact)));
+
+            List<BookInfo> first = await(firstPage);
+            found.addAll(first);
+            if (compactBooks != null) {
+                await(compactBooks).ifPresent(books -> {
+                    found.addAll(books);
+                    alsoSearched.add(compact);
+                });
+            }
+
+            // 2회전: 첫 쪽이 가득 찼으면 둘째 쪽, 그리고 저자로 되찾기.
+            Future<Optional<List<BookInfo>>> secondPage =
+                    first.size() >= Data4LibraryClient.PAGE_SIZE && MAX_PAGES_AS_TYPED >= 2
+                            ? executor.submit(() -> searchQuietly(query, 2)) : null;
+            Data4LibraryClient.BookQuery authorQuery = authorQueryFor(query, found);
+            Future<Optional<List<BookInfo>>> byAuthor = authorQuery == null ? null
+                    : executor.submit(() -> searchQuietly(authorQuery));
+
+            if (secondPage != null) await(secondPage).ifPresent(found::addAll);
+            boolean recovered = byAuthor != null
+                    && await(byAuthor).map(books -> addRecovered(query, found, books)).orElse(false);
+
+            // 3회전: 결과에서 본 다른 띄어쓰기 표기.
+            List<String> spellings = alternateSpellings(query.title(), found.books(), searchedSpellings);
+            List<Future<Optional<List<BookInfo>>>> bySpelling = new ArrayList<>();
+            for (String spelling : spellings) {
+                bySpelling.add(executor.submit(() -> searchQuietly(query.withTitle(spelling))));
+            }
+            for (int i = 0; i < spellings.size(); i++) {
+                String spelling = spellings.get(i);
+                await(bySpelling.get(i)).ifPresent(books -> {
+                    found.addAll(books);
+                    alsoSearched.add(spelling);
+                });
+            }
+
+            return new Fetched(found.books(), List.copyOf(alsoSearched), recovered);
         }
+    }
 
-        // 3. 어절 경계 때문에 놓친 판이 있으면 저자로 되찾습니다.
-        boolean recovered = recoverByAuthor(query, found);
-
-        // 4. 결과에서 본 다른 띄어쓰기 표기.
-        for (String spelling : alternateSpellings(query.title(), found.books(), searchedSpellings)) {
-            searchedSpellings.add(spelling);
-            searchQuietly(query.withTitle(spelling)).ifPresent(books -> {
-                found.addAll(books);
-                alsoSearched.add(spelling);
-            });
+    /** 덤 호출의 결과를 기다립니다. 입력 그대로의 첫 쪽이 실패한 예외는 그대로 올립니다. */
+    private static <T> T await(Future<T> future) {
+        try {
+            return future.get();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("검색이 중단되었습니다.", e);
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof RuntimeException runtime) throw runtime;
+            throw new IllegalStateException("검색에 실패했습니다.", cause);
         }
-
-        return new Fetched(found.books(), List.copyOf(alsoSearched), recovered);
     }
 
     /** {@link #fetchBooks} 의 결과. 무엇을 더 해서 찾았는지까지 함께 들고 다닙니다. */
     private record Fetched(List<BookInfo> books, List<String> alsoSearchedTitles, boolean recovered) {}
 
-    /** 입력 그대로의 검색. 첫 쪽이 가득 찼을 때만 다음 쪽을 받습니다. 실패는 그대로 올립니다. */
-    private List<BookInfo> searchPages(Data4LibraryClient.BookQuery query, int maxPages) {
-        List<BookInfo> out = new ArrayList<>();
-        for (int page = 1; page <= maxPages; page++) {
-            List<BookInfo> batch = client.searchBooks(query, page, ApiBudget.Priority.USER);
-            out.addAll(batch);
-            if (batch.size() < Data4LibraryClient.PAGE_SIZE) break;
-        }
-        return out;
-    }
-
     /** 덤으로 하는 검색. 실패하면 비어 있는 값을 주고, 부른 쪽은 원래 결과를 그대로 씁니다. */
     private Optional<List<BookInfo>> searchQuietly(Data4LibraryClient.BookQuery query) {
+        return searchQuietly(query, 1);
+    }
+
+    private Optional<List<BookInfo>> searchQuietly(Data4LibraryClient.BookQuery query, int page) {
         try {
-            return Optional.of(client.searchBooks(query, 1, ApiBudget.Priority.USER));
+            return Optional.of(client.searchBooks(query, page, ApiBudget.Priority.USER));
         } catch (RuntimeException e) {
             return Optional.empty();
         }
@@ -267,27 +304,31 @@ public class BookSearchService {
      * 하나 늘지만, 그러지 않으면 사용자가 넣은 띄어쓰기에 따라 있는 책이 사라집니다.
      * 저자를 알아내지 못하면 부르지 않으므로 0건 검색에서는 늘지 않습니다.
      *
-     * @return 되찾아 더한 것이 있는지. 화면이 이 사실을 밝힙니다.
+     * @return 저자로 되찾을 질의. 되찾을 수 없으면 null 입니다.
      */
-    private boolean recoverByAuthor(Data4LibraryClient.BookQuery query, Collected found) {
+    private static Data4LibraryClient.BookQuery authorQueryFor(Data4LibraryClient.BookQuery query,
+                                                                Collected found) {
         // 저자로 이미 찾고 있으면 되찾을 것이 없습니다.
-        if (query.title() == null || query.title().isBlank() || query.author() != null) return false;
+        if (query.title() == null || query.title().isBlank() || query.author() != null) return null;
         // 한 건도 없으면 저자를 알아낼 수가 없습니다.
-        if (found.isEmpty()) return false;
-
-        String wanted = BibNormalizer.comparisonKey(query.title());
-        if (wanted.isEmpty()) return false;
+        if (found.isEmpty()) return null;
+        if (BibNormalizer.comparisonKey(query.title()).isEmpty()) return null;
 
         String author = primaryAuthorOf(found.books());
-        if (author == null) return false;
+        if (author == null) return null;
+        return new Data4LibraryClient.BookQuery(null, author, query.publisher(), null, false);
+    }
 
-        // 되찾기는 덤입니다. 실패해도 원래 결과를 그대로 내보냅니다.
-        Optional<List<BookInfo>> byAuthor = searchQuietly(
-                new Data4LibraryClient.BookQuery(null, author, query.publisher(), null, false));
-        if (byAuthor.isEmpty()) return false;
-
+    /**
+     * 저자로 찾은 것 가운데 표제 키가 맞는 것만 더합니다.
+     *
+     * @return 되찾아 더한 것이 있는지. 화면이 이 사실을 밝힙니다.
+     */
+    private static boolean addRecovered(Data4LibraryClient.BookQuery query, Collected found,
+                                        List<BookInfo> byAuthor) {
+        String wanted = BibNormalizer.comparisonKey(query.title());
         boolean added = false;
-        for (BookInfo book : byAuthor.get()) {
+        for (BookInfo book : byAuthor) {
             if (!wanted.equals(titleKeyOf(book))) continue;
             // 소장을 물어볼 수 없는 자료는 되찾아도 쓸 곳이 없습니다.
             if (book.canonicalIsbn13().isEmpty()) continue;

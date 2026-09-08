@@ -45,12 +45,12 @@ public class MultiCheckService {
     /**
      * 줄 확정을 동시에 몇 줄까지 진행할지.
      *
-     * <p>줄마다 정보나루를 두세 번 부르고 서버는 미국에 있어 한 번에 왕복이 0.3~0.5초입니다.
-     * 서른 줄을 차례로 돌리면 그것만으로 30초가 넘고, 사용자는 그 시간을 빈 화면으로
-     * 기다립니다. 요청 사이의 120ms 간격은 전송 계층이 따로 지키므로, 여기서 겹치는 것은
+     * <p>줄마다 정보나루를 두세 번 부르고 정보나루의 서지 검색은 한 번에 3~4초가 걸립니다.
+     * 서른 줄을 차례로 돌리면 몇 분이 되고, 사용자는 그 시간을 빈 화면으로 기다립니다.
+     * 정보나루에 한꺼번에 나가는 요청 수는 전송 계층이 따로 묶어 두므로, 여기서 겹치는 것은
      * <b>왕복 시간만</b>이고 정보나루에 더 몰아치는 것이 아닙니다.
      */
-    private static final int RESOLVE_CONCURRENCY = 4;
+    private static final int RESOLVE_CONCURRENCY = 6;
 
     private final BookSearchService searchService;
 
