@@ -102,7 +102,7 @@ export default function App() {
           </h1>
         </div>
         <p className="muted">
-          자주 가는 도서관을 골라 두면, 읽고 싶은 책이 그중 어디에 있는지 알려 줍니다.
+          자주 가는 도서관을 골라 두면, 읽고 싶은 책이 그 중 어디에 있는지 알려 줍니다.
         </p>
       </header>
 

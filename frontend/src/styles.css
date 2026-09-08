@@ -62,6 +62,38 @@ body {
 .layout { display: grid; gap: 16px; }
 @media (min-width: 860px) {
   .layout { grid-template-columns: minmax(300px, 380px) 1fr; align-items: start; }
+
+  /*
+    **도서관 선택 칸을 화면 높이에 맞춰 세워 둡니다.** 1,619곳이라 시도를 몇 개만 펼쳐도
+    목록이 화면보다 훨씬 길어지는데, 그대로 두면 결과를 보려고 내리는 동안 선택 칸이
+    통째로 위로 사라집니다. 고르다 말고 다시 올라와야 하니 고르는 일 자체가 번거로워집니다.
+
+    카드는 화면에 붙여 두고 **목록만 카드 안에서 스크롤**합니다. min-height: 0 이 없으면
+    flex 자식이 내용 높이만큼 부풀어 스크롤이 생기지 않습니다.
+
+    좁은 화면에는 걸지 않습니다. 위아래로 쌓이는 배치라 높이를 제한하면 좁은 칸 안에서
+    한 번 더 스크롤하게 되어 오히려 답답합니다.
+  */
+  .picker {
+    position: sticky;
+    top: 16px;
+    /*
+      max-height 가 아니라 height 입니다. 최대치만 정해 두면 접힌 상태에서 칸이 짧아지고,
+      그러면 붙어 있을 구간 자체가 없어 페이지를 내릴 때 그대로 위로 사라집니다.
+      높이를 화면에 맞춰 두면 결과가 짧은 날에도 선택 칸이 자리를 지킵니다.
+    */
+    height: calc(100vh - 32px);
+    display: flex;
+    flex-direction: column;
+  }
+  .picker__body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    /* 스크롤바를 카드 안쪽 가장자리에 붙입니다. */
+    margin: 0 -16px;
+    padding: 0 16px;
+  }
 }
 
 .picker, .results {

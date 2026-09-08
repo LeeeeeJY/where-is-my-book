@@ -51,15 +51,22 @@ export function LibraryPicker({
         ))}
       </nav>
 
-      {tab === 'region' && (
-        <RegionTab libraries={libraries} selected={selected} onChange={onChange} />
-      )}
-      {tab === 'search' && (
-        <SearchTab libraries={libraries} selected={selected} onChange={onChange} />
-      )}
-      {tab === 'nearby' && (
-        <NearbyTab libraries={libraries} selected={selected} onChange={onChange} />
-      )}
+      {/*
+        **목록만 스크롤합니다.** 시도를 여럿 펼치면 목록이 화면보다 길어지는데, 카드 전체가
+        늘어나면 선택 개수와 탭이 위로 밀려 올라가 보이지 않습니다. 어느 탭에 있고 몇 곳을
+        골랐는지는 고르는 내내 보여야 합니다.
+      */}
+      <div className="picker__body">
+        {tab === 'region' && (
+          <RegionTab libraries={libraries} selected={selected} onChange={onChange} />
+        )}
+        {tab === 'search' && (
+          <SearchTab libraries={libraries} selected={selected} onChange={onChange} />
+        )}
+        {tab === 'nearby' && (
+          <NearbyTab libraries={libraries} selected={selected} onChange={onChange} />
+        )}
+      </div>
 
       {selected.size > 0 && (
         <>
