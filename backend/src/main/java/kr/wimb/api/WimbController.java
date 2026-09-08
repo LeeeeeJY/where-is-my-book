@@ -124,13 +124,12 @@ public class WimbController {
         if (q == null || q.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "검색어가 비어 있습니다.");
         }
-        List<String> selected = libs == null ? List.of() : libs;
-        // 마스터를 못 받아도 여기서 멈추지 않습니다. 시도를 알 수 없으면 소장 조회가
-        // "확인 불가"로 나가고, 책 정보는 그대로 보여 줄 수 있습니다.
-        loadCatalogQuietly(selected);
+        // 고른 도서관은 소장 조회에만 쓰이는데 그것은 /api/holdings 가 따로 답합니다.
+        // 여기서 미리 받아 두는 것은 그 조회가 시도 코드를 바로 알 수 있게 하려는 것뿐입니다.
+        loadCatalogQuietly(libs == null ? List.of() : libs);
 
         try {
-            return searchService.search(q.trim(), regionsOf(selected), selected);
+            return searchService.search(q.trim());
         } catch (ResponseStatusException e) {
             throw e;
         } catch (RuntimeException e) {

@@ -1,11 +1,15 @@
-import { useMemo, useState } from 'react';
-import { ApiUnavailable, fetchLoanStatus, libraryLink, searchBooks } from '../api';
+import { useEffect, useMemo, useState } from 'react';
+import { ApiUnavailable, fetchHoldings, fetchLoanStatus, libraryLink, searchBooks } from '../api';
 import type { LoanStatus } from '../api';
-import { resolveLink } from '../domain/opacLink';
+import { linkLabel } from '../domain/opacLink';
 import { LOAN_DISCLAIMER, loanPhrase } from '../domain/loanStatus';
 import type { SearchResponse, WorkResult } from '../api';
 import { holdingState } from '../domain/holdingState';
+import type { HoldingFacts } from '../domain/holdingState';
 import type { Library } from '../domain/types';
+
+/** 소장을 동시에 몇 권까지 물어볼지. 남의 서버를 몰아치지 않는 선입니다. */
+const CONCURRENCY = 4;
 
 type State =
   | { kind: 'idle' }
@@ -29,6 +33,53 @@ export function BookSearch({
 }) {
   const [query, setQuery] = useState('');
   const [state, setState] = useState<State>({ kind: 'idle' });
+  // workId 마다 도착한 소장 결과. **키가 없으면 아직 안 물어본 것입니다.**
+  // 실패는 unreadable 로 넣어 두어야 「확인 중」에 영영 머무르지 않습니다.
+  const [holdings, setHoldings] = useState<Map<number, HoldingFacts>>(new Map());
+  const [asOf, setAsOf] = useState<string | null>(null);
+
+  // Set 은 렌더마다 새 객체로 올 수 있어 그대로 의존성에 쓰면 조회가 되풀이됩니다.
+  const selectedKey = useMemo(() => [...selected].sort().join(','), [selected]);
+
+  /**
+   * 검색이 끝나면 저작마다 소장을 따로 물어 도착하는 대로 채웁니다.
+   *
+   * **검색 응답에 소장을 함께 실으면 안 됩니다.** 예전에는 서버가 저작마다 조회를 돌리고
+   * 한꺼번에 답했는데, 저작이 스무 개면 그만큼 순서대로 기다려야 해서 검색이 수십 초가
+   * 됐습니다. 사용자는 그것을 「검색이 안 된다」로 읽습니다.
+   */
+  useEffect(() => {
+    setHoldings(new Map());
+    if (state.kind !== 'done') return;
+    const works = state.response.works;
+    const libCodes = selectedKey === '' ? [] : selectedKey.split(',');
+    if (libCodes.length === 0 || works.length === 0) return;
+
+    let cancelled = false;
+    let next = 0;
+    const record = (workId: number, facts: HoldingFacts) => {
+      if (cancelled) return;
+      setHoldings((prev) => new Map(prev).set(workId, facts));
+    };
+    const workers = Array.from({ length: Math.min(CONCURRENCY, works.length) }, async () => {
+      while (next < works.length && !cancelled) {
+        const work = works[next++];
+        try {
+          const result = await fetchHoldings(work.isbn13List, libCodes);
+          if (!cancelled) setAsOf(result.asOf);
+          record(work.workId, result);
+        } catch {
+          // 한 권이 실패해도 나머지는 계속합니다. 실패는 확인 불가로 남기고
+          // **절대 미소장으로 섞지 않습니다.**
+          record(work.workId, { libCodes: [], complete: false, unreadable: true });
+        }
+      }
+    });
+    void Promise.all(workers);
+    return () => {
+      cancelled = true;
+    };
+  }, [state, selectedKey]);
 
   const byCode = useMemo(() => {
     const map = new Map<string, Library>();
@@ -79,7 +130,13 @@ export function BookSearch({
         </p>
       )}
 
-      <SearchState state={state} byCode={byCode} selectedCount={selected.size} />
+      <SearchState
+        state={state}
+        byCode={byCode}
+        selectedCount={selected.size}
+        holdings={holdings}
+        asOf={asOf}
+      />
     </section>
   );
 }
@@ -88,10 +145,14 @@ function SearchState({
   state,
   byCode,
   selectedCount,
+  holdings,
+  asOf,
 }: {
   state: State;
   byCode: Map<string, Library>;
   selectedCount: number;
+  holdings: Map<number, HoldingFacts>;
+  asOf: string | null;
 }) {
   if (state.kind === 'idle') {
     return (
@@ -124,7 +185,7 @@ function SearchState({
     );
   }
 
-  const { works, asOf } = state.response;
+  const { works } = state.response;
   if (works.length === 0) {
     return (
       <p className="muted">
@@ -137,8 +198,14 @@ function SearchState({
   return (
     <>
       <p className="asof">
-        소장 정보 {formatAsOf(asOf)} 조회 기준 · 출처: 도서관 정보나루
-        {!state.response.allHoldingsChecked && (
+        {selectedCount > 0 && holdings.size < works.length ? (
+          <>
+            소장 확인 중 {holdings.size}/{works.length} · 출처: 도서관 정보나루
+          </>
+        ) : (
+          <>소장 정보 {formatAsOf(asOf ?? state.response.asOf)} 조회 기준 · 출처: 도서관 정보나루</>
+        )}
+        {[...holdings.values()].some((facts) => !facts.complete) && (
           <>
             <br />
             <strong>일부 판본을 확인하지 못했습니다.</strong> 확인하지 못한 것을 미소장으로
@@ -148,7 +215,13 @@ function SearchState({
       </p>
       <ul className="book-list">
         {works.map((work) => (
-          <BookCard key={work.workId} work={work} byCode={byCode} selectedCount={selectedCount} />
+          <BookCard
+            key={work.workId}
+            work={work}
+            byCode={byCode}
+            selectedCount={selectedCount}
+            facts={holdings.get(work.workId) ?? null}
+          />
         ))}
       </ul>
     </>
@@ -159,10 +232,13 @@ function BookCard({
   work,
   byCode,
   selectedCount,
+  facts,
 }: {
   work: WorkResult;
   byCode: Map<string, Library>;
   selectedCount: number;
+  /** 아직 도착하지 않았으면 null. **빈 결과와 구분해야 합니다.** */
+  facts: HoldingFacts | null;
 }) {
   return (
     <li className="book">
@@ -196,13 +272,27 @@ function BookCard({
               판본을 전부 조회한다는 것이 이 도구의 핵심이라 밝혀 둡니다. 다만 확인이
               끝나지 않았는데 "모두 조회했다"고 쓰면 아래의 확인 불가 표시와 어긋납니다.
             */}
-            {checkedEveryEdition(work, selectedCount)
+            {checkedEveryEdition(facts, selectedCount)
               ? `판본 ${work.isbn13List.length}개를 모두 조회했습니다.`
               : `이 저작에 판본 ${work.isbn13List.length}개가 묶여 있습니다.`}
           </p>
         )}
 
-        <Holdings work={work} byCode={byCode} selectedCount={selectedCount} />
+        {/*
+          정보나루 책 정보는 **책마다 한 번만** 답니다. 아래 소장 목록의 도서관 링크는
+          그 도서관으로 갑니다. 예전에는 주소 규칙이 없으면 도서관 링크를 여기로 보냈는데,
+          규칙 표가 비어 있어서 결국 모든 도서관이 정보나루로 가고 같은 링크가 스무 번씩
+          반복됐습니다.
+        */}
+        {work.detailUrl && (
+          <p className="book__editions">
+            <a href={work.detailUrl} target="_blank" rel="noreferrer">
+              정보나루에서 이 책 정보 보기
+            </a>
+          </p>
+        )}
+
+        <Holdings work={work} byCode={byCode} selectedCount={selectedCount} facts={facts} />
       </div>
     </li>
   );
@@ -218,33 +308,35 @@ function Holdings({
   work,
   byCode,
   selectedCount,
+  facts,
 }: {
   work: WorkResult;
   byCode: Map<string, Library>;
   selectedCount: number;
+  facts: HoldingFacts | null;
 }) {
   // 판정은 holdingState 한 곳에서만 합니다. 화면마다 따로 판정하면 언젠가 한쪽이
   // 확인 불가를 미소장으로 그리게 되고, 그때는 아무도 눈치채지 못합니다.
-  const state = holdingState(
-    {
-      libCodes: work.holdingLibCodes,
-      complete: work.holdingsComplete,
-      unreadable: work.holdingsUnreadable,
-    },
-    selectedCount,
-  );
+  const state = holdingState(facts, selectedCount);
 
   if (state === 'pending') {
     // 노란 상자는 "확인 불가"에만 씁니다. 안내까지 같은 색으로 칠하면
     // 정작 확인하지 못한 책이 눈에 띄지 않습니다.
-    return <p className="holding muted">도서관을 고르면 어디에 있는지 확인합니다.</p>;
+    //
+    // **「고르지 않았다」와 「기다리는 중」을 갈라 놓습니다.** 답을 기다리는 중인데
+    // "도서관을 고르면 확인합니다"라고 하면 이미 고른 사용자가 무엇을 해야 할지 모릅니다.
+    return selectedCount === 0 ? (
+      <p className="holding muted">도서관을 고르면 어디에 있는지 확인합니다.</p>
+    ) : (
+      <p className="holding muted">어디에 있는지 확인하고 있습니다…</p>
+    );
   }
 
   if (state === 'unknown') {
     return (
       <p className="holding holding--unknown">
         <strong>확인 불가.</strong>{' '}
-        {work.holdingsUnreadable
+        {facts?.unreadable
           ? '조회가 실패했습니다. 없다는 뜻이 아니라 알 수 없다는 뜻입니다.'
           : '확인하지 못한 판본이 있어 미소장이라고 말할 수 없습니다.'}
       </p>
@@ -255,12 +347,12 @@ function Holdings({
     return <p className="holding holding--none">고른 도서관에는 없습니다.</p>;
   }
 
-  const held = work.holdingLibCodes;
+  const held = facts?.libCodes ?? [];
   return (
     <div className="holding holding--held">
       <p className="holding__count">
         <strong>{held.length}곳에 있습니다.</strong>
-        {!work.holdingsComplete && ' 확인하지 못한 판본이 있어 더 있을 수 있습니다.'}
+        {facts !== null && !facts.complete && ' 확인하지 못한 판본이 있어 더 있을 수 있습니다.'}
       </p>
       <ul className="holding__list">
         {held.map((code) => {
@@ -271,22 +363,15 @@ function Holdings({
                 어느 단계의 링크인지 밝힙니다. 조용히 홈페이지로 보내면 사용자는
                 검색 결과 자체가 틀렸다고 생각합니다.
               */}
-              {(() => {
-                const link = resolveLink(
-                  library?.linkKind,
-                  libraryLink(code, work.isbn13List[0], work.title),
-                  work.detailUrl,
-                );
-                return (
-                  <>
-                    <a href={link.href} target="_blank" rel="noreferrer">
-                      {library ? library.name : code}
-                    </a>
-                    <span className="muted"> {link.label}</span>
-                    <LoanCheck libCode={code} isbn13={work.isbn13List[0]} />
-                  </>
-                );
-              })()}
+              <a
+                href={libraryLink(code, work.isbn13List[0], work.title)}
+                target="_blank"
+                rel="noreferrer"
+              >
+                {library ? library.name : code}
+              </a>
+              <span className="muted"> {linkLabel(library?.linkKind)}</span>
+              <LoanCheck libCode={code} isbn13={work.isbn13List[0]} />
             </li>
           );
         })}
@@ -300,16 +385,9 @@ function Holdings({
 }
 
 /** 저작에 묶인 판본을 빠짐없이 조회했는지. 조회를 아예 하지 않은 경우도 아닙니다. */
-function checkedEveryEdition(work: WorkResult, selectedCount: number): boolean {
-  const state = holdingState(
-    {
-      libCodes: work.holdingLibCodes,
-      complete: work.holdingsComplete,
-      unreadable: work.holdingsUnreadable,
-    },
-    selectedCount,
-  );
-  return state === 'held' || state === 'none' ? work.holdingsComplete : false;
+function checkedEveryEdition(facts: HoldingFacts | null, selectedCount: number): boolean {
+  const state = holdingState(facts, selectedCount);
+  return (state === 'held' || state === 'none') && (facts?.complete ?? false);
 }
 
 /** 표시는 전부 Asia/Seoul 기준입니다. */

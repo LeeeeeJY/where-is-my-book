@@ -8,20 +8,20 @@ export type WorkResult = {
   author: string | null;
   publisher: string | null;
   coverUrl: string | null;
-  /** 정보나루의 그 책 상세 페이지. 도서관 주소 규칙이 없을 때 홈페이지 대신 씁니다. */
+  /** 정보나루의 그 책 상세 페이지. 책마다 한 번만 답니다. */
   detailUrl: string | null;
   isbn13List: string[];
   editionLabels: string[];
-  holdingLibCodes: string[];
-  /** 모든 판본을 빠짐없이 확인했는지. false 면 화면에 밝혀야 합니다. */
-  holdingsComplete: boolean;
-  /** 조회 자체가 실패했는지. true 면 미소장이 아니라 확인 불가입니다. */
-  holdingsUnreadable: boolean;
 };
 
+/**
+ * <b>소장 항목이 없는 것이 의도적입니다.</b> 소장은 {@link fetchHoldings} 한 곳에서만
+ * 답합니다. 검색 응답에도 실으면 「물어본 적 없음」과 「물어봤는데 없음」이 같은 빈 목록으로
+ * 와서, 화면이 그것을 「고른 도서관에는 없습니다」로 그리게 됩니다. 실제로 있는 책을
+ * 없다고 답하는 것이라 이 도구의 전제가 무너집니다.
+ */
 export type SearchResponse = {
   works: WorkResult[];
-  allHoldingsChecked: boolean;
   asOf: string | null;
 };
 

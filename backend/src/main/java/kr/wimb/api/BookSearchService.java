@@ -1,5 +1,6 @@
 package kr.wimb.api;
 
+import kr.wimb.bib.BibNormalizer;
 import kr.wimb.bib.WorkClusterer;
 import kr.wimb.bib.WorkMatcher;
 import kr.wimb.data4library.BookInfo;
@@ -13,6 +14,7 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -38,6 +40,15 @@ public class BookSearchService {
     /** 한 검색에서 정보나루로부터 받아 묶을 서지 수. 너무 크면 응답이 느려집니다. */
     private static final int FETCH_PAGES = 1;
 
+    /**
+     * 화면에 돌려줄 저작 수.
+     *
+     * <p>정보나루가 한 번에 300건을 주는데 그것을 다 묶으면 저작이 100~200개가 됩니다.
+     * 사람이 그만큼을 훑지 않을뿐더러, 화면이 저작마다 소장을 물어보므로 <b>이 숫자가 곧
+     * 검색 한 번에 나가는 소장 조회 횟수</b>가 됩니다. 위에서 몇 개만 보면 충분합니다.
+     */
+    private static final int MAX_RESULTS = 20;
+
     private final Data4LibraryClient client;
     private final HoldingsLookup holdingsLookup;
     private final AtomicInteger workIdSequence = new AtomicInteger(1);
@@ -48,26 +59,52 @@ public class BookSearchService {
     }
 
     /**
-     * @param query        검색어. 제목으로 봅니다.
-     * @param regionCodes  선택한 도서관들이 걸친 시도 코드. 비어 있으면 소장 조회를 하지 않습니다.
-     * @param selectedLibs 선택한 도서관부호
+     * 검색어로 저작 목록을 만듭니다. <b>소장 조회는 하지 않습니다.</b>
+     *
+     * <p>예전에는 여기서 저작마다 {@code libSrchByBook} 을 불렀습니다. 저작이 200개면 호출도
+     * 200번이고, 요청 간격이 120ms 라 그것만으로 24초가 걸렸습니다. 사용자는 그것을
+     * 「검색이 안 된다」로 읽습니다.
+     *
+     * <p>그래서 여러 권 확인과 같은 방식으로 나눴습니다. 책 목록을 즉시 돌려주고, 소장은
+     * 화면이 {@code POST /api/holdings} 로 한 권씩 물어 도착하는 대로 채웁니다.
+     * <b>여기에 소장 조회를 다시 넣지 마세요.</b> 넣는 순간 검색이 다시 수십 초가 됩니다.
+     *
+     * @param query 검색어. 제목으로 봅니다.
      */
-    public SearchResponse search(String query, List<String> regionCodes, List<String> selectedLibs) {
+    public SearchResponse search(String query) {
         List<WorkResult> works = worksFor(Data4LibraryClient.BookQuery.byTitle(query));
-        if (works.isEmpty()) return new SearchResponse(List.of(), true, null);
+        return new SearchResponse(rank(query, works), LocalDate.now(SEOUL).toString());
+    }
 
-        List<WorkResult> results = new ArrayList<>(works.size());
-        boolean everythingChecked = true;
+    /**
+     * 제목이 검색어에 얼마나 맞는지로 다시 세우고 위에서 몇 개만 남깁니다.
+     *
+     * <p>정보나루가 주는 순서를 그대로 쓰면 「코스모스」를 찾았는데 「미크로코스모스 입문」이
+     * 1등으로 나옵니다. 찾으려던 책이 안 보이는 것이 이 도구를 버리게 만드는 가장 큰
+     * 이유이므로, 적어도 제목이 그대로 맞는 것은 위로 올립니다.
+     *
+     * <p>정규화는 {@link BibNormalizer#normalizeKey}를 씁니다. <b>적재·군집화와 같은 함수를
+     * 써야</b> 「해리 포터」와 「해리포터」가 검색에서만 어긋나는 일이 없습니다.
+     *
+     * <p>같은 등급 안에서는 정보나루가 준 순서를 그대로 둡니다. 정렬이 안정적이라 그렇게
+     * 되고, 우리가 더 나은 근거를 갖고 있지 않으므로 굳이 흔들지 않습니다.
+     */
+    static List<WorkResult> rank(String query, List<WorkResult> works) {
+        String queryKey = BibNormalizer.normalizeKey(query);
+        if (queryKey.isEmpty()) return works.stream().limit(MAX_RESULTS).toList();
+        return works.stream()
+                .sorted(Comparator.comparingInt(work -> titleTier(queryKey, work.title())))
+                .limit(MAX_RESULTS)
+                .toList();
+    }
 
-        for (WorkResult work : works) {
-            HoldingResult holdings = holdingsOf(work.isbn13List(), regionCodes, selectedLibs);
-            if (!holdings.complete()) everythingChecked = false;
-            results.add(work.withHoldings(holdings));
-        }
-
-        // 선택한 도서관에 있는 것을 위로 올립니다. 실제로 빌릴 수 있는 책이 먼저 보여야 합니다.
-        results.sort((a, b) -> Integer.compare(b.holdingLibCodes().size(), a.holdingLibCodes().size()));
-        return new SearchResponse(results, everythingChecked, LocalDate.now(SEOUL).toString());
+    /** 작을수록 검색어에 잘 맞습니다. */
+    private static int titleTier(String queryKey, String title) {
+        String titleKey = BibNormalizer.normalizeKey(title == null ? "" : title);
+        if (titleKey.equals(queryKey)) return 0;   // 「코스모스」 -> 「코스모스」
+        if (titleKey.startsWith(queryKey)) return 1; // 「코스모스 : 특별판」
+        if (titleKey.contains(queryKey)) return 2;   // 「뽐내는 코스모스」
+        return 3;                                     // 저자나 출판사만 걸린 것
     }
 
     /**
@@ -82,7 +119,7 @@ public class BookSearchService {
 
         Map<String, BookInfo> byIsbn = indexByIsbn(books);
         return clusterIntoWorks(books).stream()
-                .map(doc -> WorkResult.of(doc, byIsbn, HoldingResult.notRequested()))
+                .map(doc -> WorkResult.of(doc, byIsbn))
                 .toList();
     }
 
@@ -209,21 +246,15 @@ public class BookSearchService {
              */
             String detailUrl,
             List<String> isbn13List,
-            List<String> editionLabels,
-            List<String> holdingLibCodes,
-            /** 이 저작의 소장 여부를 빠짐없이 확인했는지. false 면 화면에 밝혀야 합니다. */
-            boolean holdingsComplete,
-            /** 조회 자체가 실패했는지. true 면 미소장이 아니라 확인 불가입니다. */
-            boolean holdingsUnreadable
+            List<String> editionLabels
     ) {
-        static WorkResult of(SearchDoc doc, Map<String, BookInfo> byIsbn, HoldingResult holdings) {
+        static WorkResult of(SearchDoc doc, Map<String, BookInfo> byIsbn) {
             String cover = firstNonBlank(doc, byIsbn, BookInfo::bookImageUrl);
             String detail = firstNonBlank(doc, byIsbn, BookInfo::bookDetailUrl);
 
             return new WorkResult(doc.workId(), doc.titleDisplay(), doc.authorDisplay(),
                     doc.publisherDisplay(), toHttps(cover), toHttps(detail),
-                    doc.isbn13List(), doc.editionLabels(),
-                    holdings.libCodes(), holdings.complete(), holdings.unreadable());
+                    doc.isbn13List(), doc.editionLabels());
         }
 
         private static String firstNonBlank(SearchDoc doc, Map<String, BookInfo> byIsbn,
@@ -248,17 +279,15 @@ public class BookSearchService {
             return "https://" + url.substring("http://".length());
         }
 
-        /** 서지만 먼저 만들어 둔 뒤 소장 결과가 도착하면 덧붙입니다. */
-        public WorkResult withHoldings(HoldingResult holdings) {
-            return new WorkResult(workId, title, author, publisher, coverUrl, detailUrl,
-                    isbn13List, editionLabels,
-                    holdings.libCodes(), holdings.complete(), holdings.unreadable());
-        }
     }
 
     /**
-     * @param asOf 소장 정보를 조회한 날짜. <b>화면에 반드시 표시해야 합니다.</b>
-     *             사용자가 "미소장"을 "확실히 없다"로 읽을지 판단하는 근거입니다.
+     * <b>소장 항목이 없는 것이 의도적입니다.</b> 소장은 {@code POST /api/holdings} 한 곳에서만
+     * 답합니다. 검색 응답에도 소장을 실으면 「물어본 적 없음」과 「물어봤는데 없음」이 같은
+     * 빈 목록으로 나가고, 화면이 그것을 「고른 도서관에는 없습니다」로 그리게 됩니다.
+     * 실제로 있는 책을 없다고 답하는 것이라 이 도구의 전제가 무너집니다.
+     *
+     * @param asOf 이 검색을 한 날짜.
      */
-    public record SearchResponse(List<WorkResult> works, boolean allHoldingsChecked, String asOf) {}
+    public record SearchResponse(List<WorkResult> works, String asOf) {}
 }

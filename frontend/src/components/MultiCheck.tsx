@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { ApiUnavailable, fetchHoldings, libraryLink, resolveLines } from '../api';
-import { resolveLink } from '../domain/opacLink';
+import { linkLabel } from '../domain/opacLink';
 import type { LineResult, WorkResult } from '../api';
 import { holdingState } from '../domain/holdingState';
 import { countByState, planTrip, rankLibraries, toPlainText } from '../domain/tripPlan';
@@ -517,23 +517,12 @@ function LineHoldings({
       {held.map((code, i) => (
         <span key={code}>
           {i > 0 && ' · '}
+          {/* 도서관 이름을 누르면 그 도서관으로 갑니다. 정보나루 책 정보는 따로 답니다. */}
           <a
-            href={
-              resolveLink(
-                byCode.get(code)?.linkKind,
-                libraryLink(code, work.isbn13List[0], work.title),
-                work.detailUrl,
-              ).href
-            }
+            href={libraryLink(code, work.isbn13List[0], work.title)}
             target="_blank"
             rel="noreferrer"
-            title={
-              resolveLink(
-                byCode.get(code)?.linkKind,
-                libraryLink(code, work.isbn13List[0], work.title),
-                work.detailUrl,
-              ).label
-            }
+            title={linkLabel(byCode.get(code)?.linkKind)}
           >
             {byCode.get(code)?.name ?? code}
           </a>
@@ -544,6 +533,14 @@ function LineHoldings({
       )}
       {work.isbn13List.length > 1 && (
         <span className="muted"> · 판본 {work.isbn13List.length}개를 함께 조회했습니다.</span>
+      )}
+      {work.detailUrl && (
+        <span>
+          {' · '}
+          <a href={work.detailUrl} target="_blank" rel="noreferrer">
+            정보나루 책 정보
+          </a>
+        </span>
       )}
     </p>
   );

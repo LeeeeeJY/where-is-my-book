@@ -19,6 +19,10 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * <p>이 구분이 무너지면 실제로 소장한 책을 미소장으로 답하게 되어 헛걸음을 만듭니다.
  * 이 도구의 존재 이유가 무너지는 지점이라 다른 무엇보다 먼저 지켜야 합니다.
+ *
+ * <p>소장 판정은 {@code holdingsOf} 가 하고 검색은 그것을 부르지 않습니다. 그래서 아래
+ * 검사들도 {@code holdingsOf} 를 직접 부릅니다. 화면에서는 {@code POST /api/holdings} 가
+ * 같은 함수를 거칩니다.
  */
 class BookSearchServiceTest {
 
@@ -44,14 +48,49 @@ class BookSearchServiceTest {
         </response>
         """;
 
-    private static Data4LibraryClient client() {
+    /** 정보나루가 실제로 돌려준 순서를 흉내 냅니다. 찾는 책이 맨 뒤에 있습니다. */
+    private static final String BURIED_MATCH = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <response>
+          <docs>
+            <doc>
+              <bookname><![CDATA[(벨라 바르톡의)미크로코스모스 입문]]></bookname>
+              <authors><![CDATA[조치노 지음]]></authors>
+              <publisher><![CDATA[음악춘추사]]></publisher>
+              <publication_year>2003</publication_year>
+              <isbn13>9788913007323</isbn13>
+            </doc>
+            <doc>
+              <bookname><![CDATA[뽐내는 코스모스]]></bookname>
+              <authors><![CDATA[김신철 글]]></authors>
+              <publisher><![CDATA[삼성당]]></publisher>
+              <publication_year>2005</publication_year>
+              <isbn13>9788914012562</isbn13>
+            </doc>
+            <doc>
+              <bookname><![CDATA[코스모스]]></bookname>
+              <authors><![CDATA[칼 세이건 지음 ; 홍승수 옮김]]></authors>
+              <publisher><![CDATA[사이언스북스]]></publisher>
+              <publication_year>2006</publication_year>
+              <isbn13>9788983711892</isbn13>
+            </doc>
+          </docs>
+        </response>
+        """;
+
+    private static Data4LibraryClient client(String payload) {
         var budget = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 1000),
                 Clock.fixed(Instant.parse("2026-09-05T00:00:00Z"), ZoneId.of("UTC")));
-        return new Data4LibraryClient(uri -> TWO_BOOKS, "테스트키", budget);
+        return new Data4LibraryClient(uri -> payload, "테스트키", budget);
     }
 
     private static BookSearchService service(HoldingsLookup.HoldingsClient holdings) {
-        return new BookSearchService(client(), new HoldingsLookup(
+        return service(TWO_BOOKS, holdings);
+    }
+
+    private static BookSearchService service(String payload,
+                                             HoldingsLookup.HoldingsClient holdings) {
+        return new BookSearchService(client(payload), new HoldingsLookup(
                 holdings, HoldingsLookup.RegionModeStore.documented()));
     }
 
@@ -60,17 +99,62 @@ class BookSearchServiceTest {
         throw new AssertionError("조회하지 않아야 하는데 불렸습니다: " + isbn + " / " + region);
     };
 
+    private static List<String> cosmosEditions(BookSearchService service) {
+        return service.search("코스모스").works().get(0).isbn13List();
+    }
+
+    @Test
+    @DisplayName("검색은 소장을 조회하지 않는다")
+    void searchDoesNotLookUpHoldings() {
+        // 예전에는 저작마다 libSrchByBook 을 불렀습니다. 저작이 200개면 호출도 200번이고
+        // 요청 간격이 120ms 라 그것만으로 24초가 걸렸습니다. 소장은 화면이 따로 묻습니다.
+        var response = service(NEVER_CALLED).search("코스모스");
+
+        assertFalse(response.works().isEmpty(), "책 정보는 그대로 나와야 합니다");
+        assertNotNull(response.asOf());
+    }
+
+    @Test
+    @DisplayName("제목이 그대로 맞는 책을 위로 올린다")
+    void exactTitleMatchComesFirst() {
+        // 정보나루가 주는 순서를 그대로 쓰면 「코스모스」를 찾았는데 「미크로코스모스 입문」이
+        // 1등으로 나옵니다. 찾으려던 책이 안 보이는 것이 이 도구를 버리게 만듭니다.
+        var response = service(BURIED_MATCH, NEVER_CALLED).search("코스모스");
+
+        assertEquals("코스모스", response.works().get(0).title());
+    }
+
+    @Test
+    @DisplayName("띄어쓰기가 달라도 같은 책으로 본다")
+    void rankingSharesTheNormalizer() {
+        // 적재·군집화와 같은 정규화 함수를 써야 검색에서만 어긋나는 일이 없습니다.
+        var response = service(BURIED_MATCH, NEVER_CALLED).search("  코스모스  ");
+
+        assertEquals("코스모스", response.works().get(0).title());
+    }
+
+    @Test
+    @DisplayName("결과가 많아도 위에서 스무 개까지만 돌려준다")
+    void capsTheNumberOfResults() {
+        // 이 숫자가 곧 화면이 소장을 물어보는 횟수입니다.
+        List<BookSearchService.WorkResult> many = new java.util.ArrayList<>();
+        for (int i = 0; i < 100; i++) {
+            many.add(new BookSearchService.WorkResult(
+                    i, "코스모스 " + i, "지은이", "출판사", null, null,
+                    List.of("978898371189" + (i % 10)), List.of()));
+        }
+        assertEquals(20, BookSearchService.rank("코스모스", many).size());
+    }
+
     @Test
     @DisplayName("고른 도서관이 없으면 조회하지 않고, 미소장이라고도 하지 않는다")
     void noSelectionIsNotAbsence() {
-        var response = service(NEVER_CALLED).search("코스모스", List.of(), List.of());
+        var service = service(NEVER_CALLED);
+        var holdings = service.holdingsOf(cosmosEditions(service), List.of(), List.of());
 
-        assertFalse(response.works().isEmpty());
-        for (var work : response.works()) {
-            assertTrue(work.holdingLibCodes().isEmpty());
-            assertTrue(work.holdingsComplete(), "물어볼 필요가 없었으므로 미확인이 아닙니다");
-            assertFalse(work.holdingsUnreadable());
-        }
+        assertTrue(holdings.libCodes().isEmpty());
+        assertTrue(holdings.complete(), "물어볼 필요가 없었으므로 미확인이 아닙니다");
+        assertFalse(holdings.unreadable());
     }
 
     @Test
@@ -78,55 +162,46 @@ class BookSearchServiceTest {
     void unknownRegionIsNotAbsence() {
         // libSrchByBook 은 region 이 필수라 지역을 모르면 조회를 시작할 수조차 없습니다.
         // 이때 빈 결과를 돌려주면 화면이 "고른 도서관에는 없습니다"로 그립니다.
-        var response = service(NEVER_CALLED).search("코스모스", List.of(), List.of("111001"));
+        var service = service(NEVER_CALLED);
+        var holdings = service.holdingsOf(cosmosEditions(service), List.of(), List.of("111001"));
 
-        assertFalse(response.allHoldingsChecked(), "확인하지 못했다는 것이 응답에 드러나야 합니다");
-        for (var work : response.works()) {
-            assertTrue(work.holdingsUnreadable(), "확인 불가로 표시해야 합니다");
-            assertFalse(work.holdingsComplete());
-            assertTrue(work.holdingLibCodes().isEmpty());
-        }
+        assertTrue(holdings.unreadable(), "확인 불가로 표시해야 합니다");
+        assertFalse(holdings.complete());
+        assertTrue(holdings.libCodes().isEmpty());
     }
 
     @Test
     @DisplayName("조회가 실패하면 미소장이 아니라 확인 불가다")
     void lookupFailureIsNotAbsence() {
-        var response = service((isbn, region) -> {
+        var service = service((isbn, region) -> {
             throw new IllegalStateException("정보나루가 응답하지 않습니다");
-        }).search("코스모스", List.of("11"), List.of("111001"));
+        });
+        var holdings = service.holdingsOf(cosmosEditions(service), List.of("11"), List.of("111001"));
 
-        assertFalse(response.allHoldingsChecked());
-        for (var work : response.works()) {
-            assertTrue(work.holdingsUnreadable());
-            assertTrue(work.holdingLibCodes().isEmpty());
-        }
+        assertTrue(holdings.unreadable());
+        assertTrue(holdings.libCodes().isEmpty());
     }
 
     @Test
     @DisplayName("빠짐없이 확인했는데 없으면 그때는 미소장이다")
     void emptyResultAfterFullCheckIsAbsence() {
-        var response = service((isbn, region) -> List.of("999999"))
-                .search("코스모스", List.of("11"), List.of("111001"));
+        var service = service((isbn, region) -> List.of("999999"));
+        var holdings = service.holdingsOf(cosmosEditions(service), List.of("11"), List.of("111001"));
 
-        assertTrue(response.allHoldingsChecked());
-        for (var work : response.works()) {
-            assertFalse(work.holdingsUnreadable(), "확인은 했으므로 확인 불가가 아닙니다");
-            assertTrue(work.holdingsComplete());
-            assertTrue(work.holdingLibCodes().isEmpty(), "고른 도서관에는 없습니다");
-        }
+        assertFalse(holdings.unreadable(), "확인은 했으므로 확인 불가가 아닙니다");
+        assertTrue(holdings.complete());
+        assertTrue(holdings.libCodes().isEmpty(), "고른 도서관에는 없습니다");
     }
 
     @Test
     @DisplayName("고른 도서관이 소장하면 그 부호만 돌려준다")
     void returnsOnlySelectedLibraries() {
-        var response = service((isbn, region) -> List.of("111001", "141053"))
-                .search("코스모스", List.of("11"), List.of("111001"));
+        var service = service((isbn, region) -> List.of("111001", "141053"));
+        var holdings = service.holdingsOf(cosmosEditions(service), List.of("11"), List.of("111001"));
 
-        assertTrue(response.allHoldingsChecked());
+        assertTrue(holdings.complete());
         // 고르지 않은 141053 은 결과에 나오면 안 됩니다.
-        for (var work : response.works()) {
-            assertEquals(List.of("111001"), work.holdingLibCodes());
-        }
+        assertEquals(List.of("111001"), holdings.libCodes());
     }
 
     @Test
@@ -134,16 +209,18 @@ class BookSearchServiceTest {
     void queriesEveryEditionOfTheWork() {
         // 판본 하나만 조회하면 도서관이 다른 판을 가지고 있어도 미소장으로 나옵니다.
         var asked = new java.util.concurrent.ConcurrentLinkedQueue<String>();
-        var response = service((isbn, region) -> {
+        var service = service((isbn, region) -> {
             asked.add(isbn);
             // 특별판만 소장한 도서관입니다. 초판만 물었다면 놓쳤을 것입니다.
             return isbn.equals("9791158510015") ? List.of("111001") : List.of();
-        }).search("코스모스", List.of("11"), List.of("111001"));
+        });
 
-        var work = response.works().get(0);
-        assertEquals(2, work.isbn13List().size(), "「코스모스」와 「코스모스 (특별판)」은 한 저작입니다");
-        assertTrue(asked.containsAll(work.isbn13List()), "묶인 ISBN 을 모두 물었어야 합니다: " + asked);
-        assertEquals(List.of("111001"), work.holdingLibCodes());
+        var editions = cosmosEditions(service);
+        assertEquals(2, editions.size(), "「코스모스」와 「코스모스 (특별판)」은 한 저작입니다");
+
+        var holdings = service.holdingsOf(editions, List.of("11"), List.of("111001"));
+        assertTrue(asked.containsAll(editions), "묶인 ISBN 을 모두 물었어야 합니다: " + asked);
+        assertEquals(List.of("111001"), holdings.libCodes());
     }
 
     @Test
@@ -158,11 +235,11 @@ class BookSearchServiceTest {
                 },
                 HoldingsLookup.RegionModeStore.documented()));
 
-        var response = service.search("코스모스", List.of("11"), List.of("111001"));
-
+        var response = service.search("코스모스");
         assertFalse(response.works().isEmpty(), "책 정보까지 없애 버리면 안 됩니다");
-        for (var work : response.works()) {
-            assertTrue(work.holdingsUnreadable());
-        }
+
+        var holdings = service.holdingsOf(response.works().get(0).isbn13List(),
+                List.of("11"), List.of("111001"));
+        assertTrue(holdings.unreadable());
     }
 }

@@ -6,6 +6,11 @@ import type { LinkKind } from './types';
  * <p>화면마다 따로 적으면 언젠가 한쪽이 홈페이지 링크를 「이 책 페이지」라고 말하게 되고,
  * 그때는 아무도 눈치채지 못합니다. 사용자는 엉뚱한 곳에 도착해 놓고 소장 정보 자체가
  * 틀렸다고 생각합니다.
+ *
+ * <p><b>도서관 이름을 누르면 그 도서관으로 갑니다.</b> 한동안은 주소 규칙이 없을 때 정보나루
+ * 책 상세로 보냈는데, 규칙 표가 비어 있어서 결국 모든 도서관이 정보나루로 갔습니다.
+ * 도서관을 눌렀는데 도서관이 아닌 곳이 뜨는 데다, 소장 도서관이 스무 곳이면 같은 링크가
+ * 스무 번 반복됐습니다. 정보나루 책 정보는 책마다 한 번만 따로 답니다.
  */
 export function linkLabel(kind: LinkKind | undefined): string {
   switch (kind) {
@@ -16,30 +21,6 @@ export function linkLabel(kind: LinkKind | undefined): string {
     case 'TITLE_SEARCH':
       return '제목 검색 결과로 이동';
     default:
-      return '도서관 홈페이지로 이동';
+      return '도서관 홈페이지로 이동 (주소 규칙 없음)';
   }
-}
-
-/** 링크 하나를 그리는 데 필요한 것 전부. */
-export type ResolvedLink = { href: string; label: string };
-
-/**
- * 어디로 보낼지와 그것을 뭐라고 부를지를 함께 정합니다.
- *
- * <p><b>도서관 주소 규칙이 없으면 정보나루의 책 상세 페이지로 보냅니다.</b> 도서관 첫 화면은
- * 그 책에 대해 아무것도 말해 주지 않아서, 사용자가 거기서 다시 검색해야 합니다. 정보나루
- * 상세 페이지는 적어도 어떤 책인지 보여 줍니다.
- *
- * <p>다만 <b>그곳은 도서관이 아니라는 사실을 문구에 그대로 씁니다.</b> 도서관 이름을 눌렀는데
- * 다른 사이트가 뜨면, 그 사실을 미리 말해 두지 않는 한 「링크가 잘못됐다」로 읽힙니다.
- */
-export function resolveLink(
-  kind: LinkKind | undefined,
-  apiHref: string,
-  detailUrl: string | null | undefined,
-): ResolvedLink {
-  if ((kind === undefined || kind === 'HOMEPAGE') && detailUrl) {
-    return { href: detailUrl, label: '정보나루 책 정보로 이동 (이 도서관 페이지 규칙 없음)' };
-  }
-  return { href: apiHref, label: linkLabel(kind) };
 }
