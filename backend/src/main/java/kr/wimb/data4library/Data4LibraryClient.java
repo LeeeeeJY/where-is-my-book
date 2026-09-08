@@ -197,8 +197,30 @@ public final class Data4LibraryClient {
     // ---------------------------------------------------------------
 
     /**
+     * 한 소장 조회에서 넘겨볼 페이지 수 상한. 무한 반복을 막는 안전장치일 뿐입니다.
+     *
+     * <p>정보나루 참여 도서관이 전국 1,604곳이고 한 시도는 300곳 안팎이므로, 정상적인
+     * 응답이라면 두세 쪽 안에 끝납니다. 이 상한에 닿는다는 것은 응답이 이상하다는 뜻입니다.
+     */
+    private static final int MAX_HOLDING_PAGES = 20;
+
+    /**
      * 이 ISBN 을 소장한 도서관. <b>{@code region} 은 매뉴얼상 필수입니다.</b>
      * 전국을 한 번에 받는 방법이 없어 시도마다 따로 불러야 합니다.
+     *
+     * <p><b>반드시 끝까지 넘겨봐야 합니다.</b> 예전에는 첫 쪽만 보고 끝냈습니다. 응답에
+     * {@code numFound}(전체 건수)가 함께 오는데 그것을 읽지 않았으므로, 소장 도서관이
+     * 한 쪽에 안 들어가는 책은 <b>뒤쪽 도서관이 통째로 빠진 채</b> 답이 나갔습니다.
+     * 빠진 도서관은 「그 도서관에는 없다」로 표시되고, 그것도 <b>「빠짐없이 확인했다」는
+     * 표시를 달고</b> 나갑니다. 실제로 소장한 책을 없다고 답하는 것입니다.
+     *
+     * <p>더 나쁜 것은 이것이 <b>인기 있는 책일수록 심해진다</b>는 점입니다. 소장 도서관이
+     * 많은 책이 곧 사람들이 많이 찾는 책이라, 가장 자주 쓰이는 검색에서 가장 자주 틀립니다.
+     *
+     * <p>{@code pageSize} 를 크게 주는 것으로는 해결되지 않습니다. 서버가 그 값을 그대로
+     * 받아 준다는 보장이 없고, 실제로 더 작게 잘라 줘도 우리는 알 방법이 없습니다.
+     * 그래서 {@code numFound} 를 기준으로 삼고, 그 값이 없으면 첫 쪽에 실제로 몇 건이
+     * 왔는지를 한 쪽 분량으로 삼아 이어 받습니다.
      */
     public List<LibraryInfo> librariesHolding(String isbn13, String regionCode,
                                               ApiBudget.Priority priority) {
@@ -206,13 +228,39 @@ public final class Data4LibraryClient {
             throw new IllegalArgumentException(
                     "libSrchByBook 은 region 이 필수입니다. 매뉴얼 13절을 보세요.");
         }
-        Map<String, String> params = new LinkedHashMap<>();
-        params.put("isbn", isbn13);
-        params.put("region", regionCode);
-        params.put("pageSize", String.valueOf(PAGE_SIZE));
+        List<LibraryInfo> out = new ArrayList<>();
+        int numFound = -1;
+        int perPage = -1;
 
-        String xml = call("libSrchByBook", params, priority);
-        return Data4LibraryResponse.items(xml, "lib").stream().map(LibraryInfo::from).toList();
+        for (int page = 1; page <= MAX_HOLDING_PAGES; page++) {
+            Map<String, String> params = new LinkedHashMap<>();
+            params.put("isbn", isbn13);
+            params.put("region", regionCode);
+            params.put("pageNo", String.valueOf(page));
+            params.put("pageSize", String.valueOf(PAGE_SIZE));
+
+            String xml = call("libSrchByBook", params, priority);
+            var items = Data4LibraryResponse.items(xml, "lib");
+            items.stream().map(LibraryInfo::from).forEach(out::add);
+
+            if (page == 1) {
+                numFound = intOrMinusOne(Data4LibraryResponse.scalar(xml, "numFound"));
+                // 서버가 pageSize 를 그대로 따랐는지는 알 수 없습니다. 실제로 온 건수를
+                // 한 쪽 분량으로 삼아야 서버가 더 작게 잘라 줘도 이어 받을 수 있습니다.
+                perPage = items.size();
+            }
+            if (items.isEmpty()) return out;
+            if (numFound >= 0 ? out.size() >= numFound : items.size() < perPage) return out;
+        }
+        return out;
+    }
+
+    private static int intOrMinusOne(String value) {
+        try {
+            return value == null || value.isBlank() ? -1 : Integer.parseInt(value.trim());
+        } catch (NumberFormatException e) {
+            return -1;
+        }
     }
 
     /** {@link HoldingsLookup} 이 쓰는 형태로 감쌉니다. */

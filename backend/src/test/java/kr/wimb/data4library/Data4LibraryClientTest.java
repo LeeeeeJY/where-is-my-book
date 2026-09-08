@@ -79,11 +79,25 @@ class Data4LibraryClientTest {
     private static final class RecordingTransport implements Data4LibraryClient.Transport {
         final List<URI> requests = new ArrayList<>();
         String response = "<response><libs/></response>";
+        /** 비어 있지 않으면 호출마다 앞에서 하나씩 꺼내 씁니다. 쪽 넘김을 시험할 때 씁니다. */
+        final List<String> pages = new ArrayList<>();
 
         @Override public String get(URI uri) {
             requests.add(uri);
-            return response;
+            if (pages.isEmpty()) return response;
+            return pages.remove(0);
         }
+    }
+
+    /** 소장 도서관 한 곳이 든 한 쪽. */
+    private static String holdingPage(int numFound, String... libCodes) {
+        StringBuilder xml = new StringBuilder("<response><numFound>")
+                .append(numFound).append("</numFound><libs>");
+        for (String code : libCodes) {
+            xml.append("<lib><libCode>").append(code)
+                    .append("</libCode><libName>도서관").append(code).append("</libName></lib>");
+        }
+        return xml.append("</libs></response>").toString();
     }
 
     private static ApiBudget budget() {
@@ -193,6 +207,40 @@ class Data4LibraryClientTest {
         assertTrue(url.startsWith("https://data4library.kr/api/libSrchByBook?authKey="), url);
         assertTrue(url.contains("&isbn=9788983711892"), url);
         assertTrue(url.contains("&region=11"), url);
+    }
+
+    @Test
+    @DisplayName("소장 도서관이 한 쪽에 안 들어가면 끝까지 넘겨 받는다")
+    void pagesThroughEveryHoldingLibrary() {
+        // 첫 쪽만 보고 끝내면 뒤쪽 도서관이 통째로 빠진 채 답이 나갑니다. 빠진 도서관은
+        // 「그 도서관에는 없다」로, 그것도 「빠짐없이 확인했다」는 표시를 달고 나갑니다.
+        // 소장 도서관이 많은 책일수록 심해지므로, 가장 자주 찾는 책에서 가장 자주 틀립니다.
+        var transport = new RecordingTransport();
+        transport.pages.add(holdingPage(3, "111001", "111002"));
+        transport.pages.add(holdingPage(3, "111003"));
+
+        var libs = client(transport).librariesHolding("9788983711892", "11",
+                ApiBudget.Priority.USER);
+
+        assertEquals(List.of("111001", "111002", "111003"),
+                libs.stream().map(LibraryInfo::libCode).toList());
+        assertEquals(2, transport.requests.size(), "두 쪽을 받아야 합니다");
+        assertTrue(transport.requests.get(1).toString().contains("pageNo=2"),
+                transport.requests.get(1).toString());
+    }
+
+    @Test
+    @DisplayName("한 쪽에 다 들어오면 더 부르지 않는다")
+    void stopsAfterOnePageWhenEverythingFits() {
+        // 쪽 넘김이 예산을 쓸데없이 갉아먹으면 안 됩니다.
+        var transport = new RecordingTransport();
+        transport.pages.add(holdingPage(2, "111001", "111002"));
+
+        var libs = client(transport).librariesHolding("9788983711892", "11",
+                ApiBudget.Priority.USER);
+
+        assertEquals(2, libs.size());
+        assertEquals(1, transport.requests.size(), "한 번만 불러야 합니다");
     }
 
     @Test
