@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ApiUnavailable, fetchHoldings, fetchLoanStatus, libraryLink, searchBooks } from '../api';
 import type { LoanStatus } from '../api';
-import { linkLabel } from '../domain/opacLink';
+import { anyHomepageOnly, linkBadge, linkLabel } from '../domain/opacLink';
 import { LOAN_DISCLAIMER, loanPhrase } from '../domain/loanStatus';
 import type { SearchResponse, WorkResult } from '../api';
 import { holdingState } from '../domain/holdingState';
@@ -358,28 +358,36 @@ function Holdings({
         {held.map((code) => {
           const library = byCode.get(code);
           return (
-            <li key={code}>
-              {/*
-                어느 단계의 링크인지 밝힙니다. 조용히 홈페이지로 보내면 사용자는
-                검색 결과 자체가 틀렸다고 생각합니다.
-              */}
-              <a
-                href={libraryLink(code, work.isbn13List[0], work.title)}
-                target="_blank"
-                rel="noreferrer"
-              >
-                {library ? library.name : code}
-              </a>
-              <span className="muted"> {linkLabel(library?.linkKind)}</span>
+            <li key={code} className="lib">
+              <div className="lib__head">
+                {/*
+                  어느 단계의 링크인지 밝힙니다. 조용히 홈페이지로 보내면 사용자는
+                  검색 결과 자체가 틀렸다고 생각합니다. 다만 줄마다 한 문장씩 붙이면
+                  스무 곳에서 같은 말이 스무 번 반복되어 목록이 읽히지 않습니다.
+                  줄에는 짧게 붙이고 뜻은 목록 아래에 한 번만 풀어 씁니다.
+                */}
+                <a
+                  className="lib__name"
+                  href={libraryLink(code, work.isbn13List[0], work.title)}
+                  target="_blank"
+                  rel="noreferrer"
+                  title={linkLabel(library?.linkKind)}
+                >
+                  {library ? library.name : code}
+                </a>
+                <span className="lib__kind">{linkBadge(library?.linkKind)}</span>
+              </div>
               <LoanCheck libCode={code} isbn13List={work.isbn13List} />
             </li>
           );
         })}
       </ul>
-      <p className="muted holding__note">
-        대출 가능 여부는 도서관 페이지에서 확인해 주세요. 제공되는 대출 상태가 전날 기준이라
-        여기에는 표시하지 않습니다.
-      </p>
+      {anyHomepageOnly(held.map((code) => byCode.get(code)?.linkKind)) && (
+        <p className="muted holding__note">
+          「홈페이지」는 그 도서관의 주소 규칙이 아직 없어 첫 화면으로 보낸다는 뜻입니다.
+          거기서 책 제목을 다시 검색해 주세요.
+        </p>
+      )}
     </div>
   );
 }

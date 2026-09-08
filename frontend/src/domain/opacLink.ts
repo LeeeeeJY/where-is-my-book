@@ -24,3 +24,31 @@ export function linkLabel(kind: LinkKind | undefined): string {
       return '도서관 홈페이지로 이동 (주소 규칙 없음)';
   }
 }
+
+/**
+ * 목록에 붙이는 짧은 표시. 같은 문장을 도서관마다 되풀이하지 않기 위한 것입니다.
+ *
+ * <p>소장 도서관이 스무 곳이면 「도서관 홈페이지로 이동 (주소 규칙 없음)」이 스무 번
+ * 반복됩니다. 좁은 화면에서는 그것만으로 목록이 읽히지 않습니다. 그래서 줄마다는 짧게
+ * 붙이고, 무슨 뜻인지는 목록 아래에 한 번만 풀어 씁니다.
+ *
+ * <p><b>표시를 없애지는 않습니다.</b> 어느 단계인지 감추면 사용자는 엉뚱한 곳에 도착해
+ * 놓고 검색 결과 자체가 틀렸다고 생각합니다. 짧게 줄이되 구분은 남깁니다.
+ */
+export function linkBadge(kind: LinkKind | undefined): string {
+  switch (kind) {
+    case 'ISBN_DETAIL':
+      return '이 책 페이지';
+    case 'ISBN_SEARCH':
+      return '이 책 검색';
+    case 'TITLE_SEARCH':
+      return '제목 검색';
+    default:
+      return '홈페이지';
+  }
+}
+
+/** 목록에 홈페이지로 내려앉은 도서관이 섞여 있는지. 있으면 아래에 한 번 설명합니다. */
+export function anyHomepageOnly(kinds: (LinkKind | undefined)[]): boolean {
+  return kinds.some((kind) => kind === undefined || kind === 'HOMEPAGE');
+}
