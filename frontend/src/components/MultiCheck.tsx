@@ -43,6 +43,24 @@ type Phase =
  * 것이 실제 행동이고, 그 확인을 권수 × 도서관 수만큼 반복하는 것이 이 도구를 만든 이유입니다.
  */
 
+/**
+ * 입력 칸에 비쳐 보이는 예시.
+ *
+ * <b>넣을 수 있는 형태를 한 줄에 하나씩 보여 줍니다.</b> 같은 모양으로 다섯 줄을 적으면
+ * 예시가 사실상 하나뿐이라, 저자를 붙일 수 있다는 것도 ISBN 이 된다는 것도 알 수 없습니다.
+ * 제목만, 제목과 저자, ISBN, 서점 주소를 각각 한 줄씩 둡니다.
+ *
+ * <p>ISBN 과 주소는 <b>실제로 동작하는 값</b>입니다(「좀머 씨 이야기」와 「향수」, 열린책들).
+ * 따라 쳐 보는 사람이 있으므로 지어내지 않습니다.
+ */
+const INPUT_EXAMPLES = [
+  '레 미제라블',
+  '마담 보바리 - 플로베르',
+  '목로주점 - 에밀 졸라',
+  '9788932900209',
+  'https://product.kyobobook.co.kr/detail/9788932903187',
+].join('\n');
+
 export function MultiCheck({
   libraries,
   selected,
@@ -235,19 +253,19 @@ export function MultiCheck({
             id="multi-input"
             className="text-input multi-input"
             value={text}
-            placeholder={
-              '레 미제라블 - 빅토르 위고\n' +
-              '마담 보바리 - 플로베르\n' +
-              '목로주점 - 에밀 졸라\n' +
-              '향수 - 파트리크 쥐스킨트\n' +
-              '좀머 씨 이야기 - 파트리크 쥐스킨트'
-            }
+            placeholder={INPUT_EXAMPLES}
             onChange={(e) => setText(e.target.value)}
           />
           <div className="multi-form__foot">
+            {/*
+              **서점 주소가 늘 되는 것은 아닙니다.** 주소 안에서 ISBN13 을 찾아 쓰는 방식이라,
+              예스24처럼 자체 상품 번호만 쓰는 주소는 「주소에서 ISBN 을 찾지 못했습니다」가
+              됩니다. 「서점 주소도 됩니다」라고만 적으면 안 되는 주소를 넣어 보고 고장이라고
+              여깁니다.
+            */}
             <span className="muted">
-              한 줄에 한 권씩. 「제목 - 저자」로 적으면 더 정확합니다. ISBN 과 서점 주소도
-              됩니다{lineCount > 0 && ` · ${lineCount}줄`}
+              한 줄에 한 권씩. 제목만 넣어도 되고, 「제목 - 저자」로 적으면 더 정확합니다.
+              ISBN 과, 주소에 ISBN 이 든 서점 링크도 됩니다{lineCount > 0 && ` · ${lineCount}줄`}
             </span>
             <button className="button" type="submit" disabled={phase.kind === 'resolving'}>
               {phase.kind === 'resolving' ? '읽는 중' : '확인'}
