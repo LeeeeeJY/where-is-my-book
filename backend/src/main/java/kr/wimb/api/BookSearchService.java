@@ -1,6 +1,7 @@
 package kr.wimb.api;
 
 import kr.wimb.bib.BibNormalizer;
+import kr.wimb.bib.Isbn;
 import kr.wimb.bib.WorkClusterer;
 import kr.wimb.bib.WorkMatcher;
 import kr.wimb.data4library.BookInfo;
@@ -105,12 +106,18 @@ public class BookSearchService {
         List<BookInfo> usable = withIsbn(found);
         List<WorkResult> ranked = rank(
                 retried != null ? retried : query.title(), worksOf(usable));
+        // **책이 아닌 자료와 ISBN 을 판별하지 못한 책을 갈라 셉니다.** 섞으면 화면이
+        // 「DVD 열여섯 건이 빠졌습니다」라고 알리게 되는데, 도움이 되지 않고 불안만 만듭니다.
+        List<BookInfo> dropped = found.stream()
+                .filter(book -> book.canonicalIsbn13().isEmpty())
+                .filter(book -> !Isbn.isNotABookNumber(book.isbn13()))
+                .toList();
         return new SearchResponse(
                 ranked.stream().limit(MAX_WORKS).toList(),
                 ranked.size(),
                 found.size(),
-                found.size() - usable.size(),
-                droppedBooksOf(found),
+                dropped.size(),
+                droppedBooksOf(dropped),
                 retried,
                 recovered,
                 LocalDate.now(SEOUL).toString());
@@ -128,12 +135,21 @@ public class BookSearchService {
      * <b>「어디에 있는지 모르는 책」과 「고른 도서관에 없는 책」을 섞지 않으려면 목록 바깥에
      * 두고 그 사실을 말해야 합니다.</b>
      *
+     * <p><b>책이 아닌 자료는 여기 넣지 않습니다.</b> 정보나루의 도서 검색이 음반과 영상물을
+     * 함께 돌려줍니다. 「해리포터」로 찾으면 워너브라더스 DVD 가 열여섯 건, 「레미제라블」로
+     * 찾으면 유니버설픽쳐스 블루레이와 OST 가 열다섯 건 섞여 옵니다. 그것들을 세어
+     * 알리면 「DVD 가 열여섯 건 빠졌습니다」가 되는데, 도움이 되지 않고 불안만 만듭니다.
+     * {@code Isbn.isNotABookNumber} 가 갈라 냅니다.
+     *
+     * <p>반면 <b>「칼세이건 코스모스」(사이언스북스)처럼 진짜 책인데 정보나루의 ISBN 에
+     * 오타가 나 있는 경우가 실제로 있습니다.</b> 체크디지트가 맞지 않아 소장을 물어볼 수
+     * 없지만 사용자가 찾던 바로 그 책일 수 있으므로, 이쪽은 반드시 보여 줍니다.
+     *
      * <p>많으면 응답만 커지므로 위에서 몇 개만 보냅니다. 전체 건수는 {@code droppedNoIsbn}
      * 이 이미 말하고 있습니다.
      */
-    private static List<DroppedBook> droppedBooksOf(List<BookInfo> found) {
-        return found.stream()
-                .filter(book -> book.canonicalIsbn13().isEmpty())
+    private static List<DroppedBook> droppedBooksOf(List<BookInfo> dropped) {
+        return dropped.stream()
                 .map(book -> new DroppedBook(
                         book.bookname(), book.authors(), book.publisher(), book.isbn13()))
                 .limit(MAX_DROPPED_SHOWN)
@@ -156,14 +172,20 @@ public class BookSearchService {
      * 되찾습니다. 우리 정규화가 공백을 지우므로 「레미제라블」과 「레 미제라블」의 키가 같아지고,
      * 함께 딸려 온 「파리의 노트르담」은 키가 달라 걸러집니다.
      *
-     * <p><b>붙여 쓴 질의에만 부릅니다.</b> 처음에는 「제목이 그대로 맞은 책이 하나도 없을
-     * 때」로 걸었는데, 배포해 놓고 불러 보니 <b>한 번도 발동하지 않았습니다.</b>
-     * 「레미제라블」로 찾으면 그 제목의 책이 웅진씽크빅·가나출판사·어문각 등 열다섯 개나
-     * 나옵니다. 없는 것은 「그 제목의 책」이 아니라 <b>띄어 쓴 표기의 판</b>이었습니다.
-     * 조건을 결과의 많고 적음이 아니라 <b>질의의 모양</b>에 걸어야 하는 이유입니다.
+     * <p><b>조건을 두 번 잘못 걸었습니다. 둘 다 실측이 잡았습니다.</b>
      *
-     * <p>그래서 호출은 붙여 쓴 제목으로 찾을 때만 한 번 늘어납니다. 띄어 쓴 질의는
-     * 정보나루가 어절로 맞춰 주므로 그대로 둡니다.
+     * <p>처음에는 「제목이 그대로 맞은 책이 하나도 없을 때」로 걸었는데 <b>한 번도 발동하지
+     * 않았습니다.</b> 「레미제라블」로 찾으면 그 제목의 책이 웅진씽크빅·가나출판사·어문각 등
+     * 열다섯 개나 나옵니다. 없는 것은 「그 제목의 책」이 아니라 띄어 쓴 표기의 판이었습니다.
+     *
+     * <p>다음에는 「붙여 쓴 질의일 때만」으로 걸었는데 <b>반쪽만 고쳐졌습니다.</b>
+     * 「레미제라블」은 띄어 쓴 판까지 찾아내게 되었지만, <b>「레 미제라블」로 찾으면 붙여 쓴
+     * 판이 한 건도 나오지 않았습니다</b>(실측: 저작 155개 가운데 붙여 쓴 표기 0개).
+     * 못 찾는 것은 양쪽 모두입니다.
+     *
+     * <p>그래서 <b>제목으로 찾을 때는 표기와 무관하게 부릅니다.</b> 제목 검색 한 번에 호출이
+     * 하나 늘지만, 그러지 않으면 사용자가 넣은 띄어쓰기에 따라 있는 책이 사라집니다.
+     * 저자를 알아내지 못하면 부르지 않으므로 0건 검색에서는 늘지 않습니다.
      */
     private List<BookInfo> recoverByAuthor(Data4LibraryClient.BookQuery query,
                                            List<BookInfo> found) {
@@ -171,11 +193,6 @@ public class BookSearchService {
         if (query.title() == null || query.title().isBlank() || query.author() != null) return found;
         // 한 건도 없으면 저자를 알아낼 수가 없습니다. 그건 respacedTitle 이 맡습니다.
         if (found.isEmpty()) return found;
-
-        // **띄어 쓴 질의는 되찾을 것이 없습니다.** 정보나루가 어절 단위로 맞춰 주므로
-        // 「마의 산」은 「마의 산」도 「마의산」도 찾아냅니다. 구조적으로 놓치는 것은
-        // **붙여 쓴 질의**뿐입니다. 어절 하나로 취급되어 띄어 쓴 서명과 영영 맞지 않습니다.
-        if (query.title().trim().contains(" ")) return found;
 
         String wanted = BibNormalizer.parseTitle(query.title()).titleKeyCore();
         if (wanted.isEmpty()) return found;

@@ -400,6 +400,31 @@ class BookSearchServiceTest {
         </response>
         """;
 
+
+    /** 띄어 쓴 표기만 있는 응답. 「레 미제라블」로 찾았을 때의 모양입니다. */
+    private static final String SPACED_ONLY = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <response>
+          <docs>
+            <doc>
+              <bookname><![CDATA[레 미제라블]]></bookname>
+              <authors><![CDATA[빅토르 위고 지음]]></authors>
+              <publisher><![CDATA[삼성출판사]]></publisher>
+              <publication_year>2015</publication_year>
+              <isbn13>9788915030688</isbn13>
+            </doc>
+          </docs>
+        </response>
+        """;
+
+    /** 한 건도 없는 응답. */
+    private static final String EMPTY_RESPONSE = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <response>
+          <docs></docs>
+        </response>
+        """;
+
     /** 저자로 되찾으면 낱권이 나오는데, 같은 저자의 다른 책도 함께 옵니다. */
     private static final String LESMIS_BY_AUTHOR = """
         <?xml version="1.0" encoding="UTF-8"?>
@@ -463,26 +488,49 @@ class BookSearchServiceTest {
     }
 
     /**
-     * <b>띄어 쓴 질의에는 되찾기를 부르지 않습니다.</b> 정보나루가 어절 단위로 맞춰 주므로
-     * 구조적으로 놓치는 것이 없고, 평소 검색마다 호출이 하나씩 늘면 하루 예산이 그만큼
-     * 빨리 사라집니다.
+     * <b>못 찾는 것은 양쪽 방향 모두입니다.</b> 「붙여 쓴 질의일 때만」으로 걸었더니
+     * 「레미제라블」은 고쳐졌는데 「레 미제라블」로 찾으면 붙여 쓴 판이 한 건도 나오지
+     * 않았습니다. 실측에서 저작 155개 가운데 붙여 쓴 표기가 0개였습니다.
      */
     @Test
-    @DisplayName("띄어 쓴 제목으로 찾을 때는 저자로 다시 부르지 않는다")
-    void doesNotRecoverForSpacedQuery() {
+    @DisplayName("띄어 쓴 질의에서도 붙여 쓴 판을 되찾는다")
+    void recoversForSpacedQueryToo() {
+        String spacedOnly = SPACED_ONLY;
+        var budget = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 1000),
+                Clock.fixed(Instant.parse("2026-09-05T00:00:00Z"), ZoneId.of("UTC")));
+        var client = new Data4LibraryClient(
+                uri -> uri.toString().contains("author=") ? LESMIS_SAME_TITLE : spacedOnly,
+                "테스트키", budget);
+        var service = new BookSearchService(client, new HoldingsLookup(
+                (isbn, region) -> List.of(), HoldingsLookup.RegionModeStore.documented()));
+
+        var response = service.search("레 미제라블");
+
+        assertTrue(response.recoveredByAuthor(),
+                "띄어 쓴 질의로 찾을 때도 붙여 쓴 판을 되찾아야 합니다");
+    }
+
+    /**
+     * <b>저자를 알아내지 못하면 부르지 않습니다.</b> 0건 검색에서까지 호출이 늘면 하루
+     * 예산이 그만큼 빨리 사라집니다.
+     */
+    @Test
+    @DisplayName("한 건도 못 찾았으면 저자로 되찾을 것도 없다")
+    void doesNotRecoverWithoutAnyResult() {
+        String empty = EMPTY_RESPONSE;
         var calls = new java.util.concurrent.atomic.AtomicInteger();
         var budget = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 1000),
                 Clock.fixed(Instant.parse("2026-09-05T00:00:00Z"), ZoneId.of("UTC")));
         var client = new Data4LibraryClient(uri -> {
             calls.incrementAndGet();
-            return TWO_BOOKS;
+            return empty;
         }, "테스트키", budget);
         var service = new BookSearchService(client, new HoldingsLookup(
                 (isbn, region) -> List.of(), HoldingsLookup.RegionModeStore.documented()));
 
-        var response = service.search("칼 세이건의 코스모스");
+        var response = service.search("없는책");
 
-        assertEquals(1, calls.get(), "띄어 쓴 질의이므로 한 번만 불러야 합니다");
+        assertEquals(1, calls.get(), "저자를 알 수 없으므로 되찾기를 부르지 않습니다");
         assertFalse(response.recoveredByAuthor());
     }
 

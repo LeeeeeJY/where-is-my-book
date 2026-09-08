@@ -85,6 +85,28 @@ public final class Isbn {
         return isbn13.startsWith("978") || isbn13.startsWith("979");
     }
 
+    /**
+     * 애초에 <b>도서 번호가 아닌</b> 값인지. 도서는 EAN 접두어 978/979 를 씁니다.
+     *
+     * <p><b>정보나루의 도서 검색이 음반과 영상물을 함께 돌려줍니다.</b> 실제로 「해리포터」로
+     * 찾으면 워너브라더스 DVD 가 열여섯 건, 「레미제라블」로 찾으면 유니버설픽쳐스
+     * 블루레이와 OST 가 열다섯 건 섞여 옵니다. 이 값들은 `880` 으로 시작하는데, 그것은
+     * 대한민국 EAN 국가 코드이지 ISBN 이 아닙니다.
+     *
+     * <p>이것을 <b>「ISBN 을 판별하지 못한 책」과 섞으면 안 됩니다.</b> 앞은 사용자가 찾던
+     * 책일 수 있어 반드시 알려야 하고, 뒤는 애초에 책이 아니라 알릴 것이 없습니다.
+     * 「DVD 가 열여섯 건 빠졌습니다」는 알림은 도움이 되지 않고 불안만 만듭니다.
+     *
+     * <p>값이 비어 있으면 <b>여기서 판단하지 않습니다.</b> ISBN 이 없는 옛날 책일 수 있고,
+     * 그것은 사용자가 알아야 하는 쪽입니다.
+     */
+    public static boolean isNotABookNumber(String raw) {
+        if (raw == null) return false;
+        String cleaned = raw.replaceAll("[^0-9Xx]", "").toUpperCase();
+        // 13자리 EAN 인데 도서 접두어가 아니면 도서 번호가 아닙니다.
+        return cleaned.length() >= 13 && !hasUsablePrefix(cleaned.substring(0, 13));
+    }
+
     /** 같은 숫자만 반복되는 값은 자리 채우기용 더미입니다. */
     private static boolean isRepeatedDigit(String s) {
         return s.chars().distinct().count() == 1;
