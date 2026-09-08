@@ -87,6 +87,14 @@ function RegionTab({
 }) {
   const tree = useMemo(() => buildRegionTree(libraries), [libraries]);
   const [openSido, setOpenSido] = useState<Set<string>>(new Set());
+  // 시군구는 (시도, 시군구) 쌍으로 구분합니다. 「중구」처럼 여러 시도에 같은 이름이
+  // 있으므로, 시군구 이름만 열쇠로 쓰면 서울 중구를 펴면 부산 중구도 함께 펴집니다.
+  const [openSigungu, setOpenSigungu] = useState<Set<string>>(new Set());
+  const toggle = (set: Set<string>, key: string) => {
+    const next = new Set(set);
+    if (!next.delete(key)) next.add(key);
+    return next;
+  };
 
   return (
     <ul className="tree">
@@ -104,13 +112,7 @@ function RegionTab({
               <button
                 className="tree__toggle"
                 aria-expanded={open}
-                onClick={() =>
-                  setOpenSido((prev) => {
-                    const next = new Set(prev);
-                    if (!next.delete(sidoNode.sido)) next.add(sidoNode.sido);
-                    return next;
-                  })
-                }
+                onClick={() => setOpenSido((prev) => toggle(prev, sidoNode.sido))}
               >
                 <span className={open ? 'caret caret--open' : 'caret'} aria-hidden>
                   ▸
@@ -122,34 +124,48 @@ function RegionTab({
 
             {open && (
               <ul className="tree tree--nested">
-                {sidoNode.sigungus.map((sigunguNode) => (
-                  <li key={sigunguNode.sigungu}>
-                    <div className="tree__row">
-                      <TriStateCheckbox
-                        state={groupState(selected, sigunguNode.libraries)}
-                        onChange={() => onChange(toggleGroup(selected, sigunguNode.libraries))}
-                        label={`${sigunguNode.sigungu} 전체`}
-                      />
-                      <span>
-                        {sigunguNode.sigungu}
-                        <span className="muted"> {sigunguNode.libraries.length}곳</span>
-                      </span>
-                    </div>
-                    <ul className="tree tree--nested">
-                      {sigunguNode.libraries.map((library) => (
-                        <li key={library.libCode} className="tree__row">
-                          <input
-                            type="checkbox"
-                            checked={selected.has(library.libCode)}
-                            onChange={() => onChange(toggleOne(selected, library.libCode))}
-                            id={`lib-${library.libCode}`}
-                          />
-                          <label htmlFor={`lib-${library.libCode}`}>{library.name}</label>
-                        </li>
-                      ))}
-                    </ul>
-                  </li>
-                ))}
+                {sidoNode.sigungus.map((sigunguNode) => {
+                  const key = `${sidoNode.sido}/${sigunguNode.sigungu}`;
+                  const sigunguOpen = openSigungu.has(key);
+                  return (
+                    <li key={key}>
+                      <div className="tree__row">
+                        <TriStateCheckbox
+                          state={groupState(selected, sigunguNode.libraries)}
+                          onChange={() => onChange(toggleGroup(selected, sigunguNode.libraries))}
+                          label={`${sigunguNode.sigungu} 전체`}
+                        />
+                        <button
+                          className="tree__toggle"
+                          aria-expanded={sigunguOpen}
+                          onClick={() => setOpenSigungu((prev) => toggle(prev, key))}
+                        >
+                          <span className={sigunguOpen ? 'caret caret--open' : 'caret'} aria-hidden>
+                            ▸
+                          </span>
+                          {sigunguNode.sigungu}
+                          <span className="muted"> {sigunguNode.libraries.length}곳</span>
+                        </button>
+                      </div>
+
+                      {sigunguOpen && (
+                        <ul className="tree tree--nested">
+                          {sigunguNode.libraries.map((library) => (
+                            <li key={library.libCode} className="tree__row">
+                              <input
+                                type="checkbox"
+                                checked={selected.has(library.libCode)}
+                                onChange={() => onChange(toggleOne(selected, library.libCode))}
+                                id={`lib-${library.libCode}`}
+                              />
+                              <label htmlFor={`lib-${library.libCode}`}>{library.name}</label>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </li>
