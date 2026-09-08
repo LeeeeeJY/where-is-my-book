@@ -654,7 +654,10 @@ function Holdings({
                   title={linkLabel(library?.linkKind)}
                 >
                   <span className="lib__name">{library ? library.name : code}</span>
-                  <span className="lib__kind">{linkBadge(library?.linkKind)}</span>
+                  {/* 기본값(홈페이지)에는 배지를 달지 않습니다. 이유는 linkBadge 에 있습니다. */}
+                  {linkBadge(library?.linkKind) && (
+                    <span className="lib__kind">{linkBadge(library?.linkKind)}</span>
+                  )}
                 </a>
               </div>
               <LoanCheck libCode={code} isbn13List={work.isbn13List} />
@@ -664,8 +667,8 @@ function Holdings({
       </ul>
       {anyHomepageOnly(held.map((code) => byCode.get(code)?.linkKind)) && (
         <p className="muted holding__note">
-          「홈페이지」는 그 도서관의 주소 규칙이 아직 없어 첫 화면으로 보낸다는 뜻입니다.
-          거기서 책 제목을 다시 검색해 주세요.
+          도서관 이름을 누르면 첫 화면으로 갑니다. 그 도서관의 책 페이지 주소 규칙이 아직
+          없어서인데, 거기서 제목을 다시 검색해 주세요.
         </p>
       )}
     </div>
