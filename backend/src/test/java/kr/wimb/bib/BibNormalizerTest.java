@@ -91,6 +91,54 @@ class BibNormalizerTest {
             assertNull(BibNormalizer.parseTitle("코스모스 2020").volNo());
             assertNull(BibNormalizer.parseTitle("82년생 김지영").volNo());
         }
+
+        /**
+         * <b>실제로 이렇게 잘리고 있었습니다.</b> 상·중·하를 붙여 쓴 것까지 잡는 바람에
+         * 「천하」가 「천」의 3권이 되었습니다. 표제 키가 「천」으로 바뀌므로 「천하」를
+         * 찾는 사람에게 그 책은 <b>제목이 안 맞는 것으로 밀려</b> 목록 아래로 내려가고,
+         * 상·중·하로 나온 책이 아닌데 낱권으로 갈라져 <b>세트 취급을 받습니다.</b>
+         */
+        @Test
+        @DisplayName("붙여 쓴 상·중·하는 권차가 아니다")
+        void attachedSangHaIsNotAVolume() {
+            for (String title : List.of("천하", "지하", "은하", "명상", "환상", "집중")) {
+                assertNull(BibNormalizer.parseTitle(title).volNo(),
+                        title + " 는 낱권이 아니라 그 자체가 표제입니다");
+                assertEquals(title, BibNormalizer.parseTitle(title).titleProper(),
+                        title + " 의 표제가 잘리면 안 됩니다");
+            }
+        }
+
+        @Test
+        @DisplayName("공백이나 괄호로 떨어진 상·중·하는 권차로 읽는다")
+        void separatedSangHaIsAVolume() {
+            assertEquals(1, BibNormalizer.parseTitle("토지 상").volNo());
+            assertEquals(2, BibNormalizer.parseTitle("토지 중").volNo());
+            assertEquals(3, BibNormalizer.parseTitle("토지 하").volNo());
+            assertEquals(1, BibNormalizer.parseTitle("토지 상권").volNo());
+            assertEquals(1, BibNormalizer.parseTitle("토지(상)").volNo());
+            assertEquals("토지", BibNormalizer.parseTitle("토지 상").titleProper());
+        }
+
+        /**
+         * 정보나루가 권차를 {@code vol} 로 따로 주는데 매뉴얼에 형식이 적혀 있지 않습니다.
+         * 숫자가 아니라고 버리면 그 책들은 권차가 없는 것이 되어 <b>상·중·하가 한 저작으로
+         * 합쳐지고</b>, 상권만 가진 도서관이 「있음」으로 나옵니다.
+         */
+        @Test
+        @DisplayName("권차 필드가 숫자가 아니어도 읽을 수 있으면 읽는다")
+        void readsAVolumeFieldThatIsNotDigits() {
+            assertEquals(3, BibNormalizer.volumeOrdinal("3"));
+            assertEquals(3, BibNormalizer.volumeOrdinal("제3권"));
+            assertEquals(1, BibNormalizer.volumeOrdinal("상"));
+            assertEquals(2, BibNormalizer.volumeOrdinal("중"));
+            assertEquals(3, BibNormalizer.volumeOrdinal("하"));
+            assertEquals(1, BibNormalizer.volumeOrdinal("상권"));
+            assertEquals(2, BibNormalizer.volumeOrdinal("II"));
+            assertNull(BibNormalizer.volumeOrdinal(null));
+            assertNull(BibNormalizer.volumeOrdinal("  "));
+            assertNull(BibNormalizer.volumeOrdinal("전집"));
+        }
     }
 
     @Nested
