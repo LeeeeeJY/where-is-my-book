@@ -266,6 +266,13 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
 }
 
 .book-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
+/*
+  「더 보기」로 펼친 묶음은 따로 그리므로 목록이 여럿 이어집니다. 첫 카드에는 구분선을 두지
+  않는 규칙 때문에 묶음 사이에 선이 빠졌고, 두 카드가 한 덩어리처럼 붙어 보였습니다.
+  묶음 사이에는 카드 사이와 같은 간격과 선을 둡니다.
+*/
+.book-list + .book-list { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+.progress + .book-list { margin-top: 0; }
 
 .book {
   display: grid;

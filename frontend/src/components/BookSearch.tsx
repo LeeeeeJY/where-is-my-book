@@ -34,8 +34,14 @@ function DroppedList({ books, total }: { books: DroppedBook[]; total: number }) 
   );
 }
 
-/** 소장을 동시에 몇 권까지 물어볼지. 남의 서버를 몰아치지 않는 선입니다. */
-const CONCURRENCY = 4;
+/**
+ * 소장을 동시에 몇 권까지 물어볼지.
+ *
+ * <p>정보나루의 소장 조회는 한 번에 4~5초가 걸립니다. 넷씩 물으면 스무 권에 1분 가까이
+ * 걸렸습니다. 정보나루에 한꺼번에 나가는 요청 수는 서버가 따로 묶어 두므로, 여기서 늘리는
+ * 것은 우리 서버로 가는 요청일 뿐입니다.
+ */
+const CONCURRENCY = 8;
 
 /**
  * 한 번에 펼쳐 보이는 저작 수.
@@ -485,9 +491,19 @@ ISBN 을 알 수 없어 소장을 확인하지 못하는 자료가 {droppedNoIsb
         있을 수 있습니다.
       */}
       <p className="more">
-        {totalWorks > works.length
-          ? `${totalWorks}개를 찾아 위에서 ${works.length}개까지 봅니다 · ${shown}개 보는 중`
-          : `${totalWorks}개 중 ${Math.min(shown, works.length)}개 보는 중`}
+        {/*
+          「180개를 찾아 위에서 100개까지 봅니다 · 20개 보는 중」은 20개만 보이는데 왜 100개
+          이야기가 나오는지 알 수 없었습니다. 지금 보는 수만 말하고, 상한(100)에 실제로
+          닿았을 때만 그 뒤가 잘렸다는 것을 말합니다.
+        */}
+        {`${totalWorks}개 중 ${Math.min(shown, works.length)}개 보는 중`}
+        {shown >= works.length && totalWorks > works.length && (
+          <>
+            {' '}
+            · 위에서 {works.length}개까지만 볼 수 있습니다. 나머지 {totalWorks - works.length}개는
+            저자나 출판사를 더 넣어 좁혀 주세요.
+          </>
+        )}
         {shown < works.length && (
           <>
             {' '}
