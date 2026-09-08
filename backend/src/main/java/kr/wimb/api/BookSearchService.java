@@ -17,7 +17,9 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -92,6 +94,11 @@ public class BookSearchService {
             if (found.isEmpty()) retried = null;
         }
 
+        // 어절 경계 때문에 놓친 판이 있으면 저자로 되찾습니다.
+        int beforeRecovery = found.size();
+        found = recoverByAuthor(query, found);
+        boolean recovered = found.size() > beforeRecovery;
+
         List<BookInfo> usable = withIsbn(found);
         List<WorkResult> ranked = rank(
                 retried != null ? retried : query.title(), worksOf(usable));
@@ -101,7 +108,85 @@ public class BookSearchService {
                 found.size(),
                 found.size() - usable.size(),
                 retried,
+                recovered,
                 LocalDate.now(SEOUL).toString());
+    }
+
+    /**
+     * 제목으로 찾긴 했는데 <b>그 제목의 책이 하나도 없을 때</b>, 찾은 책의 저자로 한 번 더
+     * 찾아 표제가 맞는 것을 더합니다.
+     *
+     * <p><b>정보나루의 제목 매칭은 어절의 앞에서부터 맞춥니다.</b> 실제로 불러 확인했습니다.
+     * 「미제라블」은 「레 미제라블」을 찾아내지만 「제라블」과 「레 미제」는 0건입니다.
+     * 그래서 <b>「레미제라블」은 어느 어절과도 맞지 않아 낱권을 한 권도 찾지 못합니다.</b>
+     * 민음사에서 붙여 쓴 표기는 세트뿐이라 세트 하나만 걸리고, 사용자에게는 그것이
+     * 「낱권이 없다」로 보입니다.
+     *
+     * <p><b>공백을 어디에 넣어야 하는지는 우리가 알 수 없습니다.</b> 「레미제라블」에서
+     * 「레 미제라블」을 만들어 낼 방법이 없고, 앞 글자를 떼는 방법은 제목만으로 찾을 때
+     * 196건이 나와 쓸 수 없습니다. 그런데 세트를 통해 <b>저자는 알게 되었으므로</b> 그것으로
+     * 되찾습니다. 우리 정규화가 공백을 지우므로 「레미제라블」과 「레 미제라블」의 키가 같아지고,
+     * 함께 딸려 온 「파리의 노트르담」은 키가 달라 걸러집니다.
+     *
+     * <p><b>호출은 한 번만 늘어납니다.</b> 제목이 그대로 맞은 책이 이미 있으면 아예 부르지
+     * 않으므로, 평소 검색에는 영향이 없습니다.
+     */
+    private List<BookInfo> recoverByAuthor(Data4LibraryClient.BookQuery query,
+                                           List<BookInfo> found) {
+        // 저자로 이미 찾고 있으면 되찾을 것이 없습니다.
+        if (query.title() == null || query.title().isBlank() || query.author() != null) return found;
+        // 한 건도 없으면 저자를 알아낼 수가 없습니다. 그건 respacedTitle 이 맡습니다.
+        if (found.isEmpty()) return found;
+
+        String wanted = BibNormalizer.parseTitle(query.title()).titleKeyCore();
+        if (wanted.isEmpty()) return found;
+        // 제목이 그대로 맞은 책이 하나라도 있으면 놓친 것이 없다고 봅니다.
+        if (found.stream().anyMatch(b -> wanted.equals(titleKeyOf(b)))) return found;
+
+        String author = primaryAuthorOf(found);
+        if (author == null) return found;
+
+        List<BookInfo> byAuthor;
+        try {
+            byAuthor = client.searchBooks(
+                    new Data4LibraryClient.BookQuery(null, author, query.publisher(), null, false),
+                    1, ApiBudget.Priority.USER);
+        } catch (RuntimeException e) {
+            // 되찾기는 덤입니다. 실패해도 원래 결과를 그대로 내보냅니다.
+            return found;
+        }
+
+        Set<String> seen = found.stream()
+                .map(b -> b.canonicalIsbn13().orElse(null))
+                .filter(java.util.Objects::nonNull)
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
+        List<BookInfo> merged = new ArrayList<>(found);
+        for (BookInfo book : byAuthor) {
+            if (!wanted.equals(titleKeyOf(book))) continue;
+            String isbn = book.canonicalIsbn13().orElse(null);
+            if (isbn == null || !seen.add(isbn)) continue;
+            merged.add(book);
+        }
+        return merged;
+    }
+
+    private static String titleKeyOf(BookInfo book) {
+        return BibNormalizer.parseTitle(book.bookname()).titleKeyCore();
+    }
+
+    /** 찾은 책들에서 가장 자주 나오는 주저자 표기. 정보나루에 그대로 넘길 값입니다. */
+    private static String primaryAuthorOf(List<BookInfo> found) {
+        Map<String, Integer> counts = new LinkedHashMap<>();
+        for (BookInfo book : found) {
+            var primary = BibNormalizer.primaryAuthor(
+                    BibNormalizer.parseContributors(book.authors()));
+            if (primary == null || primary.name() == null || primary.name().isBlank()) continue;
+            counts.merge(primary.name().trim(), 1, Integer::sum);
+        }
+        return counts.entrySet().stream()
+                .max(Map.Entry.comparingByValue())
+                .map(Map.Entry::getKey)
+                .orElse(null);
     }
 
     /**
@@ -382,6 +467,13 @@ public class BookSearchService {
      *                     다른 결과를 보고 어리둥절하지 않습니다. 재시도가 없었으면 null.
      * @param asOf 이 검색을 한 날짜.
      */
+    /**
+     * @param recoveredByAuthor 제목으로는 걸리지 않던 판을 <b>저자로 되찾아 더했는지.</b>
+     *                          화면이 이 사실을 밝혀야 합니다. 사용자가 넣은 제목과 다른
+     *                          표기의 책이 목록에 섞여 있는 것이므로, 말하지 않으면 검색이
+     *                          엉뚱한 것을 가져왔다고 읽힙니다.
+     */
     public record SearchResponse(List<WorkResult> works, int totalWorks, int foundBooks,
-                                 int droppedNoIsbn, String retriedTitle, String asOf) {}
+                                 int droppedNoIsbn, String retriedTitle,
+                                 boolean recoveredByAuthor, String asOf) {}
 }

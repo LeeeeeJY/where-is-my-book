@@ -314,7 +314,8 @@ function SearchState({
     );
   }
 
-  const { works, totalWorks, foundBooks, droppedNoIsbn, retriedTitle } = state.response;
+  const { works, totalWorks, foundBooks, droppedNoIsbn, retriedTitle, recoveredByAuthor } =
+    state.response;
   if (works.length === 0) {
     return (
       <div className="banner banner--warn">
@@ -361,6 +362,17 @@ function SearchState({
           넣으신 제목으로는 한 건도 없어서 <strong>「{retriedTitle}」</strong>로 다시
           찾았습니다. 정보나루는 넣은 글자를 그대로 찾기 때문에 띄어쓰기가 다르면
           걸리지 않습니다.
+        </div>
+      )}
+      {/*
+        저자로 되찾은 것도 반드시 밝힙니다. 넣은 제목과 다른 표기의 책이 목록에 섞여
+        있는 것이라, 말하지 않으면 검색이 엉뚱한 것을 가져왔다고 읽힙니다.
+      */}
+      {recoveredByAuthor && (
+        <div className="banner banner--info">
+          넣으신 제목으로는 걸리지 않는 판이 있어 <strong>같은 저자의 책</strong>에서 더
+          찾았습니다. 정보나루는 제목을 어절 단위로 맞추기 때문에, 「레미제라블」로는
+          「레 미제라블」이 걸리지 않습니다.
         </div>
       )}
       <p className="asof">

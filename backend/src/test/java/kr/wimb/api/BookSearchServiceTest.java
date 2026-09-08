@@ -359,4 +359,106 @@ class BookSearchServiceTest {
                 List.of("11"), List.of("111001"));
         assertTrue(holdings.unreadable());
     }
+
+    /** 「레미제라블」로 찾으면 붙여 쓴 세트 하나만 걸립니다. 실제 응답을 줄인 것입니다. */
+    private static final String LESMIS_SET_ONLY = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <response>
+          <docs>
+            <doc>
+              <bookname><![CDATA[레미제라블 세트 - 전5권]]></bookname>
+              <authors><![CDATA[빅토르 위고 지음 ; 정기수 옮김]]></authors>
+              <publisher><![CDATA[민음사]]></publisher>
+              <publication_year>2012</publication_year>
+              <isbn13>9788937486104</isbn13>
+            </doc>
+          </docs>
+        </response>
+        """;
+
+    /** 저자로 되찾으면 낱권이 나오는데, 같은 저자의 다른 책도 함께 옵니다. */
+    private static final String LESMIS_BY_AUTHOR = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <response>
+          <docs>
+            <doc>
+              <bookname><![CDATA[레 미제라블]]></bookname>
+              <authors><![CDATA[빅토르 위고 지음 ; 정기수 옮김]]></authors>
+              <publisher><![CDATA[민음사]]></publisher>
+              <publication_year>2012</publication_year>
+              <isbn13>9788937463013</isbn13>
+              <vol>1</vol>
+            </doc>
+            <doc>
+              <bookname><![CDATA[레 미제라블]]></bookname>
+              <authors><![CDATA[빅토르 위고 지음 ; 정기수 옮김]]></authors>
+              <publisher><![CDATA[민음사]]></publisher>
+              <publication_year>2012</publication_year>
+              <isbn13>9788937463020</isbn13>
+              <vol>2</vol>
+            </doc>
+            <doc>
+              <bookname><![CDATA[파리의 노트르담]]></bookname>
+              <authors><![CDATA[빅토르 위고 지음 ; 정기수 옮김]]></authors>
+              <publisher><![CDATA[민음사]]></publisher>
+              <publication_year>2005</publication_year>
+              <isbn13>9788937462412</isbn13>
+            </doc>
+          </docs>
+        </response>
+        """;
+
+    /** 제목으로 찾을 때와 저자로 찾을 때 서로 다른 응답을 주는 정보나루를 흉내 냅니다. */
+    private static BookSearchService recoveringService() {
+        var budget = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 1000),
+                Clock.fixed(Instant.parse("2026-09-05T00:00:00Z"), ZoneId.of("UTC")));
+        var client = new Data4LibraryClient(
+                uri -> uri.toString().contains("author=") ? LESMIS_BY_AUTHOR : LESMIS_SET_ONLY,
+                "테스트키", budget);
+        return new BookSearchService(client, new HoldingsLookup(
+                (isbn, region) -> List.of(), HoldingsLookup.RegionModeStore.documented()));
+    }
+
+    /**
+     * 정보나루의 제목 매칭이 어절의 앞에서부터 맞으므로, 「레미제라블」로는 「레 미제라블」
+     * 낱권이 한 권도 걸리지 않습니다. 붙여 쓴 세트만 나오고 사용자는 그것을 「낱권이 없다」로
+     * 읽습니다. 공백을 어디에 넣을지는 알 수 없지만 세트를 통해 저자는 알게 되므로,
+     * 그것으로 되찾습니다.
+     */
+    @Test
+    @DisplayName("제목으로 못 찾은 판을 저자로 되찾는다")
+    void recoversMissedEditionsByAuthor() {
+        var response = recoveringService().search("레미제라블");
+
+        assertTrue(response.recoveredByAuthor(), "되찾았다는 사실을 화면에 밝혀야 합니다");
+        var titles = response.works().stream().map(BookSearchService.WorkResult::title).toList();
+        assertTrue(titles.stream().anyMatch(t -> t.contains("1")),
+                "낱권이 목록에 들어와야 합니다: " + titles);
+        assertTrue(titles.stream().noneMatch(t -> t.contains("노트르담")),
+                "표제가 다른 책까지 끌어오면 안 됩니다: " + titles);
+    }
+
+    /**
+     * <b>제목이 그대로 맞은 책이 이미 있으면 되찾기를 부르지 않습니다.</b> 평소 검색마다
+     * 호출이 하나씩 늘면 하루 예산이 그만큼 빨리 사라집니다.
+     */
+    @Test
+    @DisplayName("제목이 맞은 책이 있으면 저자로 다시 부르지 않는다")
+    void doesNotRecoverWhenTitleAlreadyMatched() {
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        var budget = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 1000),
+                Clock.fixed(Instant.parse("2026-09-05T00:00:00Z"), ZoneId.of("UTC")));
+        var client = new Data4LibraryClient(uri -> {
+            calls.incrementAndGet();
+            return TWO_BOOKS;
+        }, "테스트키", budget);
+        var service = new BookSearchService(client, new HoldingsLookup(
+                (isbn, region) -> List.of(), HoldingsLookup.RegionModeStore.documented()));
+
+        var response = service.search("코스모스");
+
+        assertEquals(1, calls.get(), "제목이 맞았으므로 한 번만 불러야 합니다");
+        assertFalse(response.recoveredByAuthor());
+    }
+
 }
