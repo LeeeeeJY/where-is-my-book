@@ -273,8 +273,18 @@ export type HoldingsResponse = {
   libCodes: string[];
   complete: boolean;
   unreadable: boolean;
-  asOf: string;
+  /**
+   * 이 소장 정보를 **정보나루에서 받은** 날짜.
+   *
+   * <p>캐시에서 나온 값이면 오늘이 아니라 **그때 받은 날짜**입니다. 서버가 오늘 날짜를
+   * 찍어 주지 않으므로 화면이 이 값을 그대로 보여 주어야 합니다. 사용자가 "미소장"을
+   * "확실히 없다"로 읽을지 "한 달 전 기준이다"로 읽을지가 이 표시 하나에 달려 있습니다.
+   *
+   * <p>물어보지 못했으면 `null` 입니다. **그때 「방금」이라고 쓰면 안 됩니다.**
+   */
+  asOf: string | null;
 };
+
 
 async function post<T>(path: string, body: unknown): Promise<T> {
   let response: Response;

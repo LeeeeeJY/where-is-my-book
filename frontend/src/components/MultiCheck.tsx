@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { ApiUnavailable, fetchHoldings, libraryLink, resolveLines } from '../api';
 import { linkLabel } from '../domain/opacLink';
+import { olderAsOf } from '../domain/asOf';
 import type { LineResult, WorkResult } from '../api';
 import { holdingState } from '../domain/holdingState';
 import { countByState, fullCoverage, planTrip, rankLibraries } from '../domain/tripPlan';
@@ -181,7 +182,7 @@ export function MultiCheck({
           if (token.cancelled) return;
           // 서버가 답을 몇 시간 기억해 두므로 줄마다 날짜가 다를 수 있습니다. 가장 오래된
           // 날짜를 말해야 옛 답이 새 답처럼 읽히지 않습니다.
-          setAsOf((prev) => (prev === null || holdings.asOf < prev ? holdings.asOf : prev));
+          setAsOf((prev) => olderAsOf(prev, holdings.asOf));
           setRows((prev) => replace(prev, index, { holdings, failed: false }));
         } catch {
           // 한 권의 조회가 실패해도 나머지는 계속합니다.
@@ -229,7 +230,7 @@ export function MultiCheck({
     if (!willAsk || !work) return;
     fetchHoldings(work.isbn13List, [...selected]).then(
       (holdings) => {
-        setAsOf((prev) => (prev === null || holdings.asOf < prev ? holdings.asOf : prev));
+        setAsOf((prev) => olderAsOf(prev, holdings.asOf));
         setRows((prev) => replace(prev, index, { holdings, failed: false, loading: false }));
       },
       () => setRows((prev) => replace(prev, index, { holdings: null, failed: true, loading: false })),

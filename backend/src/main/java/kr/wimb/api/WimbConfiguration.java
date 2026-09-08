@@ -8,6 +8,7 @@ import kr.wimb.ingest.InMemoryApiBudget;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
@@ -23,6 +24,8 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.locks.ReentrantLock;
 
 @Configuration
+// 소장 캐시 스냅샷을 주기적으로 저장하는 일정이 필요합니다. HoldingCacheStore 를 보세요.
+@EnableScheduling
 public class WimbConfiguration implements WebMvcConfigurer {
 
     /**
@@ -107,14 +110,21 @@ public class WimbConfiguration implements WebMvcConfigurer {
     /** 메모리 1GB 기계에서 캐시가 자라는 대로 두면 안 됩니다. 넘으면 비웁니다. */
     static final int HOLDINGS_CACHE_MAX_ENTRIES = 5_000;
 
+    /**
+     * 소장 캐시. <b>빈으로 꺼내 두는 것은 파일 스냅샷 때문입니다.</b>
+     * {@link HoldingCacheStore} 가 이것을 주기적으로 저장하고 시작할 때 되살립니다.
+     */
     @Bean
-    public HoldingsLookup holdingsLookup(Data4LibraryClient client) {
+    public CachingHoldingsClient holdingsCache(Data4LibraryClient client) {
+        return new CachingHoldingsClient(
+                client.asHoldingsClient(ApiBudget.Priority.USER),
+                HOLDINGS_CACHE_TTL, HOLDINGS_CACHE_MAX_ENTRIES, Clock.systemUTC());
+    }
+
+    @Bean
+    public HoldingsLookup holdingsLookup(CachingHoldingsClient cache) {
         // 매뉴얼 13절이 region 을 필수로 명시하므로 탐색 비용 없이 PER_REGION 으로 시작합니다.
-        return new HoldingsLookup(
-                new CachingHoldingsClient(
-                        client.asHoldingsClient(ApiBudget.Priority.USER),
-                        HOLDINGS_CACHE_TTL, HOLDINGS_CACHE_MAX_ENTRIES, Clock.systemUTC()),
-                HoldingsLookup.RegionModeStore.documented());
+        return new HoldingsLookup(cache, HoldingsLookup.RegionModeStore.documented());
     }
 
     @Override

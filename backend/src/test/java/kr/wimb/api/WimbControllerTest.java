@@ -2,6 +2,7 @@ package kr.wimb.api;
 
 import kr.wimb.data4library.Data4LibraryClient;
 import kr.wimb.data4library.RegionCode;
+import kr.wimb.holdings.CachingHoldingsClient;
 import kr.wimb.holdings.HoldingsLookup;
 import kr.wimb.ingest.InMemoryApiBudget;
 import org.junit.jupiter.api.DisplayName;
@@ -10,6 +11,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.net.URI;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.util.ArrayList;
@@ -100,6 +102,8 @@ class WimbControllerTest {
                 (isbn, region) -> List.of(), HoldingsLookup.RegionModeStore.documented()));
         return new WimbController(client, search, new MultiCheckService(search), budget,
                 kr.wimb.opac.OpacTemplates.load(),
+                new CachingHoldingsClient((isbn, region) -> List.of(), Duration.ofHours(6), 100,
+                        Clock.systemUTC()),
                 Clock.fixed(Instant.parse("2026-09-06T00:00:00Z"), ZoneId.of("UTC")));
     }
 
@@ -117,6 +121,8 @@ class WimbControllerTest {
                 holdings, HoldingsLookup.RegionModeStore.documented()));
         return new WimbController(client, search, new MultiCheckService(search), budget,
                 kr.wimb.opac.OpacTemplates.load(),
+                new CachingHoldingsClient((isbn, region) -> List.of(), Duration.ofHours(6), 100,
+                        Clock.systemUTC()),
                 Clock.fixed(Instant.parse("2026-09-06T00:00:00Z"), ZoneId.of("UTC")));
     }
 
@@ -133,7 +139,8 @@ class WimbControllerTest {
             public Instant instant() { return now.get(); }
         };
         return new WimbController(client, search, new MultiCheckService(search), budget,
-                kr.wimb.opac.OpacTemplates.load(), moving);
+                kr.wimb.opac.OpacTemplates.load(), new CachingHoldingsClient((isbn, region) -> List.of(), Duration.ofHours(6), 100,
+                        Clock.systemUTC()), moving);
     }
 
     @Test

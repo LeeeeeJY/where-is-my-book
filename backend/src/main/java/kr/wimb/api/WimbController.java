@@ -1,6 +1,7 @@
 package kr.wimb.api;
 
 import kr.wimb.data4library.Data4LibraryClient;
+import kr.wimb.holdings.CachingHoldingsClient;
 import kr.wimb.data4library.LibraryInfo;
 import kr.wimb.data4library.RegionCode;
 import kr.wimb.ingest.ApiBudget;
@@ -41,6 +42,9 @@ public class WimbController {
     private final BookSearchService searchService;
     private final MultiCheckService multiCheckService;
     private final ApiBudget budget;
+
+    /** 소장 캐시. {@code /api/status} 가 항목 수를 내보냅니다. */
+    private final CachingHoldingsClient holdingsCache;
     private final OpacTemplates opacTemplates;
 
     /**
@@ -84,14 +88,16 @@ public class WimbController {
     @Autowired
     public WimbController(Data4LibraryClient client, BookSearchService searchService,
                           MultiCheckService multiCheckService, ApiBudget budget,
-                          OpacTemplates opacTemplates) {
-        this(client, searchService, multiCheckService, budget, opacTemplates, Clock.systemUTC());
+                          OpacTemplates opacTemplates, CachingHoldingsClient holdingsCache) {
+        this(client, searchService, multiCheckService, budget, opacTemplates, holdingsCache,
+                Clock.systemUTC());
     }
 
     /** 재시도 시각을 시험할 수 있도록 시계를 받는 생성자입니다. */
     WimbController(Data4LibraryClient client, BookSearchService searchService,
                    MultiCheckService multiCheckService, ApiBudget budget,
-                   OpacTemplates opacTemplates, Clock clock) {
+                   OpacTemplates opacTemplates, CachingHoldingsClient holdingsCache, Clock clock) {
+        this.holdingsCache = holdingsCache;
         this.opacTemplates = opacTemplates;
         this.client = client;
         this.searchService = searchService;
@@ -397,7 +403,12 @@ public class WimbController {
         return Map.of(
                 "librariesLoaded", catalog.size(),
                 "callsUsedToday", budget.used(Data4LibraryClient.SOURCE_CODE),
-                "callsRemaining", budget.remaining(Data4LibraryClient.SOURCE_CODE));
+                "callsRemaining", budget.remaining(Data4LibraryClient.SOURCE_CODE),
+                // **캐시가 실제로 살아 있는지 알 방법이 있어야 합니다.** 이 숫자가 없으면
+                // 재배포 뒤에 호출이 줄지 않을 때, 스냅샷을 못 되살린 것인지 저장이 안 된
+                // 것인지 캐시가 원래 안 도는 것인지 구별할 수 없어 추측하게 됩니다.
+                // 배포 직후 이 값이 0이면 스냅샷을 잃은 것입니다.
+                "holdingCacheEntries", holdingsCache.size());
     }
 
     /**

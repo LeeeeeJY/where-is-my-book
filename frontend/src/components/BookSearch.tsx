@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiUnavailable, fetchHoldings, hasCriteria, libraryLink, searchBooks } from '../api';
 import { anyHomepageOnly, linkBadge, linkLabel } from '../domain/opacLink';
+import { olderAsOf } from '../domain/asOf';
 import type { DroppedBook, SearchCriteria, SearchResponse, WorkResult } from '../api';
 import { holdingState } from '../domain/holdingState';
 import type { HoldingFacts } from '../domain/holdingState';
@@ -147,7 +148,7 @@ export function BookSearch({
           const result = await fetchHoldings(work.isbn13List, libCodes);
           if (!token.cancelled) {
             // 날짜 문자열(YYYY-MM-DD)은 그대로 견줘도 앞선 날짜가 작습니다.
-            setAsOf((prev) => (prev === null || result.asOf < prev ? result.asOf : prev));
+            setAsOf((prev) => olderAsOf(prev, result.asOf));
           }
           record(work.workId, result);
         } catch {

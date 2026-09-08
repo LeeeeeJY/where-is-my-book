@@ -23,6 +23,16 @@ WORKDIR /app
 # 루트로 돌리지 않습니다.
 RUN useradd --system --create-home --shell /usr/sbin/nologin wimb
 COPY --from=build /src/build/libs/*.jar /app/app.jar
+
+# 소장 캐시 스냅샷을 두는 곳.
+#
+# **여기에 볼륨을 붙이지 않으면 재배포 때 캐시가 컨테이너와 함께 사라집니다.** 그러면
+# 배포할 때마다 처음부터 다시 쌓아야 하고, 그동안 같은 책을 다시 묻는 호출이 그대로
+# 나갑니다. scripts/vm/deploy.sh 가 -v 로 붙입니다.
+RUN mkdir -p /data && chown wimb /data
+VOLUME /data
+ENV WIMB_HOLDINGS_CACHE_PATH=/data/holding-cache.tsv.gz
+
 USER wimb
 
 EXPOSE 8080

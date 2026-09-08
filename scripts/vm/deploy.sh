@@ -19,6 +19,13 @@ REPO="${WIMB_REPO:-$(cd "$(dirname "$0")/../.." && pwd)}"
 BRANCH="${WIMB_BRANCH:-main}"
 ENV_FILE="${WIMB_ENV_FILE:-$HOME/wimb.env}"
 IMAGE="${WIMB_IMAGE:-ghcr.io/leeeeejy/where-is-my-book:latest}"
+# 소장 캐시 스냅샷을 두는 볼륨. **컨테이너 밖이어야 합니다.**
+#
+# 호스트 디렉터리를 붙이지 않고 이름 있는 볼륨을 쓰는 것은 권한 때문입니다. 컨테이너는
+# 루트가 아닌 wimb 사용자로 도는데, 호스트 디렉터리를 붙이면 그 디렉터리의 소유권이
+# 그대로 보여 쓰기가 막힙니다. 이름 있는 볼륨은 도커가 처음 만들 때 이미지의 /data
+# 소유권을 그대로 복사하므로 그 문제가 없습니다.
+CACHE_VOLUME="${WIMB_CACHE_VOLUME:-wimb-data}"
 
 # 본문을 함수로 감싼 것이 의도적입니다. 아래에서 git 이 이 파일 자체를 갈아 끼우는데,
 # bash 는 스크립트를 조금씩 읽어 가며 실행하므로 도중에 내용이 바뀌면 엉뚱한 줄을
@@ -46,9 +53,17 @@ main() {
     fi
 
     echo "컨테이너를 바꿉니다: ${running#sha256:} → ${latest#sha256:}"
+    # **먼저 stop 으로 유예를 줍니다.** rm -f 는 SIGKILL 을 바로 보내므로 종료 훅이 돌
+    # 기회가 없어, 마지막으로 저장한 뒤에 쌓인 소장 캐시가 버려집니다. 주기 저장이 따로
+    # 있으니 잃어도 몇 분치지만, 공짜로 지킬 수 있는 것을 버릴 이유가 없습니다.
+    docker stop -t 20 wimb-api >/dev/null 2>&1 || true
     docker rm -f wimb-api >/dev/null 2>&1 || true
+
+    # **/data 를 붙이는 것이 핵심입니다.** 컨테이너 파일 시스템은 컨테이너와 함께
+    # 사라지므로, 이것이 없으면 재배포마다 소장 캐시를 처음부터 다시 쌓게 됩니다.
     docker run -d --name wimb-api --restart unless-stopped \
-        -p 127.0.0.1:8080:8080 --env-file "$ENV_FILE" "$IMAGE" >/dev/null
+        -p 127.0.0.1:8080:8080 -v "$CACHE_VOLUME":/data \
+        --env-file "$ENV_FILE" "$IMAGE" >/dev/null
 
     # 떴는지 확인합니다. 「배포했다」와 「실제로 뜬다」는 다릅니다.
     echo "뜨기를 기다립니다."
