@@ -185,6 +185,30 @@ public class WimbController {
                 .distinct().toList();
     }
 
+    /**
+     * 고른 도서관 가운데 <b>물어볼 수조차 없는 곳</b>의 수.
+     *
+     * <p>{@code libSrchByBook} 은 {@code region} 이 필수인데, 그 값은 도서관 주소 앞머리에서
+     * 뽑습니다. 마스터에 그 부호가 없거나 주소가 비어 있거나 시도를 알아보지 못하면 region 이
+     * 없고, 그러면 <b>그 도서관은 조회 대상에서 아예 빠집니다.</b>
+     *
+     * <p>여기까지는 어쩔 수 없습니다. 문제는 그다음입니다. 빠진 도서관은 결과 목록에 있을
+     * 수 없으므로 <b>「그 도서관에는 없다」로 나갑니다.</b> 물어보지 않고 없다고 답하는
+     * 것이고, 실제로 소장한 책을 놓치게 됩니다. 헛걸음을 막으려고 만든 도구가 헛걸음을
+     * 만드는 자리라 반드시 세어서 확인 불가로 넘겨야 합니다.
+     *
+     * <p>전부 물어볼 수 없으면 {@code holdingsOf} 가 따로 걸러 냅니다. 여기서 세는 것은
+     * <b>일부만</b> 빠지는 경우입니다. 그쪽이 눈에 띄지 않아 더 위험합니다.
+     */
+    private int unaskableCount(List<String> selectedLibs) {
+        return (int) selectedLibs.stream()
+                .filter(code -> {
+                    LibraryInfo info = catalog.get(code);
+                    return info == null || info.region().isEmpty();
+                })
+                .count();
+    }
+
     public record CheckRequest(List<String> lines) {}
 
     public record HoldingsRequest(List<String> isbn13List, List<String> libs) {}
@@ -228,7 +252,8 @@ public class WimbController {
         List<String> selected = request.libs() == null ? List.of() : request.libs();
         loadCatalogQuietly(selected);
 
-        var result = searchService.holdingsOf(request.isbn13List(), regionsOf(selected), selected);
+        var result = searchService.holdingsOf(
+                request.isbn13List(), regionsOf(selected), selected, unaskableCount(selected));
         return new HoldingsResponse(result.libCodes(), result.complete(), result.unreadable(),
                 LocalDate.now(SEOUL).toString());
     }

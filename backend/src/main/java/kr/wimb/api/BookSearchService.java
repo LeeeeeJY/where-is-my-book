@@ -220,8 +220,21 @@ public class BookSearchService {
      * 화면이 그것을 "고른 도서관에는 없습니다"로 그리게 되어, 실제로 있는 책을 없다고
      * 답하게 됩니다.
      */
+    /** 물어볼 수 없는 도서관이 없는 경우. 기존 호출부와 시험을 위한 지름길입니다. */
     public HoldingResult holdingsOf(List<String> isbn13List, List<String> regionCodes,
                                     List<String> selectedLibs) {
+        return holdingsOf(isbn13List, regionCodes, selectedLibs, 0);
+    }
+
+    /**
+     * @param unaskableLibs 고른 도서관 가운데 <b>시도를 알아내지 못해 물어볼 수조차 없는</b>
+     *                      곳의 수. 0이 아니면 빠짐없이 확인한 것이 아니므로 절대
+     *                      {@code complete} 로 답하면 안 됩니다. 물어보지 않은 도서관은
+     *                      결과에 있을 수 없어 그대로 「없다」로 나가고, 실제로 소장한
+     *                      책을 놓치게 됩니다.
+     */
+    public HoldingResult holdingsOf(List<String> isbn13List, List<String> regionCodes,
+                                    List<String> selectedLibs, int unaskableLibs) {
         if (selectedLibs.isEmpty()) return HoldingResult.notRequested();
         if (isbn13List.isEmpty()) {
             // 조회할 판본이 하나도 없으면 확인한 것이 아닙니다.
@@ -233,11 +246,11 @@ public class BookSearchService {
             // 주소가 비어 있거나 도서관 마스터에 없는 부호가 넘어오면 여기에 걸립니다.
             return HoldingResult.cannotAsk();
         }
-        return lookupHoldings(isbn13List, regionCodes, selectedLibs);
+        return lookupHoldings(isbn13List, regionCodes, selectedLibs, unaskableLibs);
     }
 
     private HoldingResult lookupHoldings(List<String> isbn13List, List<String> regionCodes,
-                                         List<String> selectedLibs) {
+                                         List<String> selectedLibs, int unaskableLibs) {
         try {
             var result = holdingsLookup.lookup(isbn13List, regionCodes);
             // 선택한 도서관과 교집합만 남깁니다.
@@ -250,7 +263,11 @@ public class BookSearchService {
             // 이것을 빠뜨리면 전부 실패한 조회가 unreadable=false 로 나가고,
             // 화면이 그것을 미소장으로 그립니다.
             boolean nothingChecked = result.unresolvedIsbns().size() >= isbn13List.size();
-            return new HoldingResult(matched, result.isComplete(), nothingChecked);
+            // 물어볼 수 없었던 도서관이 하나라도 있으면 빠짐없이 확인한 것이 아닙니다.
+            // 이것을 빠뜨리면 그 도서관이 조용히 「없음」으로 나가고, 화면은 그것을
+            // 미소장으로 그립니다. 물어보지 않고 없다고 답하는 것입니다.
+            boolean complete = result.isComplete() && unaskableLibs == 0;
+            return new HoldingResult(matched, complete, nothingChecked);
         } catch (RuntimeException e) {
             // 조회 실패는 미소장이 아닙니다. 화면에 "확인 불가"로 표시해야 합니다.
             return new HoldingResult(List.of(), false, true);

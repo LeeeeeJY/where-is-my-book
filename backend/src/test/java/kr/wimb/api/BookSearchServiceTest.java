@@ -156,6 +156,20 @@ class BookSearchServiceTest {
         """;
 
     @Test
+    @DisplayName("물어볼 수 없었던 도서관이 있으면 빠짐없이 확인했다고 하지 않는다")
+    void aLibraryWeCouldNotAskIsNotAbsence() {
+        // libSrchByBook 은 region 이 필수인데 그 값은 도서관 주소에서 뽑습니다. 주소가
+        // 비어 있으면 그 도서관은 조회 대상에서 아예 빠지고, 결과 목록에 있을 수 없으므로
+        // 그대로 「그 도서관에는 없다」로 나갑니다. 물어보지 않고 없다고 답하는 것입니다.
+        var service = service((isbn, region) -> List.of());
+        var holdings = service.holdingsOf(
+                cosmosEditions(service), List.of("11"), List.of("111001", "111002"), 1);
+
+        assertTrue(holdings.libCodes().isEmpty());
+        assertFalse(holdings.complete(), "한 곳을 물어보지 못했으면 빠짐없이 확인한 것이 아닙니다");
+    }
+
+    @Test
     @DisplayName("띄어쓰기만 다른 제목을 우리가 대신 찾아 준다")
     void retriesWithoutSpaces() {
         // 정보나루는 넣은 글자를 그대로 찾습니다. 「마의 산」과 「마의산」이 다른 검색이고,
