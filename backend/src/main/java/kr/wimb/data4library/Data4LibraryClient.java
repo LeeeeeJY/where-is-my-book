@@ -304,9 +304,23 @@ public final class Data4LibraryClient {
         return body;
     }
 
-    /** 사람이 고쳐야 낫는 오류인지. 그 밖의 오류는 일시적일 수 있으므로 막지 않습니다. */
+    /**
+     * 사람이 고쳐야 낫는 오류인지. 그 밖의 오류는 일시적일 수 있으므로 막지 않습니다.
+     *
+     * <p><b>{@code outOflimit} 도 여기에 듭니다.</b> 「너무 많이 불렀다」로 읽고 잠시 뒤
+     * 다시 부르면 될 것 같지만, 실제 뜻은 <b>「등록한 IP 로 나가고 있지 않다」</b>일 때가
+     * 많습니다. 등록하지 않은 IP 는 하루 500건이라 금방 닿습니다. 어느 쪽이든 사람이
+     * 등록을 고치거나 날이 바뀌기 전에는 낫지 않습니다.
+     *
+     * <p>이것을 빼 두었더니 <b>고장이 스스로를 키웠습니다.</b> 한도에 걸린 상태에서 화면을
+     * 한 번 열 때마다 도서관 마스터를 다시 받으려고 열여덟 번을 부르고, 그 열여덟 번이 전부
+     * 실패하면서 호출 수만 올라갔습니다. 실패할 것이 뻔한 요청으로 남의 서버를 두드리는
+     * 것이기도 합니다.
+     */
     private static boolean isAuthClass(Data4LibraryResponse.ApiError error) {
-        return "authErr".equals(error.code()) || "vitalizationErr".equals(error.code());
+        return "authErr".equals(error.code())
+                || "vitalizationErr".equals(error.code())
+                || "outOflimit".equals(error.code());
     }
 
     /**

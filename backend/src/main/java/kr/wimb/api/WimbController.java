@@ -172,7 +172,11 @@ public class WimbController {
         try {
             return searchService.search(new Data4LibraryClient.BookQuery(
                     title, byAuthor, byPublisher, byIsbn, false));
-        } catch (ResponseStatusException e) {
+        } catch (ResponseStatusException | Data4LibraryClient.ApiErrorException
+                 | Data4LibraryClient.BudgetExhaustedException e) {
+            // **감싸지 않고 그대로 올립니다.** 감싸면 정보나루가 준 errCode 가 사라져서,
+            // 화면이 「인증키 문제인지 IP 등록 문제인지 오늘 몫을 다 쓴 것인지」를 갈라
+            // 말할 수 없게 됩니다. ApiErrorAdvice 가 코드까지 실어 내보냅니다.
             throw e;
         } catch (RuntimeException e) {
             // 검색 자체를 못 한 것을 500 으로 내면 "우리 서버가 고장"이라는 뜻이 됩니다.
@@ -446,7 +450,12 @@ public class WimbController {
 
     private synchronized void loadCatalog() {
         if (isComplete()) return;
-        if (clock.instant().isBefore(nextRetry) && !catalog.isEmpty()) return;
+        // **비어 있을 때도 기다립니다.** 예전에는 목록이 비어 있으면 이 빗장을 건너뛰었는데,
+        // 정보나루가 답하지 않는 동안에는 목록이 늘 비어 있습니다. 그래서 아무도 기다리지
+        // 않고, 화면을 한 번 열 때마다 전국 한 번 + 시도 열일곱 번을 다시 부르게 됩니다.
+        // **가장 안 될 때 가장 많이 부르는 셈**이고, 그 헛호출이 하루 한도를 갉아먹어
+        // 고장을 스스로 늘립니다. 비어 있는 쪽이 오히려 더 기다려야 합니다.
+        if (clock.instant().isBefore(nextRetry)) return;
 
         if (loadedRegions.isEmpty() && loadEveryRegionAtOnce()) return;
 
@@ -466,7 +475,9 @@ public class WimbController {
             }
         }
 
-        if (failures > 0) nextRetry = clock.instant().plus(CATALOG_RETRY_AFTER);
+        // 전국 한 번에 받기가 실패한 것도 실패입니다. 이것을 세지 않으면 그 길로만
+        // 실패하는 동안 빗장이 걸리지 않아 매 요청마다 다시 부르게 됩니다.
+        if (failures > 0 || !isComplete()) nextRetry = clock.instant().plus(CATALOG_RETRY_AFTER);
         if (catalog.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
                     "도서관 목록을 한 곳도 받지 못했습니다. 정보나루가 답하지 않습니다.");
