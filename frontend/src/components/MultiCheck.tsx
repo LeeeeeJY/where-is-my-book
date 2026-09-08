@@ -3,7 +3,7 @@ import { ApiUnavailable, fetchHoldings, libraryLink, resolveLines } from '../api
 import { linkLabel } from '../domain/opacLink';
 import type { LineResult, WorkResult } from '../api';
 import { holdingState } from '../domain/holdingState';
-import { countByState, planTrip, rankLibraries, toPlainText } from '../domain/tripPlan';
+import { countByState, planTrip, rankLibraries } from '../domain/tripPlan';
 import type { BookRow } from '../domain/tripPlan';
 import type { Library } from '../domain/types';
 
@@ -42,8 +42,6 @@ type Phase =
  * <b>이것이 이 도구를 실제로 쓰게 만드는 화면입니다.</b> 한 번 방문해서 여러 권을 빌리는
  * 것이 실제 행동이고, 그 확인을 권수 × 도서관 수만큼 반복하는 것이 이 도구를 만든 이유입니다.
  */
-/** 처음에 보여 줄 후보 수. 나머지는 눌러서 폅니다. */
-const PICKS_SHOWN = 6;
 
 export function MultiCheck({
   libraries,
@@ -56,7 +54,6 @@ export function MultiCheck({
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' });
   const [rows, setRows] = useState<Row[]>([]);
   const [asOf, setAsOf] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
   // 결과가 나오면 입력을 접되, 고치려는 사람은 다시 펼 수 있어야 합니다.
   const [editing, setEditing] = useState(false);
   /**
@@ -203,15 +200,6 @@ export function MultiCheck({
   const plan = useMemo(() => planTrip(bookRows, selectedLibraries), [bookRows, selectedLibraries]);
   const stillChecking = checking;
 
-  function copy() {
-    navigator.clipboard
-      .writeText(toPlainText(bookRows, selectedLibraries, asOf))
-      .then(() => {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      }, () => setCopied(false));
-  }
-
   // 쉰 줄 한도가 있는 화면이라 지금 몇 줄인지 그 자리에서 보여야 합니다.
   const lineCount = text.split('\n').filter((l) => l.trim() !== '').length;
 
@@ -333,22 +321,6 @@ export function MultiCheck({
           </ul>
 
           <Leftovers rows={shown} selectedCount={selected.size} />
-
-          {bookRows.length > 0 && (
-            <div className="share">
-              <button className="button" onClick={copy} type="button">
-                {copied ? '복사했습니다' : '목록 텍스트로 복사'}
-              </button>
-              {/*
-                **무엇을 어디에 쓰는 복사인지 말해야 합니다.** 「결과 복사」라고만 적어 두면
-                어디에 붙여 넣으라는 것인지 알 수 없습니다.
-              */}
-              <p className="muted">
-                책과 도서관을 글로 옮겨 적습니다. 메모 앱이나 메신저에 붙여 넣어 도서관에
-                가져가세요. 확인하지 못한 책은 없는 책과 따로 적힙니다.
-              </p>
-            </div>
-          )}
         </>
       )}
     </section>
@@ -561,40 +533,55 @@ function LineRow({
     끝없이 길어지고, 정작 어느 도서관에 있는지가 저 아래로 밀립니다. 고른 뒤에는 고른
     것 하나만 남기고, 다시 고르고 싶은 사람만 펼칩니다.
   */
-  const collapsed = row.picked && !allPicks;
+  /*
+    **처음부터 접어 둡니다.** 예전에는 확정되지 않은 줄이면 후보를 전부 펼쳐 놓았는데,
+    한 줄에 카드가 열두 개씩 깔리면서 정작 「어디에 있는가」가 저 아래로 밀렸습니다.
+    사용자가 보러 온 것은 후보 목록이 아니라 답입니다. 가장 잘 맞는 것 하나로 답하고,
+    그게 아닐 때만 펼칩니다.
+  */
+  const collapsed = !allPicks;
   const shownCandidates = collapsed
     ? [row.candidates[row.chosen]].filter(Boolean)
-    : allPicks
-      ? row.candidates
-      : row.candidates.slice(0, PICKS_SHOWN);
+    : row.candidates;
 
   return (
     <li className="line">
       <div className="line__head">
         <span className="line__no">{row.lineNo}</span>
         <span className="line__raw">{row.raw}</span>
-        <StatusBadge status={row.status} state={state} picked={row.picked} />
+        <StatusBadge
+          status={row.status}
+          state={state}
+          picked={row.picked}
+          heldLabel={`${row.holdings?.libCodes.length ?? 0}곳에 있음`}
+        />
       </div>
-
-      {/* 어떻게 읽었는지 항상 되돌려 보여 줍니다. 그래야 사용자가 스스로 고칠 수 있습니다. */}
-      <p className="line__explain muted">
-        {row.explanation}
-        {row.mergedFrom.length > 0 && ` · ${row.mergedFrom.join(', ')}줄과 같은 책으로 보았습니다`}
-      </p>
 
       {/*
         **제목과 저자만으로는 어느 책인지 모릅니다.** 같은 제목의 번역본이 출판사마다
         있고, 사용자가 찾는 것은 대개 자기가 아는 그 판입니다. 표지와 출판사가 있으면
         한눈에 가려집니다.
       */}
+      {/*
+        **답이 먼저입니다.** 어느 도서관에 있는지가 이 화면의 목적이고, 어느 판으로 보았는지는
+        그 답이 맞는지 가늠하는 근거입니다. 순서를 뒤집어 두면 후보 카드가 화면을 채우고
+        정작 결과가 아래로 밀립니다.
+      */}
+      {chosen && (
+        <LineHoldings
+          row={row}
+          work={chosen}
+          selectedCount={selectedCount}
+          byCode={byCode}
+          checking={checking}
+        />
+      )}
+
       {row.status === 'AMBIGUOUS' && (
         <div className="picks">
-          {!row.picked && (
-            <p className="picks__ask muted">
-              어느 책인가요? <span className="muted">후보 {row.candidates.length}개</span>
-            </p>
+          {!collapsed && (
+            <p className="picks__ask muted">어느 책인가요? 후보 {row.candidates.length}개</p>
           )}
-          {collapsed && <p className="picks__ask muted">고른 책</p>}
           <ul className="picks__list">
             {shownCandidates.map((candidate, i) => (
               <li key={candidate.workId}>
@@ -633,26 +620,19 @@ function LineRow({
           */}
           {row.candidates.length > 1 && (
             <button type="button" className="link-button" onClick={() => setAllPicks((v) => !v)}>
-              {collapsed
-                ? `다른 판 고르기 (후보 ${row.candidates.length}개)`
-                : allPicks
-                  ? '접기'
-                  : row.candidates.length > PICKS_SHOWN
-                    ? `나머지 ${row.candidates.length - PICKS_SHOWN}개 더 보기`
-                    : '접기'}
+              {collapsed ? `이 책이 아닌가요? (후보 ${row.candidates.length}개)` : '후보 접기'}
             </button>
           )}
+          {/*
+            어떻게 읽었는지 항상 되돌려 보여 줍니다. 그래야 사용자가 스스로 고칠 수 있습니다.
+            다만 **답보다 앞에 두지는 않습니다.** 이 화면에서 먼저 읽혀야 하는 것은 어디에
+            있는가이고, 이것은 그 답이 맞는지 가늠하는 근거입니다.
+          */}
+          <p className="line__explain muted">
+            {row.explanation}
+            {row.mergedFrom.length > 0 && ` · ${row.mergedFrom.join(', ')}줄과 같은 책으로 보았습니다`}
+          </p>
         </div>
-      )}
-
-      {chosen && (
-        <LineHoldings
-          row={row}
-          work={chosen}
-          selectedCount={selectedCount}
-          byCode={byCode}
-          checking={checking}
-        />
       )}
     </li>
   );
@@ -696,7 +676,7 @@ function LineHoldings({
   const held = row.holdings?.libCodes ?? [];
   return (
     <p className="holding holding--held">
-      <strong>{held.length}곳:</strong>{' '}
+      <strong className="holding__where">있는 곳</strong>{' '}
       {held.map((code, i) => (
         <span key={code}>
           {i > 0 && ' · '}
@@ -730,25 +710,33 @@ function LineHoldings({
 }
 
 function StatusBadge({
-  status, state, picked,
+  status, state, picked, heldLabel,
 }: {
   status: LineResult['status'];
   state: BookRow['state'] | null;
   /** 모호한 줄에서 사용자가 실제로 골랐는지. */
   picked: boolean;
+  /** 소장일 때 배지에 적을 말. 「3곳에 있음」처럼 숫자를 그 자리에서 보여 줍니다. */
+  heldLabel: string;
 }) {
   if (status === 'UNREADABLE') return <span className="badge badge--warn">읽지 못함</span>;
   if (status === 'LOOKUP_FAILED') return <span className="badge badge--warn">확인 불가</span>;
   if (status === 'NOT_FOUND') return <span className="badge badge--warn">책을 찾지 못함</span>;
-  // 골랐으면 더 이상 고르라고 하지 않습니다. 계속 띄워 두면 사용자는 자기가 누른 것이
-  // 먹히지 않았다고 읽고 같은 자리를 다시 누릅니다.
+  /*
+    **배지는 소장 상태를 말합니다.** 예전에는 확정되지 않은 줄이면 「골라 주세요」를 띄워,
+    어디에 있는지 이미 알아냈는데도 배지가 그것을 가렸습니다. 사용자가 이 화면에서 알고
+    싶은 것은 「어디 있는가」이고, 「어느 판으로 보았는가」는 그 아래 「이 책이 아닌가요?」가
+    이미 말하고 있습니다.
+  */
+  if (state === 'pending') return <span className="badge">확인 중</span>;
+  if (state === 'unknown') return <span className="badge badge--warn">확인 불가</span>;
+  if (state === 'held') return <span className="badge badge--ok">{heldLabel}</span>;
+  if (state === 'none') return <span className="badge">없음</span>;
+  // 아직 도서관을 고르지 않은 경우입니다. 그때만 어느 판인지 물어봅니다.
   if (status === 'AMBIGUOUS' && !picked) {
     return <span className="badge badge--warn">골라 주세요</span>;
   }
-  if (state === 'pending') return <span className="badge">확인 중</span>;
-  if (state === 'unknown') return <span className="badge badge--warn">확인 불가</span>;
-  if (state === 'held') return <span className="badge badge--ok">소장</span>;
-  return <span className="badge">미소장</span>;
+  return <span className="badge">확인 전</span>;
 }
 
 function toBookRow(row: Row, selectedCount: number): BookRow {

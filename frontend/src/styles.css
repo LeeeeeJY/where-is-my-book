@@ -434,3 +434,7 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
 @media (min-width: 700px) {
   .picks__list { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 }
+
+/* 이 화면의 답입니다. 도서관 이름 앞에서 눈에 먼저 들어와야 합니다. */
+.holding__where { color: var(--accent); }
+.holding--held { padding: 6px 0; }

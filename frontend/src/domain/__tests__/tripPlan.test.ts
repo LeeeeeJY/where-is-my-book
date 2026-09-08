@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { countByState, planTrip, rankLibraries, toPlainText } from '../tripPlan';
+import { countByState, planTrip, rankLibraries } from '../tripPlan';
 import type { BookRow } from '../tripPlan';
 import type { Library } from '../types';
 
@@ -124,32 +124,5 @@ describe('한 곳에서 다 빌리기', () => {
     expect(planTrip(rows, LIBS)[0].name).toBe('분당도서관');
     // 도서관 순서를 바꿔도 같은 답이 나와야 합니다.
     expect(planTrip(rows, [판교, 분당, 중원])[0].name).toBe('분당도서관');
-  });
-});
-
-describe('결과 복사', () => {
-  const rows = [
-    held('a', '코스모스', 중원.libCode),
-    none('b', '사피엔스'),
-    unknown('c', '총 균 쇠'),
-  ];
-
-  it('확인하지 못한 책을 없는 책과 따로 적는다', () => {
-    const text = toPlainText(rows, LIBS, '2026년 9월 5일');
-
-    expect(text).toContain('[고른 도서관에 없는 책]');
-    expect(text).toContain('사피엔스');
-    expect(text).toContain('[확인하지 못한 책]');
-    expect(text).toContain('없다는 뜻이 아닙니다');
-
-    // 총 균 쇠가 "없는 책" 칸에 들어가면 안 됩니다.
-    const 없는칸 = text.slice(text.indexOf('[고른 도서관에 없는 책]'), text.indexOf('[확인하지 못한 책]'));
-    expect(없는칸).not.toContain('총 균 쇠');
-  });
-
-  it('조회 시각과 출처를 남긴다', () => {
-    const text = toPlainText(rows, LIBS, '2026년 9월 5일');
-    expect(text).toContain('2026년 9월 5일 조회 기준');
-    expect(text).toContain('출처: 도서관 정보나루');
   });
 });
