@@ -2,6 +2,7 @@ package kr.wimb.api;
 
 import kr.wimb.data4library.Data4LibraryClient;
 import kr.wimb.holdings.HoldingsLookup;
+import kr.wimb.query.LineParser;
 import kr.wimb.ingest.InMemoryApiBudget;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -210,4 +211,23 @@ class MultiCheckServiceTest {
         assertTrue(transport.queries.stream().noneMatch(q -> q.contains("libSrchByBook")),
                 "확정 단계에서 소장 조회를 부르면 안 됩니다: " + transport.queries);
     }
+
+    /**
+     * <b>여러 권 확인의 후보 점수도 권차를 떼고 견줘야 합니다.</b> 한 권 검색의 순위만
+     * 고쳤더니 이쪽은 그대로여서, 「레미제라블」의 후보 스물넷 안에 민음사 낱권이 여전히
+     * 들지 못했습니다. 같은 판단이 두 곳에 흩어져 있어 되풀이해 틀린 자리입니다.
+     */
+    @Test
+    @DisplayName("권차가 붙은 낱권도 제목이 맞는 것으로 점수를 준다")
+    void volumeScoresAsExactTitle() {
+        var attempt = LineParser.parse(List.of("레미제라블")).lines().get(0).attempts().get(0);
+        var volume = new BookSearchService.WorkResult(
+                1, "레 미제라블 1권", "빅토르 위고", "민음사", null, null, List.of("9788937463013"), List.of());
+        var plain = new BookSearchService.WorkResult(
+                2, "레 미제라블", "빅토르 위고", "삼성출판사", null, null, List.of("9788915030688"), List.of());
+
+        assertEquals(MultiCheckService.score(plain, attempt), MultiCheckService.score(volume, attempt), 0.001,
+                "권차만 다를 뿐 제목은 똑같이 맞습니다");
+    }
+
 }

@@ -325,7 +325,7 @@ public class BookSearchService {
      * 기계가 견주는 것이므로, 견줄 때는 키를 씁니다.</b>
      */
     private static int titleTier(String queryKey, String title) {
-        String titleKey = BibNormalizer.parseTitle(title == null ? "" : title).titleKeyCore();
+        String titleKey = BibNormalizer.comparisonKey(title);
         if (titleKey.equals(queryKey)) return 0;   // 「코스모스」 -> 「코스모스」
         if (titleKey.startsWith(queryKey)) return 1; // 「코스모스 : 특별판」
         if (titleKey.contains(queryKey)) return 2;   // 「뽐내는 코스모스」

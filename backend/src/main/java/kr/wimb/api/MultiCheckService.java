@@ -175,8 +175,11 @@ public class MultiCheckService {
     static double score(BookSearchService.WorkResult work, LineParser.Attempt attempt) {
         if (attempt.kind() == LineParser.Kind.ISBN) return 1.0;
 
-        String wanted = BibNormalizer.normalizeKey(attempt.title());
-        String got = BibNormalizer.normalizeKey(work.title());
+        // **권차를 떼고 견줍니다.** 표제에는 권차가 붙어 있어서(「레 미제라블 1권」),
+        // 그대로 견주면 낱권이 「제목이 정확히 맞는 것」에서 빠지고 후보 목록 밖으로
+        // 밀려납니다. 자세한 이유는 BibNormalizer.comparisonKey 에 적어 두었습니다.
+        String wanted = BibNormalizer.comparisonKey(attempt.title());
+        String got = BibNormalizer.comparisonKey(work.title());
         double titleScore = got.equals(wanted) ? 1.0 : WorkMatcher.trigramSimilarity(wanted, got);
 
         double authorScore = 0.0;

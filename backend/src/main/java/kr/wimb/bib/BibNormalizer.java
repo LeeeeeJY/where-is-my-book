@@ -121,6 +121,23 @@ public final class BibNormalizer {
         return normalize(s).key();
     }
 
+    /**
+     * 표제를 <b>견주기 위한</b> 키. 권차를 떼고 봅니다.
+     *
+     * <p><b>화면에 내보내는 표제에는 권차가 붙어 있습니다</b>({@code SearchDocBuilder.displayTitle}
+     * 이 「레 미제라블 1권」을 만듭니다). 갈라 놓은 저작을 사람이 구별할 수 있어야 하기
+     * 때문인데, 그 표제를 그대로 {@link #normalizeKey} 로 견주면 낱권의 키가
+     * 「레미제라블1권」이 되어 <b>「제목이 정확히 맞는 것」에서 빠집니다.</b> 실제로
+     * 「레미제라블」을 찾았을 때 민음사 낱권이 62위까지 밀려 후보 목록에 들지 못했습니다.
+     *
+     * <p><b>이 판단이 여러 곳에 흩어져 있어 세 번 되풀이해 틀렸습니다.</b> 한 권 검색의
+     * 순위, 여러 권 확인의 후보 점수가 각자 키를 뽑고 있었습니다. 견줄 일이 생기면
+     * 여기를 부르세요.
+     */
+    public static String comparisonKey(String title) {
+        return parseTitle(title == null ? "" : title).titleKeyCore();
+    }
+
     /** 정규화 결과와, 그 과정에서 떼어 낸 표기들. */
     public record Normalized(String key, List<String> editionTokens,
                              List<String> adaptationTokens, List<String> aliasKeys) {}
