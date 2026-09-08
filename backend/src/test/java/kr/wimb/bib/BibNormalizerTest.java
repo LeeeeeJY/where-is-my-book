@@ -130,6 +130,11 @@ class BibNormalizerTest {
         void readsAVolumeFieldThatIsNotDigits() {
             assertEquals(3, BibNormalizer.volumeOrdinal("3"));
             assertEquals(3, BibNormalizer.volumeOrdinal("제3권"));
+            // 숫자를 이어 붙이면 두 권을 묶은 「1-2」 가 12권이 됩니다. 실제로 「레 미제라블
+            // 12권」이 목록 6위에 나왔는데 민음사 판은 다섯 권뿐입니다.
+            assertEquals(1, BibNormalizer.volumeOrdinal("1-2"));
+            assertEquals(1, BibNormalizer.volumeOrdinal("1,2"));
+            assertEquals(1, BibNormalizer.volumeOrdinal("1~3"));
             assertEquals(1, BibNormalizer.volumeOrdinal("상"));
             assertEquals(2, BibNormalizer.volumeOrdinal("중"));
             assertEquals(3, BibNormalizer.volumeOrdinal("하"));
