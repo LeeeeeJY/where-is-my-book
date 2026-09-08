@@ -11,11 +11,18 @@
 서버에서 한 번만 하면 됩니다. **sudo 가 필요 없습니다.**
 
 ```bash
+cd ~/where-is-my-book*          # clone 한 디렉터리 이름이 무엇이든 들어갑니다
 mkdir -p ~/.config/systemd/user
-cp ~/where-is-my-book/scripts/vm/wimb-deploy.{service,timer} ~/.config/systemd/user/
+sed "s|^ExecStart=.*|ExecStart=$PWD/scripts/vm/deploy.sh|" \
+    scripts/vm/wimb-deploy.service > ~/.config/systemd/user/wimb-deploy.service
+cp scripts/vm/wimb-deploy.timer ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now wimb-deploy.timer
 ```
+
+`sed` 로 경로를 박아 넣는 이유는, GitHub 에서 저장소 이름이 바뀌어 clone 한 디렉터리가
+`where-is-my-book` 일 수도 `where-is-my-books` 일 수도 있기 때문입니다. 유닛 파일에
+한쪽으로 적어 두면 다른 쪽에서는 타이머가 조용히 실패만 합니다.
 
 그리고 **로그아웃해도 계속 돌게** 해 둡니다. 이걸 빠뜨리면 SSH 창을 닫는 순간 멈춥니다.
 

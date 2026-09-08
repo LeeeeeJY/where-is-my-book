@@ -8,7 +8,10 @@
 # 직접 실행해도 되고, wimb-deploy.timer 가 주기적으로 부르게 해도 됩니다.
 set -euo pipefail
 
-REPO="${WIMB_REPO:-$HOME/where-is-my-book}"
+# 이 스크립트가 저장소 안(scripts/vm/)에 있으므로 위치에서 저장소를 찾습니다.
+# GitHub 에서 이름이 바뀌어 clone 한 디렉터리가 where-is-my-book 일 수도
+# where-is-my-books 일 수도 있는데, 하드코딩하면 그 차이로 조용히 실패합니다.
+REPO="${WIMB_REPO:-$(cd "$(dirname "$0")/../.." && pwd)}"
 BRANCH="${WIMB_BRANCH:-claude/library-search-planning-6qkxh1}"
 ENV_FILE="${WIMB_ENV_FILE:-$HOME/wimb.env}"
 
