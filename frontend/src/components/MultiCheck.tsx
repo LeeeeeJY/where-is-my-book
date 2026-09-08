@@ -235,12 +235,19 @@ export function MultiCheck({
             id="multi-input"
             className="text-input multi-input"
             value={text}
-            placeholder={'코스모스\n미움받을 용기\n9788934972464\n총 균 쇠 - 재레드 다이아몬드'}
+            placeholder={
+              '레 미제라블 - 빅토르 위고\n' +
+              '마담 보바리 - 플로베르\n' +
+              '목로주점 - 에밀 졸라\n' +
+              '향수 - 파트리크 쥐스킨트\n' +
+              '좀머 씨 이야기 - 파트리크 쥐스킨트'
+            }
             onChange={(e) => setText(e.target.value)}
           />
           <div className="multi-form__foot">
             <span className="muted">
-              한 줄에 한 권씩. 제목·ISBN·서점 주소를 섞어도 됩니다{lineCount > 0 && ` · ${lineCount}줄`}
+              한 줄에 한 권씩. 「제목 - 저자」로 적으면 더 정확합니다. ISBN 과 서점 주소도
+              됩니다{lineCount > 0 && ` · ${lineCount}줄`}
             </span>
             <button className="button" type="submit" disabled={phase.kind === 'resolving'}>
               {phase.kind === 'resolving' ? '읽는 중' : '확인'}

@@ -230,4 +230,66 @@ class MultiCheckServiceTest {
                 "권차만 다를 뿐 제목은 똑같이 맞습니다");
     }
 
+
+    /** 줄 전체를 제목으로 찾으면 작품집이 걸리고, 제목과 저자로 나누면 그 책이 걸립니다. */
+    private static final String SOMMER_WHOLE_LINE = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <response>
+          <docs>
+            <doc>
+              <bookname><![CDATA[파트리크 쥐스킨트 작품집 (전5권) - 향수+좀머씨 이야기]]></bookname>
+              <authors><![CDATA[파트리크 쥐스킨트]]></authors>
+              <publisher><![CDATA[열린책들]]></publisher>
+              <publication_year>2020</publication_year>
+              <isbn13>9788932917245</isbn13>
+            </doc>
+          </docs>
+        </response>
+        """;
+
+    private static final String SOMMER_SPLIT = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <response>
+          <docs>
+            <doc>
+              <bookname><![CDATA[좀머 씨 이야기]]></bookname>
+              <authors><![CDATA[파트리크 쥐스킨트]]></authors>
+              <publisher><![CDATA[열린책들]]></publisher>
+              <publication_year>1999</publication_year>
+              <isbn13>9788932902876</isbn13>
+            </doc>
+          </docs>
+        </response>
+        """;
+
+    /**
+     * <b>결과가 나왔다고 무조건 멈추면 엉뚱한 책이 확정됩니다.</b> 실제로 「좀머 씨 이야기 -
+     * 파트리크 쥐스킨트」가 「파트리크 쥐스킨트 작품집 (전5권)」으로 확정되었습니다. 작품집
+     * 표제에 그 말들이 다 들어 있어 정보나루가 찾아 준 것인데, 찾던 책이 아닌 데다 확정까지
+     * 되어 사용자는 고를 기회조차 없었습니다.
+     */
+    @Test
+    @DisplayName("줄 전체로 찾은 것이 시원찮으면 제목과 저자로 나눠 본다")
+    void triesSplitWhenWholeLineMatchesPoorly() {
+        var budget = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 1000),
+                Clock.fixed(Instant.parse("2026-09-05T00:00:00Z"), ZoneId.of("UTC")));
+        var client = new Data4LibraryClient(uri -> {
+            String decoded = URLDecoder.decode(uri.toString(), StandardCharsets.UTF_8);
+            // 제목과 저자로 나눠 물었을 때만 그 책을 줍니다.
+            return decoded.contains("author=") ? SOMMER_SPLIT : SOMMER_WHOLE_LINE;
+        }, "테스트키", budget);
+        var search = new BookSearchService(client, new HoldingsLookup(
+                (isbn, region) -> List.of(), HoldingsLookup.RegionModeStore.documented()));
+        var service = new MultiCheckService(search);
+
+        var response = service.resolve(List.of("좀머 씨 이야기 - 파트리크 쥐스킨트"));
+        var line = response.lines().get(0);
+
+        assertFalse(line.candidates().isEmpty(), "책을 찾아야 합니다");
+        assertTrue(line.candidates().get(0).title().contains("좀머"),
+                "작품집이 아니라 그 책이어야 합니다: " + line.candidates().get(0).title());
+        assertFalse(line.candidates().get(0).title().contains("작품집"),
+                "줄 전체로 걸린 작품집을 그대로 확정하면 안 됩니다");
+    }
+
 }

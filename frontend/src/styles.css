@@ -328,10 +328,17 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
 /* 아직 결과가 없을 때는 남은 높이를 입력 칸이 채웁니다. */
 .multi-form--tall { flex: 1; min-height: 0; }
 .multi-form--tall .multi-input { flex: 1; min-height: 12em; }
+/*
+  좁은 화면에서 안내 문구가 버튼을 짜부라뜨려 「확인」 두 글자가 두 줄로 쪼개졌습니다.
+  폭 390px 에서 버튼 높이가 66px 이었습니다. 버튼은 줄어들지 않게 두고, 자리가 모자라면
+  문구가 아래로 내려가게 합니다.
+*/
 .multi-form__foot {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px 12px; flex-wrap: wrap;
 }
-.multi-form__foot .muted { font-size: 12px; }
+.multi-form__foot .muted { font-size: 12px; flex: 1 1 12em; min-width: 0; }
+.multi-form__foot .button { flex: none; white-space: nowrap; }
 
 .section-title { margin: 18px 0 8px; font-size: 14px; }
 

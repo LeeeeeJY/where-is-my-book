@@ -98,8 +98,24 @@ public class MultiCheckService {
                     line.problem(), line.mergedFrom(), List.of());
         }
 
-        // 해석 방법을 위에서부터 시도하고 결과가 나오면 멈춥니다.
+        /*
+         * 해석 방법을 위에서부터 시도하되, **결과가 나왔다고 무조건 멈추지 않습니다.**
+         *
+         * 줄 전체를 제목으로 먼저 보는 것은 「코스모스 - 특별판」처럼 제목에 구분자가 든
+         * 책을 지키기 위해서입니다. 그런데 정보나루의 제목 매칭이 관대해서, 저자를 붙인
+         * 줄도 무언가를 찾아냅니다. 실제로 「좀머 씨 이야기 - 파트리크 쥐스킨트」가
+         * <b>「파트리크 쥐스킨트 작품집 (전5권)」으로 확정</b>되었습니다. 작품집 표제에
+         * 그 말들이 다 들어 있어서입니다. 찾던 책이 아닌데 확정까지 되어, 사용자는 고를
+         * 기회조차 없었습니다.
+         *
+         * 그래서 <b>제목이 그대로 맞았을 때만 거기서 멈추고</b>, 아니면 다음 해석도 해 본
+         * 뒤 더 나은 쪽을 씁니다. 제목만 넣은 줄은 첫 시도에서 맞으므로 호출이 늘지 않습니다.
+         */
         boolean lookupFailed = false;
+        LineParser.Attempt bestAttempt = null;
+        List<BookSearchService.WorkResult> bestRanked = null;
+        double bestScore = Double.NEGATIVE_INFINITY;
+
         for (LineParser.Attempt attempt : line.attempts()) {
             Outcome outcome = lookUp(attempt);
             if (outcome.failed()) {
@@ -111,12 +127,18 @@ public class MultiCheckService {
             if (works.isEmpty()) continue;
 
             List<BookSearchService.WorkResult> ranked = rank(works, attempt);
-            LineStatus status = isConfirmed(ranked, attempt) ? LineStatus.CONFIRMED : LineStatus.AMBIGUOUS;
-            List<BookSearchService.WorkResult> shown = status == LineStatus.CONFIRMED
-                    ? List.of(ranked.get(0))
-                    : ranked.subList(0, Math.min(MAX_CANDIDATES, ranked.size()));
-            return new LineResult(line.lineNo(), line.raw(), status,
-                    attempt.explanation(), line.mergedFrom(), List.copyOf(shown));
+            double top = score(ranked.get(0), attempt);
+            if (top >= GOOD_ENOUGH) {
+                return resultOf(line, attempt, ranked);
+            }
+            if (top > bestScore) {
+                bestScore = top;
+                bestAttempt = attempt;
+                bestRanked = ranked;
+            }
+        }
+        if (bestAttempt != null) {
+            return resultOf(line, bestAttempt, bestRanked);
         }
 
         LineParser.Attempt last = line.attempts().get(line.attempts().size() - 1);
@@ -146,6 +168,24 @@ public class MultiCheckService {
             case TITLE_AUTHOR ->
                     new Data4LibraryClient.BookQuery(attempt.title(), attempt.author(), null, null, false);
         };
+    }
+
+    /**
+     * 이 해석에서 멈춰도 되는 점수.
+     *
+     * <p>{@code score} 의 제목 몫이 1.0 이면 표제가 그대로 맞았다는 뜻입니다. 저자까지
+     * 맞으면 보너스가 더 붙으므로 이 문턱을 넘습니다. 넘지 못하면 다른 해석도 해 봅니다.
+     */
+    private static final double GOOD_ENOUGH = 1.0;
+
+    private LineResult resultOf(LineParser.ParsedLine line, LineParser.Attempt attempt,
+                                List<BookSearchService.WorkResult> ranked) {
+        LineStatus status = isConfirmed(ranked, attempt) ? LineStatus.CONFIRMED : LineStatus.AMBIGUOUS;
+        List<BookSearchService.WorkResult> shown = status == LineStatus.CONFIRMED
+                ? List.of(ranked.get(0))
+                : ranked.subList(0, Math.min(MAX_CANDIDATES, ranked.size()));
+        return new LineResult(line.lineNo(), line.raw(), status,
+                attempt.explanation(), line.mergedFrom(), List.copyOf(shown));
     }
 
     private static boolean isConfirmed(List<BookSearchService.WorkResult> ranked,
