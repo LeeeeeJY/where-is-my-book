@@ -268,7 +268,6 @@ export function BookSearch({
         </div>
         <p className="search-hint muted">
           여러 칸을 채우면 모두 만족하는 책만 찾습니다. ISBN 은 하이픈을 넣어도 됩니다.
-          띄어쓰기는 어느 쪽으로 넣어도 같은 책을 찾습니다.
         </p>
       </form>
 

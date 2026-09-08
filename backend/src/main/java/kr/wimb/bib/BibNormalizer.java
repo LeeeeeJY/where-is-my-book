@@ -71,6 +71,9 @@ public final class BibNormalizer {
     private static final Pattern BARE_SANG_HA =
             Pattern.compile("^\\s*[(\\[]?\\s*(상|중|하)\\s*[)\\]]?\\s*권?\\s*$");
 
+    /** 권차 필드에서 처음 나오는 숫자 덩어리. 네 자리를 넘으면 권차로 보지 않습니다. */
+    private static final Pattern FIRST_NUMBER = Pattern.compile("\\d{1,4}");
+
     /** 한글 뒤 괄호 안의 한자는 키에서 빼고 별칭으로 보관합니다. 「난중일기(亂中日記)」 */
     private static final Pattern HANJA_IN_PARENS =
             Pattern.compile("([가-힣]+)\\s*\\(\\s*([\\u4E00-\\u9FFF]{2,})\\s*\\)");
@@ -352,10 +355,14 @@ public final class BibNormalizer {
      */
     public static Integer volumeOrdinal(String rawVol) {
         if (rawVol == null || rawVol.isBlank()) return null;
-        String digits = rawVol.replaceAll("[^0-9]", "");
-        if (!digits.isEmpty()) {
+        // **숫자를 이어 붙이지 않습니다.** 숫자가 아닌 것을 전부 지우면 「1-2」 처럼 두 권을
+        // 한 권으로 묶은 값이 12권이 됩니다. 실제로 「레 미제라블 12권」이 목록 6위에
+        // 나왔는데, 민음사 판은 다섯 권뿐이고 대출도 3회였습니다. 없는 권을 만들어 낸
+        // 것이라 데이터에 없던 숫자입니다. 첫 숫자 덩어리만 씁니다.
+        Matcher digits = FIRST_NUMBER.matcher(rawVol);
+        if (digits.find()) {
             try {
-                return Integer.valueOf(digits);
+                return Integer.valueOf(digits.group());
             } catch (NumberFormatException e) {
                 return null;
             }
