@@ -1,0 +1,175 @@
+#!/usr/bin/env python3
+"""opac-discover.py 가 **잘못된 규칙을 걸러 내는지** 확인합니다.
+
+찾아내는 것보다 **걸러 내는 것이 중요합니다.** 틀린 규칙은 HTTP 200 을 주면서 결과만
+0건이 되어 「소장한다더니 그 책이 없네」로 보이고, 깨진 링크와 달리 눈에 띄지 않습니다.
+그래서 실제 OPAC 에서 만나는 일곱 가지 모양을 가짜 서버로 세워 놓고 판정을 확인합니다.
+
+    normal    GET 검색 폼이 있고 ISBN 으로 그 책이 나옵니다              → 규칙을 찾아야 합니다
+    postonly  검색이 POST 라 주소에 검색어가 남지 않습니다                → 버려야 합니다
+    ignores   검색어를 무시하고 늘 전체 목록을 뿌립니다                    → 음성 대조가 잡아야 합니다
+    flaky     첫 책은 나오지만 다른 책은 못 찾습니다                       → 재확인이 잡아야 합니다
+    euckr     본문이 EUC-KR 이고 ISBN 검색이 됩니다                       → 규칙을 찾아야 합니다
+    titleonly ISBN 은 안 되고 제목만 되는데 질의어가 EUC-KR 이어야 합니다  → 인코딩을 맞춰야 합니다
+    linked    홈페이지에는 검색창이 없고 「자료검색」 링크로만 갑니다        → 한 단계 따라가야 합니다
+
+마지막 것이 특히 중요합니다. 한글 질의어를 EUC-KR 로 받는 OPAC 에 UTF-8 로 보내면
+**200 이 오면서 결과만 0건**이 되는데, 그것이 이 프로젝트가 되풀이해서 경계하는 실패입니다.
+
+실행: ./scripts/test-opac-discover.py
+"""
+
+from __future__ import annotations
+
+import http.server
+import importlib.util
+import json
+import os
+import socket
+import sys
+import tempfile
+import threading
+import urllib.parse
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+spec = importlib.util.spec_from_file_location("opac_discover", os.path.join(HERE, "opac-discover.py"))
+od = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(od)
+
+BOOKS = {                       # 가짜 도서관이 소장한 책
+    "9788937473135": "82년생 김지영",
+    "9788996991342": "미움받을 용기",
+    "9788936433598": "채식주의자",
+}
+PAGE = """<html><head><meta charset="{charset}"></head><body>
+<form method="{method}" action="/search">
+  <input type="hidden" name="site" value="main">
+  <input type="text" name="searchKeyword">
+</form>{extra}</body></html>"""
+
+
+def make_handler(flavor: str):
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def send(self, body: str, charset: str = "utf-8"):
+            raw = body.encode(charset, "replace")
+            self.send_response(200)
+            self.send_header("Content-Type", f"text/html; charset={charset}")
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+
+        def do_GET(self):
+            path, _, query = self.path.partition("?")
+            charset = "euc-kr" if flavor in ("euckr", "titleonly") else "utf-8"
+            if path == "/robots.txt":
+                self.send("User-agent: *\nDisallow: /admin\n")
+                return
+            if path == "/":
+                if flavor == "linked":
+                    # 홈페이지에는 검색창이 없고 메뉴 링크만 있습니다. 실제 도서관에 흔합니다.
+                    self.send("<html><head><meta charset='utf-8'></head><body>"
+                              "<a href='/opac/search-page'>자료검색</a></body></html>")
+                    return
+                self.send(PAGE.format(charset=charset,
+                                      method="post" if flavor == "postonly" else "get",
+                                      extra=""), charset)
+                return
+            if path == "/opac/search-page" and flavor == "linked":
+                self.send(PAGE.format(charset=charset, method="get", extra=""), charset)
+                return
+            if path != "/search":
+                self.send_error(404)
+                return
+
+            raw = urllib.parse.parse_qs(query, encoding=charset, errors="replace")
+            term = (raw.get("searchKeyword") or [""])[0]
+            if flavor == "ignores":                     # 검색어를 무시하고 전체를 뿌립니다
+                hits = list(BOOKS.values())
+            elif flavor == "flaky":                     # 첫 책만 아는 척합니다
+                hits = ["82년생 김지영"] if term else []
+            elif flavor == "titleonly":
+                # ISBN 으로는 못 찾고, 질의어를 EUC-KR 로 받았을 때만 제목이 맞습니다.
+                # UTF-8 로 보내면 위의 parse_qs 가 깨진 글자를 만들어 0건이 됩니다.
+                hits = [t for t in BOOKS.values() if term == t]
+            else:
+                hits = [t for i, t in BOOKS.items() if term == i or term == t]
+            body = "".join(f"<li>{t}</li>" for t in hits) or "<p>검색결과가 없습니다</p>"
+            self.send(f"<html><head><meta charset='{charset}'></head><body><ul>{body}</ul>"
+                      f"</body></html>", charset)
+
+        def do_POST(self):
+            self.send("<html><body><p>검색결과가 없습니다</p></body></html>")
+    return Handler
+
+
+def serve(flavor: str) -> int:
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.close()
+    httpd = http.server.HTTPServer(("127.0.0.1", port), make_handler(flavor))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    return port
+
+
+def main() -> int:
+    flavors = ["normal", "postonly", "ignores", "flaky", "euckr", "titleonly", "linked"]
+    ports = {f: serve(f) for f in flavors}
+
+    work = tempfile.mkdtemp(prefix="opac-test-")
+    libs = [{"libCode": f"90000{i}", "name": f, "homepageUrl": f"http://127.0.0.1:{ports[f]}/"}
+            for i, f in enumerate(flavors)]
+    json.dump(libs, open(os.path.join(work, "libraries.json"), "w"))
+    probe = {l["libCode"]: list(BOOKS) for l in libs}
+    json.dump(probe, open(os.path.join(work, "probe.json"), "w"))
+
+    pacer = od.Pacer(0.0)
+    failures = []
+    for lib in libs:
+        flavor = lib["name"]
+        r = od.investigate({"key": flavor, "libraries": [lib]}, probe, pacer)
+        rules = r["rules"]
+        got = rules[0] if rules else None
+
+        if flavor in ("normal", "linked"):
+            ok = got and got["kind"] == "ISBN_SEARCH" and "{isbn13}" in got["template"]
+            detail = got["template"] if got else r["note"]
+        elif flavor == "euckr":
+            # ISBN 은 숫자라 어느 인코딩이든 통합니다. 규칙만 찾으면 됩니다.
+            ok = bool(got) and "{isbn13}" in (got["template"] if got else "")
+            detail = got["template"] if got else r["note"]
+        elif flavor == "titleonly":
+            # 제목 검색으로 내려가되 EUC-KR 로 골라야 합니다. UTF-8 로 적으면 그 도서관은
+            # 200 을 주면서 결과만 0건이 되고, 그것은 화면에서 보이지 않습니다.
+            ok = (got and got["kind"] == "TITLE_SEARCH" and got["encoding"] == "euc-kr"
+                  and "{title}" in got["template"])
+            detail = (f'{got["encoding"]} {got["template"]}' if got else r["note"])
+        else:
+            ok = got is None                    # 나머지 셋은 반드시 버려야 합니다
+            detail = (f"버려야 하는데 규칙을 만들었습니다: {got['template']}" if got
+                      else r["note"])
+        print(f"  {'✓' if ok else '✗'} {flavor:9s} {detail[:80]}")
+        if not ok:
+            failures.append(flavor)
+
+    # 검증 단계가 실제로 세 번 도는지 (양성·음성·재확인) 확인합니다.
+    lib = libs[0]
+    r = od.investigate({"key": "normal", "libraries": [lib]}, probe, pacer)
+    steps = [c["step"] for c in r["rules"][0]["checks"]]
+    ok = steps == ["양성", "음성", "재확인"]
+    print(f"  {'✓' if ok else '✗'} 검증 단계   {steps}")
+    if not ok:
+        failures.append("검증 단계")
+
+    if failures:
+        print(f"\n실패: {', '.join(failures)}")
+        return 1
+    print("\n전부 통과했습니다.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

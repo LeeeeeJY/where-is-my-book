@@ -6,6 +6,8 @@
 # 내려받은 원본 데이터와 작업 산출물
 inbox/
 /data/
+# OPAC 주소 규칙 조사의 중간 산출물 (scripts/opac-discover.py)
+.opac-work/
 # 소장 캐시 스냅샷. 로컬에서 서버를 띄우면 backend/data/ 에 생깁니다.
 backend/data/
 *.csv
@@ -23,6 +25,10 @@ build/
 # 래퍼 JAR 이 빠지면 clone 한 곳에서 ./gradlew 가 죽습니다. 여기서는 되는데
 # 서버에서만 빌드가 실패하는 형태로 나타나 원인을 찾기 어렵습니다.
 !**/gradle/wrapper/gradle-wrapper.jar
+
+# Python (scripts/ 의 조사 도구가 남깁니다)
+__pycache__/
+*.pyc
 
 # Node
 node_modules/
