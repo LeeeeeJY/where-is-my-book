@@ -31,6 +31,17 @@ on:
         description: '서로 다른 호스트를 몇 개씩 겹칠지'
         required: false
         default: '4'
+  # **`workflow_dispatch` 는 워크플로 파일이 기본 브랜치에 있어야 부를 수 있습니다.**
+  # 병합하기 전에는 손 단추가 없어서 조사를 시작할 방법이 없으므로, 이 파일이 바뀔 때만
+  # 도는 푸시 조건을 함께 둡니다. 아래 「조사 회차」를 고쳐 푸시하면 한 번 돕니다.
+  #
+  # 다른 파일을 고친 푸시로는 돌지 않고, 이 워크플로가 스스로 만든 커밋(templates.csv 와
+  # docs/opac/)도 경로가 달라 다시 부르지 않습니다. 병합한 뒤에는 손 단추를 쓰세요.
+  push:
+    paths:
+      - '.github/workflows/opac-discover.yml'
+
+# 조사 회차: 1 (이 숫자를 올려 푸시하면 위의 푸시 조건으로 한 번 더 돕니다)
 
 # **앞의 실행을 취소하지 않습니다.** 조사한 결과가 커밋되기 전에 끊기면 그때까지 두드린
 # 남의 서버 요청이 헛것이 됩니다. 이미지 빌드와 반대되는 선택이고, 이유도 반대입니다.
@@ -67,13 +78,18 @@ jobs:
           done
           ls -la .opac-work/ || true
 
+      # 푸시로 들어오면 입력이 비어 있으므로 여기서 기본값을 채웁니다. 비운 채로 넘기면
+      # `--limit` 뒤에 값이 없어 그대로 죽습니다.
       - name: 조사
         run: |
-          ARGS="--host-delay ${{ inputs.host_delay }} --concurrency ${{ inputs.concurrency }}"
-          if [ "${{ inputs.limit }}" = "0" ]; then
+          LIMIT="${{ inputs.limit }}"; LIMIT="${LIMIT:-30}"
+          DELAY="${{ inputs.host_delay }}"; DELAY="${DELAY:-3}"
+          CONC="${{ inputs.concurrency }}"; CONC="${CONC:-4}"
+          ARGS="--host-delay $DELAY --concurrency $CONC"
+          if [ "$LIMIT" = "0" ]; then
             python3 scripts/opac-discover.py --all $ARGS
           else
-            python3 scripts/opac-discover.py --limit ${{ inputs.limit }} $ARGS
+            python3 scripts/opac-discover.py --limit "$LIMIT" $ARGS
           fi
 
       - name: 성적표
