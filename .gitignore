@@ -10,7 +10,7 @@ inbox/
 backend/data/
 *.csv
 *.csv.gz
-!src/**/*.csv
+!**/src/**/*.csv
 !**/test/**/*.csv
 
 # Java / Gradle
