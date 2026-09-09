@@ -4,6 +4,11 @@
   있어도 열려야 하기 때문입니다. 개인정보처리방침이 「지금은 볼 수 없습니다」가 되는 것은
   그 자체로 말이 되지 않습니다.
 
+  **짧게 유지하세요.** 이 도구는 모으는 것이 거의 없고, 이 문서의 목적은 규제 대응이
+  아니라 **「없다」는 것을 말해 주는 것**입니다. 길어지면 아무도 읽지 않고, 안 읽히면
+  없다는 사실도 전달되지 않습니다. 절을 늘리기 전에 그것이 실제로 사용자가 알아야 할
+  것인지 보세요.
+
   **내용은 코드와 맞아야 합니다.** 여기 적힌 것은 전부 실제 동작을 확인하고 쓴 것입니다.
   아래를 고칠 때는 코드도 함께 보세요. 어느 한쪽만 바뀌면 이 문서는 거짓말이 됩니다.
 
@@ -42,12 +47,11 @@
         font: 15px/1.7 -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Pretendard',
           'Malgun Gothic', sans-serif;
       }
-      .page { max-width: 720px; margin: 0 auto; padding: 24px 16px 64px; }
+      .page { max-width: 680px; margin: 0 auto; padding: 24px 16px 56px; }
       a { color: var(--accent); }
       h1 { font-size: 24px; margin: 0 0 4px; }
-      h2 { font-size: 17px; margin: 36px 0 8px; }
-      h3 { font-size: 15px; margin: 20px 0 4px; }
-      p, li { margin: 8px 0; }
+      h2 { font-size: 16px; margin: 30px 0 6px; }
+      p, li { margin: 6px 0; }
       ul { padding-left: 20px; }
       code {
         background: var(--surface);
@@ -62,15 +66,15 @@
         border: 1px solid var(--line);
         border-radius: 8px;
         padding: 14px 16px;
-        margin: 20px 0 0;
+        margin: 18px 0 0;
       }
       .lede p:first-child { margin-top: 0; }
       .lede p:last-child { margin-bottom: 0; }
-      table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 14px; }
-      th, td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; }
+      table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+      th, td { border: 1px solid var(--line); padding: 7px 10px; text-align: left; vertical-align: top; }
       th { background: var(--surface); font-weight: 600; }
-      .back { display: inline-block; margin-bottom: 20px; font-size: 14px; }
-      footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--line); font-size: 13px; }
+      .back { display: inline-block; margin-bottom: 18px; font-size: 14px; }
+      footer { margin-top: 32px; padding-top: 14px; border-top: 1px solid var(--line); font-size: 13px; }
     </style>
   </head>
   <body>
@@ -83,7 +87,7 @@
       <div class="lede">
         <p>
           <strong>WIMB 는 계정을 만들지 않습니다.</strong> 로그인이 없으므로 이름도 이메일도
-          전화번호도 받지 않고, 그래서 어떤 검색이 누구의 것인지 알 방법 자체가 없습니다.
+          받지 않고, 그래서 어떤 검색이 누구의 것인지 알 방법 자체가 없습니다.
         </p>
         <p>
           <strong>쿠키를 쓰지 않고, 광고와 분석 도구를 붙이지 않았습니다.</strong>
@@ -91,134 +95,78 @@
         </p>
       </div>
 
-      <h2>1. 브라우저 안에만 있는 것</h2>
-      <p>아래 두 가지는 <strong>서버로 보내지 않습니다.</strong> 이용자의 기기에만 있습니다.</p>
+      <h2>브라우저 안에만 있는 것</h2>
+      <p>아래 두 가지는 이용자의 기기에만 있고 <strong>서버로 보내지 않습니다.</strong></p>
+      <ul>
+        <li>
+          <strong>고른 도서관 목록.</strong> 매번 다시 고르지 않아도 되도록 도서관 부호를
+          <code>wimb.selectedLibraries.v1</code> 로 남깁니다. 부호 말고는 아무것도 들어 있지
+          않고, 브라우저의 사이트 데이터를 지우면 함께 사라집니다.
+        </li>
+        <li>
+          <strong>내 위치.</strong> 「내 주변 도서관」을 눌렀을 때만 물어보고, 받은 좌표는
+          가까운 도서관을 고르려고 <strong>거리를 재는 데에만</strong> 씁니다. 화면을 새로
+          고치면 사라집니다. 브라우저에서 권한을 막아도 이름과 지역으로 도서관을 고를 수
+          있습니다.
+        </li>
+      </ul>
 
-      <h3>고른 도서관 목록</h3>
-      <p>
-        매번 다시 고르게 하면 이 도구를 쓰지 않게 되므로, 고른 도서관의 부호를 브라우저의
-        로컬 저장소에 <code>wimb.selectedLibraries.v1</code> 이라는 이름으로 남깁니다.
-        도서관 부호 말고는 아무것도 들어 있지 않습니다. 브라우저의 사이트 데이터 삭제로
-        언제든 지울 수 있고, 지워도 이 도구는 그대로 동작합니다.
-      </p>
-
-      <h3>내 위치</h3>
-      <p>
-        「내 주변 도서관」을 쓸 때만 브라우저에 위치를 물어봅니다. 물어보는 것은
-        이용자가 그 기능을 눌렀을 때뿐이고, 받은 좌표는 <strong>가까운 도서관을 고르려고
-        거리를 재는 데에만</strong> 씁니다. 좌표는 화면을 새로 고치면 사라지며,
-        <strong>서버로 보내지도, 저장하지도 않습니다.</strong>
-      </p>
-
-      <h2>2. 서버로 가는 것</h2>
+      <h2>서버로 가는 것</h2>
       <table>
         <tr><th>무엇을</th><th>왜</th><th>얼마나 두는지</th></tr>
         <tr>
-          <td>검색어(제목·저자·출판사·ISBN)와 붙여 넣은 목록</td>
-          <td>책을 찾기 위해</td>
-          <td>따로 저장하지 않습니다</td>
-        </tr>
-        <tr>
-          <td>고른 도서관의 부호, 조회할 ISBN</td>
-          <td>그 도서관에 그 책이 있는지 확인하기 위해</td>
-          <td>따로 저장하지 않습니다</td>
+          <td>검색어와 붙여 넣은 목록, 조회할 ISBN, 고른 도서관 부호</td>
+          <td>책을 찾고 그 도서관에 있는지 확인하기 위해</td>
+          <td>저장하지 않습니다</td>
         </tr>
         <tr>
           <td>접속 IP 주소</td>
           <td>한 곳에서 지나치게 많이 부르는 것을 막기 위해</td>
-          <td>서버 메모리에만. 아래를 보세요</td>
+          <td>서버 메모리에만</td>
         </tr>
       </table>
-
-      <h3>접속 IP 를 두는 이유와 방식</h3>
       <p>
-        이 도구는 도서관 정보나루의 데이터를 쓰는데, 하루에 부를 수 있는 횟수가 정해져
-        있습니다. 한 곳에서 몰아치면 그날 몫이 사라져 <strong>다른 이용자가 아무것도
-        확인하지 못하게 됩니다.</strong> 그래서 주소마다 쓸 수 있는 양을 정해 두고, 그것을
-        세기 위해 접속한 IP 주소를 서버 메모리에 잠시 둡니다.
+        이 도구가 쓰는 도서관 정보나루는 하루에 부를 수 있는 횟수가 정해져 있어서, 한 곳에서
+        몰아치면 <strong>다른 이용자가 아무것도 확인하지 못하게 됩니다.</strong> 그것을 막으려고
+        주소마다 쓸 수 있는 양을 세는데, 그 목적으로만 IP 를 잠시 둡니다.
       </p>
       <ul>
-        <li>
-          IPv6 주소는 앞 절반(/64)만 봅니다. 뒤쪽은 기기를 가리키는 부분이라 볼 이유가 없습니다.
-        </li>
-        <li>
-          <strong>디스크에 쓰지 않습니다.</strong> 서버를 다시 띄우면 그대로 사라집니다.
-        </li>
-        <li>
-          기억하는 주소의 수에 상한이 있어, 넘으면 오래 보지 않은 것부터 지웁니다.
-        </li>
+        <li>IPv6 는 앞 절반(/64)만 봅니다. 뒤쪽은 기기를 가리키는 부분이라 볼 이유가 없습니다.</li>
+        <li><strong>디스크에 쓰지 않습니다.</strong> 서버를 다시 띄우면 그대로 사라집니다.</li>
         <li>검색어와 짝지어 두지 않습니다. 누가 무엇을 찾았는지는 남지 않습니다.</li>
       </ul>
       <p>
-        접속 기록(access log)을 따로 남기도록 설정해 두지 않았습니다. 다만 서버에 오류가
-        났을 때 원인을 찾기 위한 로그가 남을 수 있습니다.
+        접속 기록(access log)을 남기도록 설정해 두지 않았습니다. 다만 서버에 오류가 났을 때
+        원인을 찾기 위한 로그는 남을 수 있습니다.
       </p>
 
-      <h2>3. 이 도구 밖으로 나가는 것</h2>
-      <p>
-        아래는 우리가 운영하지 않는 서비스입니다. 각자의 방침이 따로 있습니다.
-      </p>
+      <h2>이 도구 밖으로 나가는 것</h2>
+      <p>아래는 우리가 운영하지 않는 서비스입니다. 각자의 방침이 따로 있습니다.</p>
       <ul>
         <li>
-          <strong>도서관 정보나루(국립중앙도서관).</strong> 책을 찾고 소장 여부를 확인할 때
-          검색어와 ISBN 이 전달됩니다. 이 도구가 쓰는 데이터의 출처입니다.
-          <a href="https://www.data4library.kr" target="_blank" rel="noreferrer noopener">data4library.kr</a>
+          <strong><a href="https://www.data4library.kr" target="_blank" rel="noreferrer noopener">도서관 정보나루</a>(국립중앙도서관).</strong>
+          책을 찾고 소장 여부를 확인할 때 검색어와 ISBN 이 전달됩니다. 이 도구가 쓰는 데이터의
+          출처입니다.
         </li>
         <li>
           <strong>책 표지 그림.</strong> 정보나루가 알려 준 주소에서 브라우저가 직접 받아
-          옵니다. 그 주소가 정보나루가 아닌 곳일 수 있고, 그때는 그 서버에 접속 기록이
-          남을 수 있습니다.
+          옵니다. 그 주소가 정보나루가 아닌 곳일 수 있고, 그때는 그 서버에 접속 기록이 남을
+          수 있습니다.
         </li>
         <li>
-          <strong>도서관 홈페이지.</strong> 도서관 이름이나 책 제목을 눌러 그 도서관으로
-          옮겨 가면, 그다음부터는 그 도서관의 방침을 따릅니다.
+          <strong>도서관 홈페이지.</strong> 눌러서 옮겨 가면 그다음부터는 그 도서관의 방침을
+          따릅니다.
         </li>
-        <li>
-          <strong>Vercel.</strong> 이 화면을 올려 두는 곳입니다. 웹 호스팅 서비스의 성격상
-          요청 기록이 남을 수 있습니다.
-        </li>
+        <li><strong>Vercel.</strong> 이 화면을 올려 두는 곳이라 요청 기록이 남을 수 있습니다.</li>
       </ul>
 
-      <h2>4. 광고와 분석</h2>
+      <h2>이 문서를 고치면</h2>
       <p>
-        <strong>지금은 없습니다.</strong> 광고 스크립트도, 방문자 분석 도구도 넣지
-        않았습니다. 나중에 붙이게 되면 <strong>붙이기 전에</strong> 이 문서를 먼저 고치고
-        무엇이 어떻게 바뀌는지 적겠습니다.
-      </p>
-
-      <h2>5. 아이의 개인정보</h2>
-      <p>
-        계정을 만들지 않고 이름이나 연락처를 받지 않으므로, 나이에 관계없이 따로 모으는
-        정보가 없습니다.
-      </p>
-
-      <h2>6. 이용자가 할 수 있는 것</h2>
-      <ul>
-        <li>
-          브라우저의 사이트 데이터를 지우면 고른 도서관 목록이 사라집니다.
-        </li>
-        <li>
-          위치는 브라우저 설정에서 권한을 막으면 물어보지 않습니다. 막아도 이름과 지역으로
-          도서관을 고를 수 있습니다.
-        </li>
-        <li>
-          계정이 없어 이용자를 특정할 수 없으므로, 「내 기록을 지워 달라」는 요청에
-          대응할 수 있는 저장된 기록 자체가 없습니다.
-        </li>
-      </ul>
-
-      <h2>7. 문의</h2>
-      <p>
-        이 문서에 관해 물어볼 것이 있으면 저장소의 이슈로 알려 주세요.
-        <a href="https://github.com/LeeeeeJY/where-is-my-book/issues" target="_blank" rel="noreferrer noopener">
-          github.com/LeeeeeJY/where-is-my-book
-        </a>
-      </p>
-
-      <h2>8. 이 문서를 고치면</h2>
-      <p>
-        고친 날짜를 맨 위에 적습니다. 모으는 항목이 늘거나 새로운 곳으로 정보가 나가게 되면,
-        그 변경이 실제로 적용되기 전에 이 문서를 먼저 고칩니다.
+        고친 날짜를 맨 위에 적습니다. <strong>모으는 항목이 늘거나 광고·분석 도구를 붙이게
+        되면, 그것이 실제로 적용되기 전에 이 문서를 먼저 고칩니다.</strong> 물어볼 것이 있으면
+        저장소의
+        <a href="https://github.com/LeeeeeJY/where-is-my-book/issues" target="_blank" rel="noreferrer noopener">이슈</a>로
+        알려 주세요.
       </p>
 
       <footer class="muted">
