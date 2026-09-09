@@ -1,7 +1,7 @@
 import type { Library } from './types';
 
 /**
- * 여러 권 확인의 집계.
+ * 여러 권 검색의 집계.
  *
  * **확인하지 못한 책을 어느 쪽 집계에도 넣지 않는 것이 이 모듈의 전부입니다.**
  * 확인 불가를 미소장에 섞으면 실제로 있는 책을 없다고 답하게 되고, 소장에 섞으면
@@ -31,6 +31,13 @@ export type LibraryRank = {
   heldKeys: string[];
   /** 확인했는데 이 도서관에 없는 책 제목. **확인하지 못한 책은 들어가지 않습니다.** */
   missing: string[];
+  /**
+   * 어딘가에 있는 책 **전부**가 이 도서관에 있는지. 한 곳에서 다 빌릴 수 있다는 뜻입니다.
+   * 확인하지 못한 책은 여기서도 세지 않습니다.
+   */
+  full: boolean;
+  /** 사용자 위치에서의 거리. 위치를 모르거나 도서관 좌표가 없으면 null 입니다. */
+  km: number | null;
 };
 
 export type TripStep = {
@@ -58,12 +65,22 @@ export function countByState(rows: readonly BookRow[]): Record<BookState, number
  *
  * 실제 행동은 "한 곳을 골라서 가는 것"이므로 이것이 기본 화면입니다.
  * 도서관 × 책 행렬은 20개 관에 30권이면 600칸이라 좁은 화면에서 읽을 수 없습니다.
+ *
+ * **같은 권수 안에서는 가까운 곳이 먼저이고, 거리를 모르는 곳은 뒤로 갑니다.** 전부 가진
+ * 도서관이 여럿일 때 실제로 갈 곳을 고르는 기준이 거리이기 때문입니다. 거리는 화면이
+ * 위치를 알 때만 넘겨주므로 없으면 이름 순입니다.
+ *
+ * @param distanceKm 도서관까지의 거리. 위치를 모르면 넘기지 않습니다
  */
 export function rankLibraries(
   rows: readonly BookRow[],
   selected: readonly Library[],
+  distanceKm?: (library: Library) => number | null,
 ): LibraryRank[] {
   const checked = rows.filter(isChecked);
+  const heldSomewhere = rows.filter(
+    (row) => row.state === 'held' && row.holdingLibCodes.length > 0,
+  ).length;
 
   return selected
     .map((library) => {
@@ -78,16 +95,33 @@ export function rankLibraries(
           missing.push(row.title);
         }
       }
-      return { libCode: library.libCode, name: library.name, held, heldKeys, missing };
+      return {
+        libCode: library.libCode,
+        name: library.name,
+        held,
+        heldKeys,
+        missing,
+        full: heldSomewhere > 0 && held.length === heldSomewhere,
+        km: distanceKm?.(library) ?? null,
+      };
     })
     .filter((rank) => rank.held.length > 0)
-    .sort((a, b) => b.held.length - a.held.length || a.name.localeCompare(b.name, 'ko'));
+    .sort((a, b) => b.held.length - a.held.length || compareKm(a.km, b.km)
+      || a.name.localeCompare(b.name, 'ko'));
+}
+
+/** 가까운 곳이 먼저이고, 거리를 모르는 곳은 뒤입니다. 둘 다 모르면 같은 자리입니다. */
+function compareKm(a: number | null, b: number | null): number {
+  if (a === null && b === null) return 0;
+  if (a === null) return 1;
+  if (b === null) return -1;
+  return a - b;
 }
 
 /**
  * 확인이 끝나고 어딘가에 있는 책 **전부**를 가진 도서관.
  *
- * 여럿이면 화면이 거리와 대출 상태로 순위를 매깁니다. 한 곳도 없으면 빈 목록이고,
+ * 여럿이면 화면이 거리로 순위를 매깁니다. 한 곳도 없으면 빈 목록이고,
  * 그때는 {@link planTrip} 이 여러 곳을 엮습니다. 순서는 고른 순서 그대로이고, 세우는
  * 것은 화면의 몫입니다. 확인하지 못한 책은 여기서도 세지 않습니다.
  */
@@ -160,4 +194,3 @@ export function planTrip(
 
   return steps;
 }
-

@@ -154,3 +154,52 @@ describe('한 곳에서 다 빌릴 수 있는 도서관을 고른다', () => {
   });
 });
 
+
+describe('도서관 순위의 거리와 「전부 있음」', () => {
+  const rows = [
+    held('a', '코스모스', 중원.libCode, 분당.libCode, 판교.libCode),
+    held('b', '사피엔스', 중원.libCode, 분당.libCode),
+    none('c', '데미안'),
+  ];
+
+  it('같은 권수 안에서는 가까운 곳이 먼저이고 거리를 모르는 곳은 뒤다', () => {
+    const km = new Map([[중원.libCode, 5], [분당.libCode, 1.2]]);
+    const ranks = rankLibraries(rows, LIBS, (library) => km.get(library.libCode) ?? null);
+    // 중원과 분당은 두 권씩이라 동률인데, 분당이 더 가깝습니다. 판교는 한 권이라 맨 뒤입니다.
+    expect(ranks.map((r) => r.name)).toEqual(['분당도서관', '성남시중원도서관', '판교도서관']);
+    expect(ranks[0].km).toBe(1.2);
+    expect(ranks[2].km).toBeNull();
+  });
+
+  it('거리를 모르는 도서관끼리는 이름 순이고, 아는 곳이 앞이다', () => {
+    const km = new Map([[중원.libCode, 3]]);
+    const both = [held('a', 'A', 분당.libCode, 판교.libCode, 중원.libCode)];
+    const ranks = rankLibraries(both, [판교, 분당, 중원], (l) => km.get(l.libCode) ?? null);
+    expect(ranks.map((r) => r.name)).toEqual(['성남시중원도서관', '분당도서관', '판교도서관']);
+  });
+
+  it('거리를 넘기지 않으면 예전과 같이 권수와 이름으로만 세운다', () => {
+    const ranks = rankLibraries(rows, LIBS);
+    expect(ranks.map((r) => r.name)).toEqual(['분당도서관', '성남시중원도서관', '판교도서관']);
+    expect(ranks.every((r) => r.km === null)).toBe(true);
+  });
+
+  it('어딘가에 있는 책 전부를 가진 도서관만 full 이다', () => {
+    const ranks = rankLibraries(rows, LIBS);
+    expect(ranks.find((r) => r.libCode === 중원.libCode)!.full).toBe(true);
+    expect(ranks.find((r) => r.libCode === 분당.libCode)!.full).toBe(true);
+    expect(ranks.find((r) => r.libCode === 판교.libCode)!.full).toBe(false);
+    // fullCoverage 와 같은 답이어야 합니다. 두 판정이 갈리면 화면의 표시와 문장이 어긋납니다.
+    expect(ranks.filter((r) => r.full).map((r) => r.libCode).sort())
+      .toEqual(fullCoverage(rows, LIBS).map((l) => l.libCode).sort());
+  });
+
+  it('확인하지 못한 책은 full 판정에서도 세지 않는다', () => {
+    const withUnknown = [held('a', 'A', 중원.libCode), unknown('b', 'B')];
+    expect(rankLibraries(withUnknown, LIBS)[0].full).toBe(true);
+  });
+
+  it('찾은 책이 없으면 full 인 도서관도 없다', () => {
+    expect(rankLibraries([none('a', 'A')], LIBS)).toEqual([]);
+  });
+});
