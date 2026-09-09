@@ -52,6 +52,28 @@ public class ApiErrorAdvice {
         return body(HttpStatus.SERVICE_UNAVAILABLE, "budgetExhausted", e.getMessage());
     }
 
+    /**
+     * 주소 하나가 너무 많이 부른 경우. <b>우리 서버도 정보나루도 고장 나지 않았습니다.</b>
+     *
+     * <p>{@code Retry-After} 를 함께 보냅니다. 「나중에 다시」라고만 하면 사람도 프로그램도
+     * 언제가 나중인지 몰라 곧바로 다시 두드리고, 그러면 막으려던 것이 그대로 반복됩니다.
+     *
+     * <p><b>화면은 이것을 「미소장」이 아니라 「확인 불가」로 그려야 합니다.</b> 물어보지
+     * 못한 것이지 그 책이 없다는 뜻이 아닙니다. 여기서 이 구분이 무너지면 실제로 소장한
+     * 책을 없다고 답하게 되고, 그것이 이 도구를 못 쓰게 만드는 가장 빠른 길입니다.
+     */
+    @ExceptionHandler(RateLimit.LimitExceededException.class)
+    public ResponseEntity<Map<String, String>> rateLimited(RateLimit.LimitExceededException e) {
+        String code = e.decision().scope() == RateLimit.Scope.DAY
+                ? "clientDailyLimit" : "clientRateLimit";
+        Map<String, String> out = new LinkedHashMap<>();
+        out.put("code", code);
+        out.put("reason", e.getMessage());
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header("Retry-After", Long.toString(e.decision().retryAfterSeconds()))
+                .body(out);
+    }
+
     /** 컨트롤러가 직접 던진 것. 여기서도 이유를 본문에 실어 줍니다. */
     @ExceptionHandler(ResponseStatusException.class)
     public ResponseEntity<Map<String, String>> status(ResponseStatusException e) {

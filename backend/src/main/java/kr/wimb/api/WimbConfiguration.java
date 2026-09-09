@@ -10,6 +10,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
+import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 import java.net.URI;
@@ -62,6 +63,44 @@ public class WimbConfiguration implements WebMvcConfigurer {
 
     @Value("${wimb.cors.allowed-origins:http://localhost:5173}")
     private String[] allowedOrigins;
+
+    /**
+     * 주소 하나가 하루 몫을 통째로 태우지 못하게 막습니다.
+     *
+     * <p>우리 API 는 인증이 없습니다. {@code VITE_API_BASE} 가 빌드할 때 번들에 박히므로
+     * 주소는 애초에 감출 수 없고, 아는 사람은 누구나 부를 수 있습니다. 그 호출은 그대로
+     * 정보나루 예산에서 나가므로, <b>감추는 것이 아니라 몫을 정해 두는 것</b>이 답입니다.
+     *
+     * <p>급할 때 끄고 싶을 수 있으니 {@code enabled} 를 남겨 두지만, <b>끈 채로 두지
+     * 마세요.</b> 끄면 남이 우리 몫의 하루 한도를 대신 쓰고, 그 사이 화면은 「확인 불가」만
+     * 그립니다. 정보나루가 느려 보이는 것과 구별되지 않아 원인을 엉뚱한 데서 찾게 됩니다.
+     */
+    @Value("${wimb.rate-limit.enabled:true}")
+    private boolean rateLimitEnabled;
+
+    /**
+     * <b>프록시 뒤에 있는지.</b> 이 값이 실제 배치와 어긋나면 한쪽으로 크게 틀립니다.
+     *
+     * <p>참인데 프록시가 없으면 아무나 {@code X-Forwarded-For} 를 지어내 한도를 빠져나갑니다.
+     * 거짓인데 프록시가 있으면 모든 사용자가 프록시 주소 하나로 뭉뚱그려져 <b>서로의 한도를
+     * 나눠 쓰게 되고</b>, 사람이 몰리는 시간에 멀쩡한 요청이 무더기로 막힙니다. 지금 배포는
+     * Caddy 뒤이므로 참이 맞고, 프록시 없이 포트를 직접 여는 개발 환경에서는 헤더 자체가
+     * 오지 않아 참이어도 문제가 없습니다.
+     */
+    @Value("${wimb.rate-limit.behind-proxy:true}")
+    private boolean rateLimitBehindProxy;
+
+    @Value("${wimb.rate-limit.per-minute:400}")
+    private int rateLimitPerMinute;
+
+    @Value("${wimb.rate-limit.burst:800}")
+    private int rateLimitBurst;
+
+    @Value("${wimb.rate-limit.per-day:5000}")
+    private int rateLimitPerDay;
+
+    @Value("${wimb.rate-limit.max-tracked-clients:20000}")
+    private int rateLimitMaxClients;
 
     @Bean
     public ApiBudget apiBudget() {
@@ -130,6 +169,27 @@ public class WimbConfiguration implements WebMvcConfigurer {
     @Override
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/api/**").allowedOrigins(allowedOrigins).allowedMethods("GET", "POST");
+    }
+
+    /**
+     * 주소별 한도. 날짜 경계는 정보나루 예산 원장과 같은 한국 시각입니다. 둘이 어긋나면
+     * 원장이 새 날을 시작한 뒤에도 어제 몫에 걸려 있는 사람이 생깁니다.
+     */
+    @Bean
+    public RateLimit rateLimit() {
+        return new RateLimit(rateLimitPerMinute, rateLimitBurst, rateLimitPerDay,
+                rateLimitMaxClients, Clock.system(RateLimit.ZONE));
+    }
+
+    /**
+     * <b>{@code /api/**} 에만 겁니다.</b> 정적 자산은 Vercel 이 내보내므로 이 서버로 오지
+     * 않고, 여기 걸어 봐야 막을 것이 없습니다.
+     */
+    @Override
+    public void addInterceptors(InterceptorRegistry registry) {
+        registry.addInterceptor(
+                        new RateLimitInterceptor(rateLimit(), rateLimitEnabled, rateLimitBehindProxy))
+                .addPathPatterns("/api/**");
     }
 
     /**

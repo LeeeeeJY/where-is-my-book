@@ -94,6 +94,14 @@ class WimbControllerTest {
         }
     }
 
+    /**
+     * 호출 제한은 인터셉터가 보므로 컨트롤러 테스트에서는 걸릴 일이 없습니다. 그래도
+     * 생성자가 받으므로 넉넉한 값을 넘깁니다. 한도가 여기 테스트를 흔들면 안 됩니다.
+     */
+    private static RateLimit unlimited() {
+        return new RateLimit(1_000_000, 1_000_000, 0, 100, Clock.systemUTC());
+    }
+
     private static WimbController controllerWith(Data4LibraryClient.Transport transport) {
         var budget = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 100_000),
                 Clock.fixed(Instant.parse("2026-09-06T00:00:00Z"), ZoneId.of("UTC")));
@@ -104,6 +112,7 @@ class WimbControllerTest {
                 kr.wimb.opac.OpacTemplates.load(),
                 new CachingHoldingsClient((isbn, region) -> List.of(), Duration.ofHours(6), 100,
                         Clock.systemUTC()),
+                unlimited(),
                 Clock.fixed(Instant.parse("2026-09-06T00:00:00Z"), ZoneId.of("UTC")));
     }
 
@@ -123,6 +132,7 @@ class WimbControllerTest {
                 kr.wimb.opac.OpacTemplates.load(),
                 new CachingHoldingsClient((isbn, region) -> List.of(), Duration.ofHours(6), 100,
                         Clock.systemUTC()),
+                unlimited(),
                 Clock.fixed(Instant.parse("2026-09-06T00:00:00Z"), ZoneId.of("UTC")));
     }
 
@@ -140,7 +150,7 @@ class WimbControllerTest {
         };
         return new WimbController(client, search, new MultiCheckService(search), budget,
                 kr.wimb.opac.OpacTemplates.load(), new CachingHoldingsClient((isbn, region) -> List.of(), Duration.ofHours(6), 100,
-                        Clock.systemUTC()), moving);
+                        Clock.systemUTC()), unlimited(), moving);
     }
 
     @Test

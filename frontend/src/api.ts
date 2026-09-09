@@ -145,21 +145,11 @@ async function get<T>(path: string): Promise<T> {
     // 서버가 안 떠 있는 경우입니다. 화면이 죽지 않도록 구분해 던집니다.
     throw new ApiUnavailable('API 서버에 연결하지 못했습니다.');
   }
-  if (!response.ok) {
-    // **서버가 알려 준 이유를 반드시 꺼내 씁니다.** 정보나루는 무엇이 잘못됐는지 한국어로
-    // 또박또박 알려 주는데, 그것을 버리고 「API 오류 503」만 보여 주면 사용자도 우리도
-    // 원인을 코드에서 찾게 됩니다. 실제로 그렇게 하루를 추측으로 보냈습니다.
-    let code: string | undefined;
-    let reason: string | undefined;
-    try {
-      const body = (await response.json()) as { code?: string; reason?: string };
-      code = body.code;
-      reason = body.reason;
-    } catch {
-      // 본문이 JSON 이 아니면 상태 코드만으로 답합니다.
-    }
-    throw new ApiUnreadable(response.status, code, reason);
-  }
+  // **서버가 알려 준 이유를 반드시 꺼내 씁니다.** 정보나루는 무엇이 잘못됐는지 한국어로
+  // 또박또박 알려 주는데, 그것을 버리고 「API 오류 503」만 보여 주면 사용자도 우리도
+  // 원인을 코드에서 찾게 됩니다. 실제로 그렇게 하루를 추측으로 보냈습니다.
+  // POST 도 같은 함수를 씁니다. 한쪽만 고치면 언젠가 다시 갈립니다.
+  if (!response.ok) throw await unreadable(response);
   return (await response.json()) as T;
 }
 
@@ -310,8 +300,23 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   } catch {
     throw new ApiUnavailable('API 서버에 연결하지 못했습니다.');
   }
-  if (!response.ok) throw new ApiUnreadable(response.status);
+  // **GET 과 똑같이 이유를 꺼내 씁니다.** 예전에는 여기서 상태 코드만 들고 던져서, 소장
+  // 조회와 줄 확정의 실패는 화면에 「API 오류 503」으로만 나왔습니다. 서버가 한국어로
+  // 또박또박 알려 준 문장을 우리가 버린 것이라, 그다음은 전부 추측이 됩니다.
+  // 주소별 호출 제한(429)이 붙은 뒤로는 특히 그렇습니다. 「잠시 뒤 다시 해 주세요」와
+  // 「오늘 몫을 다 썼습니다」를 사용자가 볼 수 없으면 무엇을 해야 하는지 알 수 없습니다.
+  if (!response.ok) throw await unreadable(response);
   return (await response.json()) as T;
+}
+
+/** 서버가 실어 보낸 이유와 오류 코드를 꺼냅니다. 본문이 없으면 상태 코드만으로 답합니다. */
+async function unreadable(response: Response): Promise<ApiUnreadable> {
+  try {
+    const body = (await response.json()) as { code?: string; reason?: string };
+    return new ApiUnreadable(response.status, body.code, body.reason);
+  } catch {
+    return new ApiUnreadable(response.status);
+  }
 }
 
 export async function resolveLines(lines: string[]): Promise<ResolveResponse> {

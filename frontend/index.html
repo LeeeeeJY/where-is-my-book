@@ -4,11 +4,56 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="theme-color" content="#2f6f4f" />
+
+    <title>WIMB · Where Is My Book</title>
     <meta
       name="description"
       content="자주 가는 공공도서관을 골라 두면, 읽고 싶은 책이 그중 어디에 있는지 한 번에 알려 줍니다."
     />
-    <title>WIMB · Where Is My Book</title>
+
+    <!--
+      **정본 주소를 밝혀 둡니다.** 고른 도서관이 주소에 `libs=` 로 붙는데(공유하려고 그렇게
+      해 두었습니다), 그대로 두면 도서관 조합마다 다른 주소가 되어 내용이 같은 페이지가
+      끝없이 만들어집니다. 검색엔진에는 그것이 전부 중복 페이지로 보입니다.
+    -->
+    <link rel="canonical" href="https://where-is-my-book.vercel.app/" />
+
+    <!--
+      공유 링크 미리보기.
+
+      **이것은 검색 순위보다 실제 사용에 관한 것입니다.** 고른 도서관을 주소로 공유하는
+      것이 이 도구의 기능인데, 미리보기가 없으면 카카오톡이나 슬랙에 붙였을 때 주소만
+      덩그러니 남아 무엇인지 알 수 없습니다.
+
+      **주소는 절대 경로여야 합니다.** 상대 경로를 쓰면 미리보기를 만드는 쪽에서 그림을
+      찾지 못합니다. 그래서 도메인이 바뀌면 여기 네 줄(canonical, og:url, og:image,
+      twitter:image)을 함께 고쳐야 합니다.
+
+      그림은 `tools/og-image.html` 이 원본이고 `node tools/make-og-image.mjs` 로 다시
+      만듭니다. 그림만 두면 나중에 아무도 고치지 못합니다.
+    -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="WIMB" />
+    <meta property="og:locale" content="ko_KR" />
+    <meta property="og:url" content="https://where-is-my-book.vercel.app/" />
+    <meta property="og:title" content="WIMB · 어느 도서관에 있는지 한 번에" />
+    <meta
+      property="og:description"
+      content="자주 가는 공공도서관을 골라 두면, 읽고 싶은 책이 그중 어디에 있는지 한 번에 알려 줍니다."
+    />
+    <meta property="og:image" content="https://where-is-my-book.vercel.app/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="WIMB — 자주 가는 도서관을 골라 두면 읽고 싶은 책이 그중 어디에 있는지 알려 줍니다." />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="WIMB · 어느 도서관에 있는지 한 번에" />
+    <meta
+      name="twitter:description"
+      content="자주 가는 공공도서관을 골라 두면, 읽고 싶은 책이 그중 어디에 있는지 한 번에 알려 줍니다."
+    />
+    <meta name="twitter:image" content="https://where-is-my-book.vercel.app/og.png" />
   </head>
   <body>
     <div id="root"></div>

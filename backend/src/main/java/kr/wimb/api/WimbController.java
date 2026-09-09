@@ -45,6 +45,9 @@ public class WimbController {
 
     /** 소장 캐시. {@code /api/status} 가 항목 수를 내보냅니다. */
     private final CachingHoldingsClient holdingsCache;
+
+    /** 주소별 호출 제한. {@code /api/status} 가 지금 세고 있는 주소 수를 내보냅니다. */
+    private final RateLimit rateLimit;
     private final OpacTemplates opacTemplates;
 
     /**
@@ -88,15 +91,18 @@ public class WimbController {
     @Autowired
     public WimbController(Data4LibraryClient client, BookSearchService searchService,
                           MultiCheckService multiCheckService, ApiBudget budget,
-                          OpacTemplates opacTemplates, CachingHoldingsClient holdingsCache) {
+                          OpacTemplates opacTemplates, CachingHoldingsClient holdingsCache,
+                          RateLimit rateLimit) {
         this(client, searchService, multiCheckService, budget, opacTemplates, holdingsCache,
-                Clock.systemUTC());
+                rateLimit, Clock.systemUTC());
     }
 
     /** 재시도 시각을 시험할 수 있도록 시계를 받는 생성자입니다. */
     WimbController(Data4LibraryClient client, BookSearchService searchService,
                    MultiCheckService multiCheckService, ApiBudget budget,
-                   OpacTemplates opacTemplates, CachingHoldingsClient holdingsCache, Clock clock) {
+                   OpacTemplates opacTemplates, CachingHoldingsClient holdingsCache,
+                   RateLimit rateLimit, Clock clock) {
+        this.rateLimit = rateLimit;
         this.holdingsCache = holdingsCache;
         this.opacTemplates = opacTemplates;
         this.client = client;
@@ -404,6 +410,11 @@ public class WimbController {
                 "librariesLoaded", catalog.size(),
                 "callsUsedToday", budget.used(Data4LibraryClient.SOURCE_CODE),
                 "callsRemaining", budget.remaining(Data4LibraryClient.SOURCE_CODE),
+                // **한도가 실제로 도는지 알 방법이 있어야 합니다.** 호출이 갑자기 줄었을 때
+                // 이 숫자가 없으면 사람이 안 오는 것인지 우리가 막고 있는 것인지 구별할 수
+                // 없어 추측하게 됩니다. 주소 자체는 내보내지 않습니다. 개인정보이고,
+                // 세고 있다는 사실만으로 이 진단에는 충분합니다.
+                "rateLimitedClients", rateLimit.trackedClients(),
                 // **캐시가 실제로 살아 있는지 알 방법이 있어야 합니다.** 이 숫자가 없으면
                 // 재배포 뒤에 호출이 줄지 않을 때, 스냅샷을 못 되살린 것인지 저장이 안 된
                 // 것인지 캐시가 원래 안 도는 것인지 구별할 수 없어 추측하게 됩니다.
