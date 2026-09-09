@@ -1,0 +1,20 @@
+# WIMB — https://where-is-my-book.vercel.app
+#
+# 막을 것이 없어서 전부 열어 둡니다. 다만 **일부러 막지 않은 것 둘**이 있습니다.
+#
+#   /?libs=...      고른 도서관이 주소에 붙어 조합마다 다른 주소가 되지만, 내용은 같습니다.
+#   /privacy.html   /privacy 와 같은 페이지입니다.
+#
+# 둘 다 중복이라 막고 싶어지는데, **막으면 오히려 나빠집니다.** 크롤러가 페이지를 읽지
+# 못하면 그 안의 canonical 도 못 읽어서, 어느 쪽이 정본인지 알려 줄 방법이 사라집니다.
+# 중복은 robots.txt 가 아니라 canonical 로 정리합니다.
+
+User-agent: *
+Allow: /
+
+# 네이버 크롤러입니다. 위의 * 규칙과 같은 내용이지만, 네이버 쪽 검사에서 명시적인 허용을
+# 보기도 해서 따로 적어 둡니다.
+User-agent: Yeti
+Allow: /
+
+Sitemap: https://where-is-my-book.vercel.app/sitemap.xml

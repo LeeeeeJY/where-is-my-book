@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  주소가 두 개뿐이라 목록도 두 줄입니다.
+
+  **lastmod 를 일부러 넣지 않았습니다.** 손으로 적으면 코드가 바뀔 때마다 같이 고쳐야 하는데
+  그것이 지켜지지 않아 곧 거짓이 되고, 배포할 때 자동으로 찍으면 내용이 그대로인 날에도
+  바뀌었다고 말하게 됩니다. 둘 다 틀린 날짜라, 검색엔진이 이 값을 믿지 않게 되는 쪽이
+  아니라 아예 말하지 않는 쪽을 골랐습니다. changefreq 와 priority 는 구글이 보지 않습니다.
+
+  도메인을 바꾸면 여기와 index.html 의 네 줄(canonical, og:url, og:image, twitter:image),
+  privacy.html 의 canonical 을 함께 고쳐야 합니다. src/__tests__/siteUrl.test.ts 가
+  그것들이 서로 어긋나면 실패합니다.
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://where-is-my-book.vercel.app/</loc>
+  </url>
+  <url>
+    <loc>https://where-is-my-book.vercel.app/privacy</loc>
+  </url>
+</urlset>
