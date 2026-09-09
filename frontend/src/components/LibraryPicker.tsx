@@ -23,7 +23,7 @@ export function LibraryPicker({
   libraries: Library[];
   selected: Set<string>;
   onChange: (next: Set<string>) => void;
-  /** 「내 주변」이 잡은 위치. 여러 권 확인도 쓰므로 위에서 들고 내려 줍니다. */
+  /** 「내 주변」이 잡은 위치. 여러 권 검색도 쓰므로 위에서 들고 내려 줍니다. */
   position: UserPosition | null;
   onPosition: (next: UserPosition | null) => void;
 }) {

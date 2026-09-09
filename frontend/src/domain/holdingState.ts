@@ -1,6 +1,6 @@
 import type { BookState } from './tripPlan';
 
-/** 소장 조회 결과에서 화면 판정에 필요한 부분만. 한 권 검색과 여러 권 확인이 같은 모양을 씁니다. */
+/** 소장 조회 결과에서 화면 판정에 필요한 부분만. 한 권 검색과 여러 권 검색이 같은 모양을 씁니다. */
 export type HoldingFacts = {
   libCodes: string[];
   /** 저작에 묶인 판본을 빠짐없이 확인했는지 */

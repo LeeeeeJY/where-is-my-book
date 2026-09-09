@@ -36,7 +36,7 @@ export default function App() {
   const [restored, setRestored] = useState(false);
   const [mode, setMode] = useState<'single' | 'multi'>('single');
   /**
-   * 「내 주변」에서 잡은 위치. 도서관 선택 칸이 잡고 여러 권 확인이 거리를 재는 데 씁니다.
+   * 「내 주변」에서 잡은 위치. 도서관 선택 칸이 잡고 여러 권 검색이 거리를 재는 데 씁니다.
    * 한쪽 컴포넌트 안에 두면 다른 쪽이 볼 수 없어 여기에 올려 둡니다.
    */
   const [position, setPosition] = useState<UserPosition | null>(null);
@@ -147,7 +147,7 @@ export default function App() {
               {(
                 [
                   ['single', '한 권 검색'],
-                  ['multi', '여러 권 확인'],
+                  ['multi', '여러 권 검색'],
                 ] as const
               ).map(([key, label]) => (
                 <button
