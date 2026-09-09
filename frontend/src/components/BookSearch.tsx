@@ -566,9 +566,14 @@ function BookCard({
           alt=""
           loading="lazy"
           // 표지 서버가 답하지 않으면 깨진 그림 자리가 남습니다. 표지는 없어도 되는
-          // 정보라, 실패하면 조용히 지우는 편이 화면이 깔끔합니다.
+          // 정보라, 실패하면 조용히 감춥니다.
+          //
+          // **`display: none` 으로 지우면 안 됩니다.** 이 줄은 「표지 56px + 나머지」 두 칸
+          // 격자라, 표지를 흐름에서 빼면 본문이 표지 자리로 밀려 들어가 제목과 저자가
+          // 두세 글자마다 줄바꿈됩니다. 실제로 그렇게 보이고 있었습니다. `visibility` 는
+          // 자리를 그대로 두고 그림만 감춥니다. 여러 권 검색의 후보 표지도 같은 방식입니다.
           onError={(e) => {
-            e.currentTarget.style.display = 'none';
+            e.currentTarget.style.visibility = 'hidden';
           }}
         />
       ) : (

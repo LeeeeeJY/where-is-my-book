@@ -302,7 +302,12 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
 }
 .book__cover--empty { display: block; }
 
-.book__body { min-width: 0; }
+/*
+  **본문은 반드시 둘째 칸입니다.** 표지가 빠지면 본문이 첫 칸(56px)으로 밀려 들어가
+  제목과 저자가 두세 글자마다 줄바꿈됩니다. 표지를 감추는 방식이 나중에 바뀌어도 이
+  한 줄이 배치를 지킵니다.
+*/
+.book__body { min-width: 0; grid-column: 2; }
 .book__title { margin: 0 0 2px; font-size: 15px; line-height: 1.4; }
 .book__meta, .book__editions { margin: 0; font-size: 13px; }
 
