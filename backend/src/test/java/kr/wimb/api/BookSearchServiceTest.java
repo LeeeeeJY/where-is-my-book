@@ -262,11 +262,11 @@ class BookSearchServiceTest {
         // 정보나루는 넣은 글자를 그대로 찾습니다. 「마의 산」과 「마의산」이 다른 검색이고,
         // 사용자에게는 그것이 「그런 책이 없다」로 보입니다. 안내만 하고 마는 것은
         // 우리가 할 수 있는 일을 사용자에게 미루는 것입니다.
-        assertEquals("마의산", BookSearchService.respacedTitle("마의 산"));
-        assertEquals("총균쇠", BookSearchService.respacedTitle("총 균 쇠"));
-        assertNull(BookSearchService.respacedTitle("코스모스"), "바꿀 것이 없으면 다시 찾지 않습니다");
-        assertNull(BookSearchService.respacedTitle(null));
-        assertNull(BookSearchService.respacedTitle("   "));
+        assertEquals("마의산", BookSearchService.withoutSpaces("마의 산"));
+        assertEquals("총균쇠", BookSearchService.withoutSpaces("총 균 쇠"));
+        assertNull(BookSearchService.withoutSpaces("코스모스"), "바꿀 것이 없으면 다시 찾지 않습니다");
+        assertNull(BookSearchService.withoutSpaces(null));
+        assertNull(BookSearchService.withoutSpaces("   "));
     }
 
     @Test
@@ -949,6 +949,188 @@ class BookSearchServiceTest {
 
         assertEquals(1, response.foundBooks());
         assertEquals(1, response.works().size());
+    }
+
+    // ── 저자 띄어쓰기 ───────────────────────────────────────────────────
+
+    /** 저자를 붙여 쓴 서지. 정보나루에 「칼세이건」이라고 등록된 판입니다. */
+    private static final String COSMOS_COMPACT_AUTHOR = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <response>
+          <docs>
+            <doc>
+              <bookname><![CDATA[코스모스]]></bookname>
+              <authors><![CDATA[칼세이건 지음 ; 홍승수 옮김]]></authors>
+              <publisher><![CDATA[사이언스북스]]></publisher>
+              <publication_year>2004</publication_year>
+              <isbn13>9788970000015</isbn13>
+              <loan_count>50</loan_count>
+            </doc>
+          </docs>
+        </response>
+        """;
+
+    /** 제목만으로 찾으면 오는 것. 찾는 저자의 책과 같은 제목의 다른 책이 섞여 있습니다. */
+    private static final String COSMOS_BY_TITLE = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <response>
+          <docs>
+            <doc>
+              <bookname><![CDATA[코스모스]]></bookname>
+              <authors><![CDATA[칼 세이건 지음 ; 홍승수 옮김]]></authors>
+              <publisher><![CDATA[사이언스북스]]></publisher>
+              <publication_year>2006</publication_year>
+              <isbn13>9788983711892</isbn13>
+            </doc>
+            <doc>
+              <bookname><![CDATA[코스모스]]></bookname>
+              <authors><![CDATA[김철수 글]]></authors>
+              <publisher><![CDATA[삼성당]]></publisher>
+              <publication_year>2005</publication_year>
+              <isbn13>9788970000022</isbn13>
+            </doc>
+          </docs>
+        </response>
+        """;
+
+    private static String decoded(java.net.URI uri) {
+        return java.net.URLDecoder.decode(uri.toString(), java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    private static Data4LibraryClient.BookQuery byAuthor(String author) {
+        return new Data4LibraryClient.BookQuery(null, author, null, null, false);
+    }
+
+    /**
+     * 정보나루는 저자도 어절 단위로 그대로 찾습니다. 「칼 세이건」으로 넣으면 「칼세이건」이라고
+     * 등록된 판은 걸리지 않습니다. 제목과 같은 병이라 같은 약을 씁니다.
+     */
+    @Test
+    @DisplayName("띄어 쓴 저자로 찾으면 붙여 쓴 저자 표기로도 함께 찾는다")
+    void searchesCompactAuthorToo() {
+        List<String> log = java.util.Collections.synchronizedList(new java.util.ArrayList<>());
+        Data4LibraryClient.Transport transport = uri -> {
+            String q = decoded(uri);
+            log.add(q);
+            if (q.contains("author=칼세이건")) return COSMOS_COMPACT_AUTHOR;
+            if (q.contains("author=칼 세이건")) return TWO_BOOKS;
+            return EMPTY_RESPONSE;
+        };
+
+        var response = serviceWith(transport).search(byAuthor("칼 세이건"));
+
+        assertTrue(isbnsOf(response).contains("9788970000015"), "붙여 쓴 판도 들어와야 합니다");
+        assertTrue(isbnsOf(response).contains("9788983711892"), "입력 그대로의 결과는 그대로입니다");
+        assertEquals(List.of("칼세이건"), response.alsoSearchedAuthors(),
+                "함께 찾은 저자 표기를 화면에 밝혀야 합니다");
+        assertTrue(log.stream().noneMatch(q -> q.contains("author=칼세 이건")),
+                "띄어 쓴 이름은 자리를 옮겨 보지 않습니다: " + log);
+    }
+
+    /**
+     * <b>저자만 붙여 쓰면 결과가 아예 없었습니다.</b> 「칼세이건」은 정보나루의 어느 어절과도
+     * 맞지 않고, 제목이 없으니 되찾을 실마리도 없습니다. 공백을 어디에 넣어야 하는지는 알 수
+     * 없지만 자리는 이름 길이만큼뿐이라 전부 물어보고, 저자가 실제로 맞는 것만 더합니다.
+     */
+    @Test
+    @DisplayName("붙여 쓴 저자만으로 찾으면 띄어쓰기 자리를 옮겨 가며 찾는다")
+    void respacesCompactAuthorWhenSearchingByAuthorOnly() {
+        List<String> log = java.util.Collections.synchronizedList(new java.util.ArrayList<>());
+        Data4LibraryClient.Transport transport = uri -> {
+            String q = decoded(uri);
+            log.add(q);
+            return q.contains("author=칼 세이건") ? TWO_BOOKS : EMPTY_RESPONSE;
+        };
+
+        var response = serviceWith(transport).search(byAuthor("칼세이건"));
+
+        assertTrue(isbnsOf(response).contains("9788983711892"),
+                "띄어 쓴 표기로 등록된 책이 나와야 합니다");
+        assertEquals(List.of("칼 세이건"), response.alsoSearchedAuthors(),
+                "책을 데려온 표기만 밝힙니다. 아무것도 못 찾은 「칼세 이건」은 싣지 않습니다");
+        assertTrue(log.stream().anyMatch(q -> q.contains("author=칼세 이건"))
+                && log.stream().anyMatch(q -> q.contains("author=칼세이 건")),
+                "어디서 띄는지 모르므로 자리를 전부 물어봅니다: " + log);
+        assertTrue(log.stream().noneMatch(q -> q.contains("title=")),
+                "제목이 없으니 제목으로 찾을 것은 없습니다: " + log);
+    }
+
+    /**
+     * 제목과 저자를 함께 넣었으면 <b>제목이 실마리입니다.</b> 저자 없이 제목만으로 찾아,
+     * 저자 표기의 공백과 구두점을 지운 것이 맞는 책만 더합니다. 그렇게 알게 된 「칼 세이건」
+     * 표기로 한 번 더 찾아 첫 쪽에 들지 못한 판까지 데려옵니다.
+     */
+    @Test
+    @DisplayName("제목과 붙여 쓴 저자를 함께 넣으면 제목만으로 찾아 저자가 맞는 것만 더한다")
+    void recoversByTitleWhenAuthorSpacingDiffers() {
+        List<String> log = java.util.Collections.synchronizedList(new java.util.ArrayList<>());
+        Data4LibraryClient.Transport transport = uri -> {
+            String q = decoded(uri);
+            log.add(q);
+            if (q.contains("author=칼 세이건")) return TWO_BOOKS;      // 되찾은 표기로 다시 찾으면 특별판까지
+            if (q.contains("author=")) return EMPTY_RESPONSE;         // 「칼세이건」은 어느 어절과도 맞지 않습니다
+            if (q.contains("title=코스모스")) return COSMOS_BY_TITLE; // 제목만으로는 김철수의 「코스모스」도 옵니다
+            return EMPTY_RESPONSE;
+        };
+
+        var response = serviceWith(transport).search(
+                new Data4LibraryClient.BookQuery("코스모스", "칼세이건", null, null, false));
+
+        var isbns = isbnsOf(response);
+        assertTrue(isbns.contains("9788983711892"), "제목으로 되찾은 칼 세이건의 책이 있어야 합니다");
+        assertFalse(isbns.contains("9788970000022"), "저자가 다른 「코스모스」를 끌어오면 안 됩니다");
+        assertTrue(isbns.contains("9791158510015"),
+                "되찾은 「칼 세이건」 표기로 다시 찾아 특별판까지 데려와야 합니다");
+        assertEquals(List.of("칼 세이건"), response.alsoSearchedAuthors());
+        assertTrue(log.stream().noneMatch(q -> q.contains("author=칼세 이건")),
+                "제목이 있으면 자리를 옮겨 볼 필요가 없습니다: " + log);
+    }
+
+    @Test
+    @DisplayName("여러 권 확인 경로도 저자 표기가 달라도 같은 책을 찾는다")
+    void worksForToleratesAuthorSpacing() {
+        Data4LibraryClient.Transport transport = uri -> {
+            String q = decoded(uri);
+            if (q.contains("author=")) return EMPTY_RESPONSE;
+            return q.contains("title=코스모스") ? COSMOS_BY_TITLE : EMPTY_RESPONSE;
+        };
+
+        var works = serviceWith(transport).worksFor(
+                new Data4LibraryClient.BookQuery("코스모스", "칼세이건", null, null, false));
+
+        assertEquals(1, works.size(), "칼 세이건의 「코스모스」 하나만 나와야 합니다: " + works);
+        assertEquals(List.of("9788983711892"), works.get(0).isbn13List());
+    }
+
+    @Test
+    @DisplayName("띄어쓰기 자리는 붙여 쓴 네 음절 이상의 한글 이름에서만 옮겨 본다")
+    void respacesOnlyCompactHangulNames() {
+        assertEquals(List.of("칼 세이건", "칼세 이건", "칼세이 건"),
+                BookSearchService.spacedAuthorGuesses("칼세이건"));
+        assertEquals(List.of(), BookSearchService.spacedAuthorGuesses("김영하"),
+                "세 음절은 대개 한국 이름이라 옮길 자리가 없습니다");
+        assertEquals(List.of(), BookSearchService.spacedAuthorGuesses("칼 세이건"),
+                "이미 띄어 쓴 이름은 그대로 찾습니다");
+        assertEquals(List.of(), BookSearchService.spacedAuthorGuesses("J.K.롤링"),
+                "로마자가 섞이면 어디서 띄는지 이름마다 달라 옮겨 보지 않습니다");
+        assertEquals(List.of(), BookSearchService.spacedAuthorGuesses("알렉산드르솔제니친전집"),
+                "여덟 음절을 넘으면 세 어절이라 한 자리만 옮겨서는 맞지 않습니다");
+        assertEquals(List.of(), BookSearchService.spacedAuthorGuesses(null));
+    }
+
+    @Test
+    @DisplayName("결과에서 본 저자 표기 가운데 글자가 같고 띄어쓰기만 다른 것만 다시 찾는다")
+    void picksAlternateAuthorSpellingsFromResults() {
+        var sagan = BookInfo.from(Map.of("bookname", "코스모스", "authors", "칼 세이건 지음 ; 홍승수 옮김"));
+        var inverted = BookInfo.from(Map.of("bookname", "콘택트", "authors", "세이건, 칼 지음"));
+
+        assertEquals(List.of("칼 세이건"),
+                BookSearchService.alternateAuthorSpellings("칼세이건", List.of(sagan, inverted), List.of("칼세이건")),
+                "성과 이름을 뒤집은 표기는 같은 글자가 아니므로 다시 찾지 않습니다");
+        assertEquals(List.of(),
+                BookSearchService.alternateAuthorSpellings("칼 세이건", List.of(sagan), List.of("칼 세이건", "칼세이건")),
+                "이미 찾아본 표기는 다시 찾지 않습니다");
+        assertEquals(List.of(), BookSearchService.alternateAuthorSpellings(null, List.of(sagan), List.of()));
     }
 
     // ── 소장 조회의 상한과 기준 날짜 ─────────────────────────────────────

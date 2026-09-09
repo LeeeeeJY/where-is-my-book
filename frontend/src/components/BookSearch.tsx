@@ -354,7 +354,7 @@ function SearchState({
   }
 
   const { works, totalWorks, foundBooks, droppedNoIsbn, droppedBooks,
-    alsoSearchedTitles } = state.response;
+    alsoSearchedTitles, alsoSearchedAuthors } = state.response;
   if (works.length === 0) {
     return (
       <div className="banner banner--warn">
@@ -403,10 +403,25 @@ ISBN 을 알 수 없어 소장을 확인하지 못하는 자료가 {droppedNoIsb
         사용자가 목록에서 확인할 방법이 없고, 화면에서 할 일도 없습니다. 응답의
         `recoveredByAuthor` 는 서버 쪽 진단에 그대로 두었습니다.
       */}
-      {alsoSearchedTitles.length > 0 && (
+      {(alsoSearchedTitles.length > 0 || alsoSearchedAuthors.length > 0) && (
         <div className="banner banner--info">
-          띄어쓰기가 다른 <strong>{quoteAll(alsoSearchedTitles)}</strong> 표기로도 함께
-          찾았습니다.
+          {alsoSearchedTitles.length > 0 && (
+            <>
+              띄어쓰기가 다른 <strong>{quoteAll(alsoSearchedTitles)}</strong> 표기로도 함께
+              찾았습니다.
+            </>
+          )}
+          {alsoSearchedTitles.length > 0 && alsoSearchedAuthors.length > 0 && ' '}
+          {/*
+            저자도 띄어쓰기가 다르면 다른 검색입니다. 서버가 붙여 쓴 표기와 자리를 옮긴
+            표기로도 찾는데, 여기에는 **실제로 책을 데려온 표기만** 옵니다. 사용자가 넣은
+            것과 다른 저자 표기의 책이 목록에 섞여 있으므로 밝혀야 합니다.
+          */}
+          {alsoSearchedAuthors.length > 0 && (
+            <>
+              저자를 <strong>{quoteAll(alsoSearchedAuthors)}</strong> 표기로도 함께 찾았습니다.
+            </>
+          )}
         </div>
       )}
       <p className="asof">

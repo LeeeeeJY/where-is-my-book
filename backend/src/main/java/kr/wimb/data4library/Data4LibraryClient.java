@@ -194,6 +194,14 @@ public final class Data4LibraryClient {
             return new BookQuery(newTitle, author, publisher, isbn13, keyword, exactMatch);
         }
 
+        /**
+         * 저자만 바꾼 사본. 띄어쓰기를 달리해 다시 찾아볼 때 씁니다. {@code null} 을 주면
+         * 저자 조건 없이 찾는 사본이 됩니다.
+         */
+        public BookQuery withAuthor(String newAuthor) {
+            return new BookQuery(title, newAuthor, publisher, isbn13, keyword, exactMatch);
+        }
+
         Map<String, String> toParams() {
             Map<String, String> params = new LinkedHashMap<>();
             putIfPresent(params, "title", title);

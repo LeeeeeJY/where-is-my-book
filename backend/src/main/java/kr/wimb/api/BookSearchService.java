@@ -128,29 +128,70 @@ public class BookSearchService {
      *       표기로 한 번 더 찾아, 「레 미제라블」로 시작한 사람과 같은 목록을 받습니다.</li>
      * </ol>
      *
-     * <p>2~4는 덤이라 실패해도 1의 결과를 그대로 내보냅니다. 1이 실패하면 검색 전체가 실패한
-     * 것이고, 화면은 그것을 「확인 불가」로 그립니다.
+     * <p><b>저자도 같은 병을 앓습니다.</b> 「칼 세이건」과 「칼세이건」이 서로 다른 검색이라,
+     * 저자 칸에 띄어쓰기를 달리 넣으면 <b>결과가 아예 없었습니다.</b> 제목보다 나쁜 것은,
+     * 저자만으로 찾을 때는 되찾을 실마리가 될 제목조차 없다는 점입니다. 그래서 저자는 이렇게
+     * 돌립니다.
+     *
+     * <ol>
+     *   <li>띄어쓰기를 뺀 저자 표기로도 함께 찾습니다. 제목과 같은 규칙입니다.</li>
+     *   <li>제목과 저자를 함께 넣었으면 <b>저자 없이 제목만으로도 찾아</b>, 저자 표기의 공백과
+     *       구두점을 지운 것이 맞는 책만 더합니다({@link #addMatchingAuthor}). 저자로 되찾기의
+     *       거울입니다. 정보나루가 저자 표기를 맞추지 못해도 제목은 맞추므로, 그 결과에서
+     *       저자를 우리가 거르면 띄어쓰기가 어느 쪽이든 같은 책이 나옵니다.</li>
+     *   <li>저자만 <b>붙여 쓴 한글</b>로 넣었으면 띄어쓰기 자리를 하나씩 옮겨 가며 함께
+     *       찾습니다({@link #spacedAuthorGuesses}). 「칼세이건」이면 「칼 세이건」「칼세 이건」
+     *       「칼세이 건」입니다. 공백을 어디에 넣어야 하는지는 알 수 없지만 자리는 몇 개
+     *       안 되므로 전부 물어보고, 저자가 실제로 맞는 것만 더합니다.</li>
+     *   <li>그렇게 모인 결과에서 <b>같은 글자를 달리 띄어 쓴 저자 표기</b>를 발견하면 그
+     *       표기로도 찾습니다. 제목의 4와 같습니다.</li>
+     * </ol>
+     *
+     * <p>덤으로 하는 검색은 실패해도 입력 그대로의 결과를 그대로 내보냅니다. 입력 그대로가
+     * 실패하면 검색 전체가 실패한 것이고, 화면은 그것을 「확인 불가」로 그립니다.
      *
      * <p><b>서로 기다릴 필요가 없는 호출은 동시에 내보냅니다.</b> 정보나루의 서지 검색은 한 번에
-     * 3~4초가 걸려서, 넷을 차례로 부르면 그것만으로 15초입니다. 입력 그대로와 붙여 쓴 표기는
-     * 서로 무관하므로 1회전에 함께, 둘째 쪽과 저자 되찾기는 첫 쪽의 결과가 있어야 하므로 2회전에
-     * 함께, 다른 표기들은 3회전에 함께 부릅니다. 회전 셋이면 최대 10초 안팎, 보통은 두 회전으로
-     * 끝납니다.
+     * 3~4초가 걸려서, 넷을 차례로 부르면 그것만으로 15초입니다. 입력 그대로, 붙여 쓴 표기,
+     * 제목만으로 되찾기, 저자의 띄어쓰기 자리 바꾸기는 서로 무관하므로 1회전에 함께, 둘째 쪽과
+     * 저자 되찾기는 첫 쪽의 결과가 있어야 하므로 2회전에 함께, 다른 표기들은 3회전에 함께
+     * 부릅니다. 회전 셋이면 최대 10초 안팎, 보통은 두 회전으로 끝납니다. 한꺼번에 나가는 요청
+     * 수는 전송 계층이 따로 묶어 둡니다.
      */
     private Fetched fetchBooks(Data4LibraryClient.BookQuery query) {
         Collected found = new Collected();
         List<String> alsoSearched = new ArrayList<>();
+        List<String> alsoSearchedAuthors = new ArrayList<>();
         List<String> searchedSpellings = new ArrayList<>();
         if (query.title() != null) searchedSpellings.add(query.title());
-        String compact = respacedTitle(query.title());
+        String compact = withoutSpaces(query.title());
         if (compact != null) searchedSpellings.add(compact);
 
+        boolean hasTitle = query.title() != null && !query.title().isBlank();
+        List<String> searchedAuthors = new ArrayList<>();
+        if (query.author() != null) searchedAuthors.add(query.author());
+        String compactAuthor = withoutSpaces(query.author());
+        if (compactAuthor != null) searchedAuthors.add(compactAuthor);
+        // 제목만으로 되찾거나 띄어쓰기 자리를 옮겨 찾은 것은 정보나루가 아니라 **우리가
+        // 저자를 거릅니다.** 공백과 구두점을 지운 표기로 견줍니다.
+        String authorKey = BibNormalizer.spellingKey(query.author());
+        List<String> guesses = hasTitle ? List.of() : spacedAuthorGuesses(query.author());
+        searchedAuthors.addAll(guesses);
+
         try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            // 1회전: 입력 그대로의 첫 쪽과 띄어쓰기를 뺀 표기.
+            // 1회전: 입력 그대로의 첫 쪽, 띄어쓰기를 뺀 제목과 저자, 제목만으로 되찾기,
+            //        저자의 띄어쓰기 자리 바꾸기.
             Future<List<BookInfo>> firstPage = executor.submit(
                     () -> client.searchBooks(query, 1, ApiBudget.Priority.USER));
             Future<Optional<List<BookInfo>>> compactBooks = compact == null ? null
                     : executor.submit(() -> searchQuietly(query.withTitle(compact)));
+            Future<Optional<List<BookInfo>>> compactAuthorBooks = compactAuthor == null ? null
+                    : executor.submit(() -> searchQuietly(query.withAuthor(compactAuthor)));
+            Future<Optional<List<BookInfo>>> byTitleOnly = hasTitle && !authorKey.isEmpty()
+                    ? executor.submit(() -> searchQuietly(query.withAuthor(null))) : null;
+            List<Future<Optional<List<BookInfo>>>> byGuess = new ArrayList<>();
+            for (String guess : guesses) {
+                byGuess.add(executor.submit(() -> searchQuietly(query.withAuthor(guess))));
+            }
 
             List<BookInfo> first = await(firstPage);
             found.addAll(first);
@@ -158,6 +199,20 @@ public class BookSearchService {
                 await(compactBooks).ifPresent(books -> {
                     found.addAll(books);
                     alsoSearched.add(compact);
+                });
+            }
+            if (compactAuthorBooks != null) {
+                await(compactAuthorBooks).ifPresent(books -> {
+                    if (found.addAll(books)) alsoSearchedAuthors.add(compactAuthor);
+                });
+            }
+            if (byTitleOnly != null) {
+                await(byTitleOnly).ifPresent(books -> addMatchingAuthor(authorKey, found, books));
+            }
+            for (int i = 0; i < guesses.size(); i++) {
+                String guess = guesses.get(i);
+                await(byGuess.get(i)).ifPresent(books -> {
+                    if (addMatchingAuthor(authorKey, found, books)) alsoSearchedAuthors.add(guess);
                 });
             }
 
@@ -173,11 +228,17 @@ public class BookSearchService {
             boolean recovered = byAuthor != null
                     && await(byAuthor).map(books -> addRecovered(query, found, books)).orElse(false);
 
-            // 3회전: 결과에서 본 다른 띄어쓰기 표기.
+            // 3회전: 결과에서 본 다른 띄어쓰기 표기. 제목과 저자 모두입니다.
             List<String> spellings = alternateSpellings(query.title(), found.books(), searchedSpellings);
+            List<String> authorSpellings =
+                    alternateAuthorSpellings(query.author(), found.books(), searchedAuthors);
             List<Future<Optional<List<BookInfo>>>> bySpelling = new ArrayList<>();
             for (String spelling : spellings) {
                 bySpelling.add(executor.submit(() -> searchQuietly(query.withTitle(spelling))));
+            }
+            List<Future<Optional<List<BookInfo>>>> byAuthorSpelling = new ArrayList<>();
+            for (String spelling : authorSpellings) {
+                byAuthorSpelling.add(executor.submit(() -> searchQuietly(query.withAuthor(spelling))));
             }
             for (int i = 0; i < spellings.size(); i++) {
                 String spelling = spellings.get(i);
@@ -186,8 +247,15 @@ public class BookSearchService {
                     alsoSearched.add(spelling);
                 });
             }
+            for (int i = 0; i < authorSpellings.size(); i++) {
+                String spelling = authorSpellings.get(i);
+                await(byAuthorSpelling.get(i)).ifPresent(books -> {
+                    if (found.addAll(books)) alsoSearchedAuthors.add(spelling);
+                });
+            }
 
-            return new Fetched(found.books(), List.copyOf(alsoSearched), recovered);
+            return new Fetched(found.books(), List.copyOf(alsoSearched),
+                    List.copyOf(alsoSearchedAuthors), recovered);
         }
     }
 
@@ -206,7 +274,8 @@ public class BookSearchService {
     }
 
     /** {@link #fetchBooks} 의 결과. 무엇을 더 해서 찾았는지까지 함께 들고 다닙니다. */
-    private record Fetched(List<BookInfo> books, List<String> alsoSearchedTitles, boolean recovered) {}
+    private record Fetched(List<BookInfo> books, List<String> alsoSearchedTitles,
+                           List<String> alsoSearchedAuthors, boolean recovered) {}
 
     /** 덤으로 하는 검색. 실패하면 비어 있는 값을 주고, 부른 쪽은 원래 결과를 그대로 씁니다. */
     private Optional<List<BookInfo>> searchQuietly(Data4LibraryClient.BookQuery query) {
@@ -240,6 +309,7 @@ public class BookSearchService {
                 dropped.size(),
                 droppedBooksOf(dropped),
                 fetched.alsoSearchedTitles(),
+                fetched.alsoSearchedAuthors(),
                 fetched.recovered(),
                 LocalDate.now(SEOUL).toString());
     }
@@ -360,20 +430,111 @@ public class BookSearchService {
     }
 
     /**
-     * 띄어쓰기를 뺀 제목. 다시 찾아볼 값이 없으면 {@code null} 입니다.
+     * 띄어쓰기를 뺀 제목이나 저자. 다시 찾아볼 값이 없으면 {@code null} 입니다.
      *
      * <p><b>정보나루는 넣은 글자를 그대로 찾습니다.</b> 우리 정규화({@code normalizeKey})는
      * 받아온 뒤 순위를 매길 때만 쓰이므로 검색 자체에는 아무 영향이 없습니다. 그래서
      * 「마의 산」과 「마의산」이 서로 다른 검색이 되고, 도서관마다 표기가 갈리는 한국어
-     * 서명에서는 한쪽으로만 찾으면 멀쩡히 있는 책을 놓칩니다.
+     * 서명에서는 한쪽으로만 찾으면 멀쩡히 있는 책을 놓칩니다. 저자도 같아서 「칼 세이건」과
+     * 「칼세이건」이 서로 다른 검색입니다.
      *
      * <p>사용자에게는 그것이 <b>「그런 책이 없다」로 보입니다.</b> 띄어쓰기를 바꿔 보라고
      * 안내만 하는 것은 우리가 할 수 있는 일을 사용자에게 미루는 것입니다.
      */
-    static String respacedTitle(String title) {
-        if (title == null) return null;
-        String compact = title.replaceAll("\\s+", "");
-        return compact.isEmpty() || compact.equals(title.trim()) ? null : compact;
+    static String withoutSpaces(String value) {
+        if (value == null) return null;
+        String compact = value.replaceAll("\\s+", "");
+        return compact.isEmpty() || compact.equals(value.trim()) ? null : compact;
+    }
+
+    /** 띄어쓰기 자리를 옮겨 볼 이름의 길이(음절). 이보다 짧으면 대개 한국 이름이라 옮길 자리가 없습니다. */
+    static final int MIN_SYLLABLES_TO_RESPACE = 4;
+
+    /** 이보다 길면 세 어절 이상이라 한 자리만 옮겨서는 맞지 않고, 호출만 그만큼 늘어납니다. */
+    static final int MAX_SYLLABLES_TO_RESPACE = 8;
+
+    /**
+     * 붙여 쓴 한글 이름에 <b>띄어쓰기를 한 자리씩 넣어 본 표기들.</b> 「칼세이건」이면
+     * 「칼 세이건」「칼세 이건」「칼세이 건」입니다. 옮겨 볼 것이 없으면 빈 목록입니다.
+     *
+     * <p>저자만으로 찾을 때 씁니다. 제목은 저자로 되찾을 수 있지만 저자만 넣은 검색은
+     * 되찾을 실마리가 없고, 「칼세이건」은 정보나루의 어느 어절과도 맞지 않아 <b>결과가
+     * 아예 없습니다.</b> 공백을 어디에 넣어야 하는지는 알 수 없지만 자리는 이름 길이만큼뿐이라
+     * 전부 물어봅니다. 호출이 그만큼 늘지만 붙여 쓴 네 음절 이상의 이름에서만이고, 그러지
+     * 않으면 그 검색은 한 건도 돌려주지 못합니다. 결과는 저자가 실제로 맞는 것만 더하므로
+     * 「칼세 이건」이 엉뚱한 것을 데려와도 걸러집니다.
+     *
+     * <p>한글 음절로만 된 이름만 봅니다. 「J.K.롤링」처럼 로마자가 섞인 표기는 어디서 띄는지가
+     * 이름마다 달라 자리를 옮겨 보는 것이 맞지 않고, 세 음절 이하는 대개 한국 이름이라
+     * 옮길 자리가 없습니다. 두 어절로만 나눕니다.
+     */
+    static List<String> spacedAuthorGuesses(String author) {
+        if (author == null) return List.of();
+        String s = author.trim();
+        if (s.length() < MIN_SYLLABLES_TO_RESPACE || s.length() > MAX_SYLLABLES_TO_RESPACE) {
+            return List.of();
+        }
+        if (!s.chars().allMatch(c -> c >= '가' && c <= '힣')) return List.of();
+        List<String> out = new ArrayList<>(s.length() - 1);
+        for (int at = 1; at < s.length(); at++) {
+            out.add(s.substring(0, at) + " " + s.substring(at));
+        }
+        return List.copyOf(out);
+    }
+
+    /**
+     * 저자 없이, 또는 우리가 지어낸 띄어쓰기로 찾은 것 가운데 <b>저자가 실제로 맞는 것만</b>
+     * 더합니다. 정보나루가 아니라 우리가 거르는 것이므로 표기는 공백과 구두점을 지우고
+     * 견줍니다({@link BibNormalizer#spellingKey}). 「칼 세이건 지음 ; 홍승수 옮김」에 「칼세이건」이
+     * 들어 있으면 맞는 것입니다.
+     *
+     * @return 실제로 더한 것이 있는지
+     */
+    private static boolean addMatchingAuthor(String authorKey, Collected found, List<BookInfo> books) {
+        if (authorKey.isEmpty()) return false;
+        boolean added = false;
+        for (BookInfo book : books) {
+            if (!BibNormalizer.spellingKey(book.authors()).contains(authorKey)) continue;
+            // 소장을 물어볼 수 없는 자료는 되찾아도 쓸 곳이 없습니다.
+            if (book.canonicalIsbn13().isEmpty()) continue;
+            if (found.add(book)) added = true;
+        }
+        return added;
+    }
+
+    /**
+     * 찾은 책들의 저자 가운데 <b>넣은 저자와 글자는 같은데 띄어쓰기만 다른</b> 표기를
+     * 골라냅니다. {@link #alternateSpellings} 의 저자판입니다. 이미 찾아본 표기는 뺍니다.
+     *
+     * <p>「칼세이건」과 제목을 넣었을 때 제목만으로 되찾은 책이 「칼 세이건」을 보여 주면,
+     * 그 표기로 한 번 더 찾아 첫 쪽에 들지 못한 판까지 데려옵니다. 「칼 세이건」으로 넣은
+     * 사람과 같은 목록을 받게 하는 것이 목적입니다.
+     */
+    static List<String> alternateAuthorSpellings(String author, List<BookInfo> books,
+                                                 List<String> alreadySearched) {
+        if (author == null || author.isBlank()) return List.of();
+        String wanted = BibNormalizer.spellingKey(author);
+        if (wanted.isEmpty()) return List.of();
+
+        Set<String> seen = new HashSet<>();
+        for (String searched : alreadySearched) seen.add(spellingId(searched));
+
+        Map<String, Integer> counts = new LinkedHashMap<>();
+        for (BookInfo book : books) {
+            for (var contributor : BibNormalizer.parseContributors(book.authors())) {
+                String name = contributor.name();
+                if (name == null || name.isBlank()) continue;
+                String spelling = collapseSpaces(name);
+                if (!wanted.equals(BibNormalizer.spellingKey(spelling))) continue;
+                if (seen.contains(spellingId(spelling))) continue;
+                counts.merge(spelling, 1, Integer::sum);
+            }
+        }
+        return counts.entrySet().stream()
+                .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
+                .map(Map.Entry::getKey)
+                .limit(MAX_ALTERNATE_SPELLINGS)
+                .toList();
     }
 
     /**
@@ -636,8 +797,13 @@ public class BookSearchService {
             return true;
         }
 
-        void addAll(List<BookInfo> batch) {
-            for (BookInfo book : batch) add(book);
+        /** @return 새 자료가 하나라도 있었는지 */
+        boolean addAll(List<BookInfo> batch) {
+            boolean added = false;
+            for (BookInfo book : batch) {
+                if (add(book)) added = true;
+            }
+            return added;
         }
 
         boolean isEmpty() {
@@ -844,6 +1010,11 @@ public class BookSearchService {
      * @param alsoSearchedTitles 넣은 제목 말고 <b>함께 찾아본 다른 띄어쓰기 표기</b>. 화면이
      *                           이것을 밝혀야 사용자가 자기가 넣은 것과 다른 표기의 책을 보고
      *                           어리둥절하지 않습니다. 없으면 빈 목록입니다.
+     * @param alsoSearchedAuthors 넣은 저자 말고 <b>함께 찾아 실제로 책을 데려온 다른 띄어쓰기
+     *                            표기</b>. 제목 쪽과 달리 데려온 것이 있을 때만 싣습니다.
+     *                            띄어쓰기 자리를 옮겨 본 표기가 이름 길이만큼 있는데 그것을
+     *                            전부 늘어놓으면 「칼세 이건」처럼 아무것도 찾지 못한 표기까지
+     *                            화면에 나갑니다. 없으면 빈 목록입니다.
      * @param recoveredByAuthor 제목으로는 걸리지 않던 판을 <b>저자로 되찾아 더했는지.</b>
      *                          화면이 이 사실을 밝혀야 합니다. 사용자가 넣은 제목과 다른
      *                          표기의 책이 목록에 섞여 있는 것이므로, 말하지 않으면 검색이
@@ -853,5 +1024,6 @@ public class BookSearchService {
     public record SearchResponse(List<WorkResult> works, int totalWorks, int foundBooks,
                                  int droppedNoIsbn, List<DroppedBook> droppedBooks,
                                  List<String> alsoSearchedTitles,
+                                 List<String> alsoSearchedAuthors,
                                  boolean recoveredByAuthor, String asOf) {}
 }

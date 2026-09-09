@@ -69,6 +69,15 @@ export type SearchResponse = {
    */
   alsoSearchedTitles: string[];
   /**
+   * 넣은 저자 말고 **함께 찾아 실제로 책을 데려온 다른 띄어쓰기 표기**.
+   *
+   * <p>「칼 세이건」과 「칼세이건」도 서로 다른 검색이라, 서버가 띄어쓰기를 뺀 표기와
+   * 자리를 옮긴 표기로도 함께 찾습니다. 제목 쪽과 달리 **책을 데려온 표기만** 옵니다.
+   * 자리를 옮겨 본 표기는 이름 길이만큼 있어서 전부 늘어놓으면 아무것도 못 찾은 표기까지
+   * 화면에 나가기 때문입니다.
+   */
+  alsoSearchedAuthors: string[];
+  /**
    * 제목으로는 걸리지 않던 판을 **저자로 되찾아 더했는지.**
    *
    * <p>정보나루의 제목 매칭은 어절의 앞에서부터 맞습니다. 「미제라블」은 「레 미제라블」을
@@ -188,7 +197,11 @@ export async function searchBooks(
   const response = await get<SearchResponse>(`/api/search?${params}`);
   // 프론트와 서버가 따로 배포되므로 예전 서버가 이 항목을 안 줄 수 있습니다. 그때도 화면이
   // 죽지 않게 빈 목록으로 채웁니다.
-  return { ...response, alsoSearchedTitles: response.alsoSearchedTitles ?? [] };
+  return {
+    ...response,
+    alsoSearchedTitles: response.alsoSearchedTitles ?? [],
+    alsoSearchedAuthors: response.alsoSearchedAuthors ?? [],
+  };
 }
 
 /**
