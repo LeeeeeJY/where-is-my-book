@@ -67,7 +67,7 @@ public record TitleParts(
     /**
      * 권차의 서수. 정렬과 「같은 권인지」 판정은 이것으로 합니다. 상·중·하는 1·2·3 이라
      * 상·하만 있는 책도 상이 하보다 앞에 섭니다. <b>화면에 적을 때는 이것을 쓰지 마세요.</b>
-     * 상·하 두 권이 「1권」「3권」이 됩니다. 표기는 {@link Volume#display()} 가 압니다.
+     * 상·하 두 권이 「1」「3」이 됩니다. 표기는 {@link Volume#mark()} 가 압니다.
      */
     public Integer volNo() {
         return volume == null ? null : volume.ordinal();

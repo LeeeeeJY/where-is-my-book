@@ -385,8 +385,8 @@ class MultiCheckServiceTest {
                 .map(w -> w.publisher() + " " + w.title())
                 .toList();
         assertEquals(List.of(
-                "을유문화사 마의 산 1권", "을유문화사 마의 산 2권", "을유문화사 마의 산 3권",
-                "열린책들 마의 산 1권", "열린책들 마의 산 2권"), order);
+                "을유문화사 마의 산 1", "을유문화사 마의 산 2", "을유문화사 마의 산 3",
+                "열린책들 마의 산 1", "열린책들 마의 산 2"), order);
     }
 
     /**

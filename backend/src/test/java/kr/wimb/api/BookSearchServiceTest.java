@@ -193,7 +193,7 @@ class BookSearchServiceTest {
         assertEquals(2, response.works().size(), "1권과 2권은 다른 책입니다");
         // 갈라 놓아도 표제가 같으면 화면에서 구별할 수 없습니다.
         var titles = response.works().stream().map(BookSearchService.WorkResult::title).sorted().toList();
-        assertEquals(List.of("레미제라블 1권", "레미제라블 2권"), titles);
+        assertEquals(List.of("레미제라블 1", "레미제라블 2"), titles);
         // 그리고 소장 조회에 서로의 ISBN 이 섞이면 안 됩니다.
         for (var work : response.works()) {
             assertEquals(1, work.isbn13List().size(), "한 권의 ISBN 만 들고 있어야 합니다");
@@ -233,13 +233,13 @@ class BookSearchServiceTest {
      * 됩니다. 표기는 받은 대로 두되 순서는 여전히 상이 하보다 앞입니다.
      */
     @Test
-    @DisplayName("상·하로 나뉜 책은 1권·3권이 아니라 상권·하권으로, 상권부터 나온다")
+    @DisplayName("상·하로 나뉜 책은 1·3 이 아니라 상·하로, 상이 먼저 나온다")
     void sangHaKeepsItsMarkAndOrder() {
         var response = service(SANG_HA_ONLY, NEVER_CALLED).search("토지");
 
         var titles = response.works().stream().map(BookSearchService.WorkResult::title).toList();
-        assertEquals(List.of("토지 상권", "토지 하권"), titles,
-                "하권이 더 많이 읽혔어도 상권이 먼저이고, 숫자로 바꿔 적으면 안 됩니다");
+        assertEquals(List.of("토지 상", "토지 하"), titles,
+                "하가 더 많이 읽혔어도 상이 먼저이고, 숫자로 바꿔 적으면 안 됩니다");
     }
 
     @Test

@@ -89,6 +89,11 @@ class BibNormalizerTest {
             assertNull(BibNormalizer.parseTitle("1984").volNo());
             assertEquals("1984", BibNormalizer.parseTitle("1984").titleKeyCore());
             assertNull(BibNormalizer.parseTitle("코스모스 2020").volNo());
+            // 네 자리는 연도라 보지 않지만 세 자리는 권차입니다. 표제에 붙이는 권차에서
+            // 「권」을 뗐으므로, 여기서 못 읽으면 우리가 만든 「원피스 100」을 우리가 다시
+            // 읽지 못해 그 권만 낱권 묶음 밖으로 떨어집니다.
+            assertEquals(100, BibNormalizer.parseTitle("원피스 100").volNo());
+            assertEquals("원피스", BibNormalizer.parseTitle("원피스 100").titleProper());
             assertNull(BibNormalizer.parseTitle("82년생 김지영").volNo());
         }
 
@@ -147,8 +152,8 @@ class BibNormalizerTest {
 
         /**
          * 순서는 1·2·3 으로 세우되 <b>표기는 잃지 않습니다.</b> 서수만 남기면 화면에
-         * 「1권」으로 나가고, 상·하 두 권뿐인 책은 「1권」과 「3권」이 되어 사용자가 없는
-         * 2권을 찾게 됩니다. 실제로 그렇게 나오고 있었습니다.
+         * 「1」로 나가고, 상·하 두 권뿐인 책은 「1」과 「3」이 되어 사용자가 없는 2권을 찾게
+         * 됩니다. 실제로 그렇게 나오고 있었습니다.
          */
         @Test
         @DisplayName("상·중·하는 순서만 숫자로 바꾸고 표기는 그대로 둔다")
@@ -163,9 +168,9 @@ class BibNormalizerTest {
             assertEquals(Volume.of(3), BibNormalizer.parseTitle("토지 3권").volume());
             assertEquals(Volume.of(2), BibNormalizer.volume("II"));
             assertNull(BibNormalizer.volume("전집"));
-            // 표제 뒤에 붙일 말입니다.
-            assertEquals("상권", new Volume(1, "상").display());
-            assertEquals("3권", Volume.of(3).display());
+            // **표제 뒤에는 받은 글자만 붙입니다.** 「권」은 우리가 지어내는 말입니다.
+            assertEquals("상", new Volume(1, "상").mark());
+            assertEquals("3", Volume.of(3).mark());
         }
     }
 

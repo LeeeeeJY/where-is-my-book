@@ -90,10 +90,11 @@ class SearchDocBuilderTest {
     /**
      * <b>상·하 두 권뿐인 책이 「1권」과 「3권」으로 나오고 있었습니다.</b> 순서를 위해 상·중·하를
      * 1·2·3 으로 세는 것은 맞지만, 그 숫자를 화면에 적으면 사용자가 없는 2권을 찾습니다.
-     * 표기는 받은 글자 그대로 붙이고, 숫자로 온 권차는 지금처럼 「n권」입니다.
+     * <b>받은 글자를 그대로 붙이고 「권」도 덧붙이지 않습니다.</b> 정보나루가 준 표기가 「상」이면
+     * 「상」이지 「상권」이 아닙니다.
      */
     @Test
-    @DisplayName("상·중·하로 나뉜 책은 상권·중권·하권으로 보여 준다")
+    @DisplayName("권차는 받은 표기 그대로 붙이고 「권」을 덧붙이지 않는다")
     void showsSangHaAsWritten() {
         var docs = buildVia(List.of(
                 // 정보나루가 vol 로 「상」「하」를 따로 준 경우.
@@ -108,7 +109,7 @@ class SearchDocBuilderTest {
                         "민음사", null, null, Volume.of(1))));
 
         var titles = docs.stream().map(SearchDoc::titleDisplay).sorted().toList();
-        assertEquals(List.of("레미제라블 1권", "삼국지 중권", "토지 상권", "토지 하권"), titles);
+        assertEquals(List.of("레미제라블 1", "삼국지 중", "토지 상", "토지 하"), titles);
     }
 
     @Test
