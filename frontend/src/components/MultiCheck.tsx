@@ -63,6 +63,12 @@ type Phase =
   | { kind: 'error'; message: string };
 
 /**
+ * 입력 칸의 줄 수. 남은 높이를 채우지 않고 이만큼만 보여 줍니다. 더 긴 목록은 모서리를
+ * 끌어 늘릴 수 있습니다.
+ */
+const INPUT_ROWS = 8;
+
+/**
  * 입력 칸에 비쳐 보이는 예시.
  *
  * <b>넣을 수 있는 형태를 한 줄에 하나씩 보여 줍니다.</b> 같은 모양으로 다섯 줄을 적으면
@@ -301,7 +307,7 @@ export function MultiCheck({
   const notAsked = shown.filter((row) => row.status === 'LOOKUP_FAILED').length;
 
   return (
-    <section className={phase.kind === 'ready' ? 'results' : 'results results--fill'}>
+    <section className="results">
       <header className="picker__head">
         <h2>여러 권 검색</h2>
         <span className="picker__count">
@@ -318,9 +324,11 @@ export function MultiCheck({
       />
 
       {/*
-        **결과가 없을 때는 입력 칸이 남은 높이를 채웁니다.** 예전에는 여섯 줄로 고정해 두어,
-        쉰 줄까지 받는 화면인데 아래가 통째로 비어 있었습니다. 목록을 붙여 넣는 화면에서
-        가장 중요한 것은 넣은 것이 한눈에 보이는 일입니다.
+        **입력 칸은 여덟 줄입니다. 남은 높이를 채우지 않습니다.** 한때 결과가 없는 동안
+        입력 칸이 화면의 남은 높이를 전부 차지하게 했는데, 넓은 화면에서는 그것이 수십 줄짜리
+        빈 칸이 되어 실제로 「너무 크다」는 말을 들었습니다. 붙여 넣는 목록은 대개 몇 줄에서
+        열 줄 남짓이라 여덟 줄이면 한눈에 들어오고, 더 긴 목록은 모서리를 끌어 늘릴 수
+        있습니다(resize: vertical).
       */}
       {/*
         **결과가 나오면 입력을 접습니다.** 펼쳐 둔 채로는 정작 보러 온 결과가 화면 아래로
@@ -334,11 +342,11 @@ export function MultiCheck({
           </button>
         </p>
       ) : (
-        <form className={phase.kind === 'ready' ? 'multi-form' : 'multi-form multi-form--tall'}
-              onSubmit={submit}>
+        <form className="multi-form" onSubmit={submit}>
           <textarea
             id="multi-input"
             className="text-input multi-input"
+            rows={INPUT_ROWS}
             value={text}
             placeholder={INPUT_EXAMPLES}
             onChange={(e) => setText(e.target.value)}
