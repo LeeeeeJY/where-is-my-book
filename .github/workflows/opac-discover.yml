@@ -1,0 +1,138 @@
+# 도서관 OPAC 주소 규칙을 조사해 templates.csv 를 채웁니다.
+#
+# **이것은 「Actions 에서 정보나루를 부르지 마라」와 다른 이야기입니다.** 그 규칙은 러너 IP 가
+# 고정되지 않아 한도가 조용히 500건으로 떨어지기 때문인데(CLAUDE.md), 여기서 러너가 부르는
+# 것은 **도서관 홈페이지**와 **우리 API 서버**뿐입니다. 정보나루로 나가는 요청은 우리 VM 에서
+# 나가고 그 IP 는 등록되어 있습니다. 게다가 검증용 소장 데이터(probe)는 한 번 만들어 저장소에
+# 두므로, 두 번째 실행부터는 그 여섯 번조차 나가지 않습니다.
+#
+# **왜 러너인가.** 규칙을 찾으려면 도서관 사이트를 실제로 열어 봐야 하는데, 그것을 할 수 있는
+# 자리가 마땅치 않았습니다. 브라우저만 있는 곳에서는 스크립트를 돌릴 수 없고, 스크립트를 돌릴
+# 수 있는 곳에서는 도서관 사이트로 나가지 못하는 일이 있었습니다. 러너는 둘 다 됩니다.
+#
+# **찾아내는 것보다 걸러 내는 것이 중요합니다.** 틀린 규칙은 HTTP 200 을 주면서 결과만 0건이
+# 되어 「소장한다더니 그 책이 없네」로 보이고, 깨진 링크와 달리 눈에 띄지 않습니다. 그래서
+# 스크립트가 세 겹으로 검증하고(양성·음성·재확인) 통과하지 못한 것은 버립니다. 자세한 것은
+# scripts/opac-discover.py 의 머리말에 있습니다.
+name: OPAC 주소 규칙 조사
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: '조사할 묶음 수 (0 이면 남은 것 전부)'
+        required: false
+        default: '30'
+      host_delay:
+        description: '같은 호스트의 요청 간격(초). 남의 서버입니다'
+        required: false
+        default: '3'
+      concurrency:
+        description: '서로 다른 호스트를 몇 개씩 겹칠지'
+        required: false
+        default: '4'
+
+# **앞의 실행을 취소하지 않습니다.** 조사한 결과가 커밋되기 전에 끊기면 그때까지 두드린
+# 남의 서버 요청이 헛것이 됩니다. 이미지 빌드와 반대되는 선택이고, 이유도 반대입니다.
+# 거기서는 나중 것이 이겨야 하지만 여기서는 앞의 것이 끝나야 합니다.
+concurrency:
+  group: opac-discover
+  cancel-in-progress: false
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # 판정 로직이 멀쩡한지 먼저 봅니다. 가짜 OPAC 일곱 종류를 띄워 확인하는데, 여기서
+      # 깨진 채로 조사를 돌리면 남의 서버를 두드려 놓고 결과를 버리게 됩니다.
+      - name: 도구 확인
+        run: python3 scripts/test-opac-discover.py
+
+      # 이전 실행이 남긴 것을 이어받습니다. 조사한 묶음은 다시 두드리지 않습니다.
+      - name: 지난 조사 이어받기
+        run: |
+          mkdir -p .opac-work
+          for f in probe.json results.jsonl; do
+            [ -f "docs/opac/$f" ] && cp "docs/opac/$f" ".opac-work/$f" || true
+          done
+          ls -la .opac-work/ || true
+
+      - name: 조사
+        run: |
+          ARGS="--host-delay ${{ inputs.host_delay }} --concurrency ${{ inputs.concurrency }}"
+          if [ "${{ inputs.limit }}" = "0" ]; then
+            python3 scripts/opac-discover.py --all $ARGS
+          else
+            python3 scripts/opac-discover.py --limit ${{ inputs.limit }} $ARGS
+          fi
+
+      - name: 성적표
+        run: |
+          {
+            echo '## OPAC 주소 규칙 조사'
+            echo '```'
+            python3 scripts/opac-discover.py --summary
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # 주석(형식 설명과 경고)은 사람이 쓴 것이라 그대로 두고 규칙 줄만 새로 씁니다.
+      - name: templates.csv 채우기
+        run: |
+          CSV=backend/src/main/resources/opac/templates.csv
+          grep '^#' "$CSV" > /tmp/new.csv
+          python3 scripts/opac-discover.py --emit >> /tmp/new.csv
+          mv /tmp/new.csv "$CSV"
+          echo "규칙 $(grep -vc '^#' "$CSV" || true) 줄"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      # **테스트를 통과해야 커밋합니다.** 자리표가 없거나 인코딩이 이상한 줄이 들어가면
+      # 서버가 아예 뜨지 않습니다. 조사가 만든 위험이라 여기서 막습니다.
+      - name: 백엔드 테스트
+        working-directory: backend
+        run: ./gradlew test --tests "kr.wimb.opac.*"
+
+      - name: 커밋
+        run: |
+          mkdir -p docs/opac
+          cp .opac-work/probe.json .opac-work/results.jsonl docs/opac/
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add backend/src/main/resources/opac/templates.csv docs/opac/
+          if git diff --cached --quiet; then
+            echo '바뀐 것이 없습니다'
+            exit 0
+          fi
+          FOUND=$(python3 scripts/opac-discover.py --summary | head -1)
+          git commit -m "OPAC 주소 규칙을 조사해 채웁니다
+
+          $FOUND
+
+          scripts/opac-discover.py 가 도서관 검색 폼을 읽어 주소를 만들고, 그 도서관이
+          실제로 소장한 책으로 응답을 확인하고(양성), 존재하지 않는 ISBN 으로 검색어를
+          무시하는 곳을 걸러 내고(음성), 다른 책으로 한 번 더 봤습니다(재확인).
+          셋을 통과하지 못한 것은 들어가지 않았습니다.
+
+          증거는 docs/opac/results.jsonl 에 있습니다."
+          git push
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: opac-findings
+          path: .opac-work/
+          retention-days: 30

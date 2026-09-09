@@ -467,6 +467,45 @@ def build_probe(work: str, libs: list[dict]) -> dict:
     return owned
 
 
+def summary(results_path: str) -> int:
+    """지금까지 조사한 것의 성적표. 실패 사유별로 세어 어디를 손봐야 하는지 보입니다.
+
+    **성공률이 낮을 때 사유를 갈라 보는 것이 중요합니다.** 폼을 못 찾은 것과 폼은 찾았는데
+    검증에서 떨어진 것은 손볼 곳이 다릅니다. 앞은 검색 페이지를 더 따라가야 하는 것이고,
+    뒤는 그 OPAC 이 주소로 검색어를 받지 않는다는 뜻이라 애초에 규칙을 만들 수 없습니다.
+    """
+    if not os.path.exists(results_path):
+        print("조사 결과가 없습니다.", file=sys.stderr)
+        return 1
+    rows = [json.loads(l) for l in open(results_path) if l.strip()]
+    ok = [r for r in rows if r["rules"]]
+    covered = sum(len(r["libCodes"]) for r in ok)
+    total_libs = sum(len(r["libCodes"]) for r in rows)
+    print(f"묶음 {len(ok)}/{len(rows)} 에서 규칙을 찾았습니다 "
+          f"({len(ok) * 100 // max(len(rows), 1)}%)")
+    print(f"도서관 {covered}/{total_libs} 곳이 책 페이지로 갑니다")
+    kinds: dict[str, int] = defaultdict(int)
+    for r in ok:
+        kinds[r["rules"][0]["kind"]] += 1
+    for k, n in sorted(kinds.items(), key=lambda kv: -kv[1]):
+        print(f"  {k:14s} {n}묶음")
+    print("\n못 찾은 사유")
+    notes: dict[str, int] = defaultdict(int)
+    for r in rows:
+        if r["rules"]:
+            continue
+        note = r["note"]
+        for pattern in ("GET 으로 보내는 검색 폼이 없습니다", "응답에서 그 책을 확인하지 못했습니다",
+                        "홈페이지를 받지 못했습니다", "검증용으로 쓸 소장 도서가"):
+            if pattern in note:
+                note = pattern
+                break
+        notes[note] += 1
+    for note, n in sorted(notes.items(), key=lambda kv: -kv[1])[:10]:
+        print(f"  {n:4d}묶음  {note[:64]}")
+    return 0
+
+
 def emit(results_path: str) -> int:
     if not os.path.exists(results_path):
         print("조사 결과가 없습니다. 먼저 --limit 이나 --all 로 도세요.", file=sys.stderr)
@@ -648,6 +687,7 @@ def main() -> int:
     ap.add_argument("--limit", type=int, default=0, help="큰 묶음부터 이만큼만 조사합니다")
     ap.add_argument("--all", action="store_true", help="남은 묶음을 전부 조사합니다")
     ap.add_argument("--emit", action="store_true", help="통과한 규칙을 CSV 형식으로 출력합니다")
+    ap.add_argument("--summary", action="store_true", help="지금까지의 성적표와 실패 사유")
     ap.add_argument("--concurrency", type=int, default=4, help="서로 다른 호스트를 몇 개씩 겹칠지")
     ap.add_argument("--host-delay", type=float, default=3.0, help="같은 호스트의 요청 간격(초)")
     args = ap.parse_args()
@@ -656,6 +696,8 @@ def main() -> int:
     results_path = os.path.join(args.work, "results.jsonl")
     if args.emit:
         return emit(results_path)
+    if args.summary:
+        return summary(results_path)
     if args.import_file:
         return import_findings(args.import_file, load_libraries(args.work))
 
