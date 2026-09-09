@@ -51,7 +51,7 @@ jobs:
           java-version: '21'
           cache: gradle
 
-      # **테스트를 통과해야 이미지가 올라갑니다.** VM 이 5분마다 새 이미지를 물어 가므로,
+      # **테스트를 통과해야 이미지가 올라갑니다.** VM 이 2분마다 새 이미지를 물어 가므로(scripts/vm/wimb-deploy.timer),
       # 깨진 것을 올리면 그대로 서비스에 나갑니다. 자동화가 만든 위험이라 여기서 막습니다.
       - name: 백엔드 테스트
         working-directory: backend
