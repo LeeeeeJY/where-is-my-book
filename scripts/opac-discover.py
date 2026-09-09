@@ -131,8 +131,10 @@ def normalize_home(url: str | None) -> str | None:
     if not url or url in ("-", "_", "없음", "N/A"):
         return None
     if not url.startswith(("http://", "https://")):
-        if "://" in url:
-            return None                              # ftp 같은 것은 우리가 다룰 수 없습니다
+        # `://` 로만 찾으면 `mailto:` 처럼 슬래시 없는 스킴을 놓쳐 `http://mailto:...` 라는
+        # 이상한 주소를 만듭니다. 콜론 뒤가 숫자면 스킴이 아니라 포트로 봅니다.
+        if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:(?![0-9])", url):
+            return None
         url = "http://" + url
     p = urllib.parse.urlparse(url)
     return url if p.netloc and "." in p.netloc else None

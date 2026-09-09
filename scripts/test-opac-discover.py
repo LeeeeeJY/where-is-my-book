@@ -190,6 +190,8 @@ def check_bad_homepages(probe: dict, pacer) -> list[str]:
         ("빈 문자열", "", None),
         ("스킴 없는 진짜 주소", "lib.yongin.go.kr/dongcheon", "http://lib.yongin.go.kr/dongcheon"),
         ("우리가 못 쓰는 스킴", "ftp://lib.example.kr", None),
+        ("슬래시 없는 스킴", "mailto:lib@example.kr", None),
+        ("포트가 붙은 주소", "lib.example.kr:8080/a", "http://lib.example.kr:8080/a"),
         ("호스트가 아닌 것", "http://localhost", None),
         ("멀쩡한 주소", "https://lib.example.go.kr/a", "https://lib.example.go.kr/a"),
     ]
