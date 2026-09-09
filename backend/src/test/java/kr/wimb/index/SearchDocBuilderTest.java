@@ -1,5 +1,6 @@
 package kr.wimb.index;
 
+import kr.wimb.bib.Volume;
 import kr.wimb.bib.WorkClusterer;
 import kr.wimb.bib.WorkMatcher;
 import org.junit.jupiter.api.DisplayName;
@@ -84,6 +85,30 @@ class SearchDocBuilderTest {
         assertEquals(1, docs.size());
         assertEquals("사이언스북스", docs.get(0).publisherDisplay());
         assertEquals(22000, docs.get(0).price());
+    }
+
+    /**
+     * <b>상·하 두 권뿐인 책이 「1권」과 「3권」으로 나오고 있었습니다.</b> 순서를 위해 상·중·하를
+     * 1·2·3 으로 세는 것은 맞지만, 그 숫자를 화면에 적으면 사용자가 없는 2권을 찾습니다.
+     * 표기는 받은 글자 그대로 붙이고, 숫자로 온 권차는 지금처럼 「n권」입니다.
+     */
+    @Test
+    @DisplayName("상·중·하로 나뉜 책은 상권·중권·하권으로 보여 준다")
+    void showsSangHaAsWritten() {
+        var docs = buildVia(List.of(
+                // 정보나루가 vol 로 「상」「하」를 따로 준 경우.
+                SearchDocBuilder.BookRecord.of("9788930040013", "토지", "박경리",
+                        "나남", null, null, new Volume(1, "상")),
+                SearchDocBuilder.BookRecord.of("9788930040037", "토지", "박경리",
+                        "나남", null, null, new Volume(3, "하")),
+                // 표제 꼬리에 들어 있는 경우.
+                book("9788970000015", "삼국지 (중)", "이문열"),
+                // 숫자 권차는 그대로입니다.
+                SearchDocBuilder.BookRecord.of("9788970000022", "레미제라블", "빅토르 위고",
+                        "민음사", null, null, Volume.of(1))));
+
+        var titles = docs.stream().map(SearchDoc::titleDisplay).sorted().toList();
+        assertEquals(List.of("레미제라블 1권", "삼국지 중권", "토지 상권", "토지 하권"), titles);
     }
 
     @Test

@@ -42,7 +42,7 @@ public final class WorkMatcher {
 
         public static Candidate of(String rawTitle, String rawAuthors,
                                    String rawPublisher, Integer pubYear, String isbn13) {
-            return of(rawTitle, rawAuthors, rawPublisher, pubYear, isbn13, null);
+            return of(rawTitle, rawAuthors, rawPublisher, pubYear, isbn13, (Volume) null);
         }
 
         /**
@@ -52,7 +52,18 @@ public final class WorkMatcher {
         public static Candidate of(String rawTitle, String rawAuthors,
                                    String rawPublisher, Integer pubYear, String isbn13,
                                    Integer volNo) {
-            TitleParts parts = BibNormalizer.parseTitle(rawTitle).withVolNo(volNo);
+            return of(rawTitle, rawAuthors, rawPublisher, pubYear, isbn13,
+                    volNo == null ? null : Volume.of(volNo));
+        }
+
+        /**
+         * @param volume 소스가 따로 준 권차. 서수와 표기를 함께 듭니다. 판정은 서수만 보므로
+         *               「상」과 1권은 같은 권으로 셉니다
+         */
+        public static Candidate of(String rawTitle, String rawAuthors,
+                                   String rawPublisher, Integer pubYear, String isbn13,
+                                   Volume volume) {
+            TitleParts parts = BibNormalizer.parseTitle(rawTitle).withVolume(volume);
             // 저자 필드가 비어 있으면 표제에 섞여 들어온 책임표시를 씁니다.
             String authors = (rawAuthors == null || rawAuthors.isBlank())
                     ? parts.statementOfResponsibility() : rawAuthors;

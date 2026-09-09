@@ -3,6 +3,7 @@ package kr.wimb.index;
 import kr.wimb.bib.BibNormalizer;
 import kr.wimb.bib.Contributor;
 import kr.wimb.bib.TitleParts;
+import kr.wimb.bib.Volume;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -34,15 +35,27 @@ public final class SearchDocBuilder {
     ) {
         public static BookRecord of(String isbn13, String rawTitle, String rawAuthors,
                                     String publisher, LocalDate pubDate, Integer price) {
-            return of(isbn13, rawTitle, rawAuthors, publisher, pubDate, price, null);
+            return of(isbn13, rawTitle, rawAuthors, publisher, pubDate, price, (Volume) null);
         }
 
         /** @param volNo 소스가 따로 준 권차. 표제에서 뽑지 못했을 때만 씁니다. */
         public static BookRecord of(String isbn13, String rawTitle, String rawAuthors,
                                     String publisher, LocalDate pubDate, Integer price,
                                     Integer volNo) {
+            return of(isbn13, rawTitle, rawAuthors, publisher, pubDate, price,
+                    volNo == null ? null : Volume.of(volNo));
+        }
+
+        /**
+         * @param volume 소스가 따로 준 권차. 표제에서 뽑지 못했을 때만 씁니다. <b>표기까지
+         *               함께 넘기세요.</b> 서수만 넘기면 「상」으로 온 권차가 화면에 「1권」으로
+         *               나갑니다
+         */
+        public static BookRecord of(String isbn13, String rawTitle, String rawAuthors,
+                                    String publisher, LocalDate pubDate, Integer price,
+                                    Volume volume) {
             return new BookRecord(isbn13,
-                    BibNormalizer.parseTitle(rawTitle).withVolNo(volNo),
+                    BibNormalizer.parseTitle(rawTitle).withVolume(volume),
                     BibNormalizer.parseContributors(rawAuthors),
                     publisher, pubDate, price);
         }
@@ -135,14 +148,19 @@ public final class SearchDocBuilder {
      *
      * <p>표제 끝이 이미 그 숫자로 끝나면 붙이지 않습니다. 「미움받을 용기 2」가
      * 「미움받을 용기 2 2권」이 되면 안 됩니다.
+     *
+     * <p><b>상·중·하는 글자 그대로 붙입니다.</b> 「토지 상」은 「토지 상권」이지 「토지 1권」이
+     * 아닙니다. 서수로 적으면 상·하 두 권뿐인 책이 「1권」과 「3권」으로 나와서 사용자가
+     * 없는 2권을 찾게 됩니다. 실제로 그렇게 나오고 있었습니다. 순서는 서수가 정하므로
+     * 「상권, 중권, 하권」 차례는 그대로입니다.
      */
     private static String displayTitle(TitleParts title) {
-        Integer vol = title.volNo();
+        Volume vol = title.volume();
         String proper = title.titleProper() == null ? "" : title.titleProper().trim();
-        if (vol == null || proper.isEmpty() || proper.endsWith(String.valueOf(vol))) {
+        if (vol == null || proper.isEmpty() || proper.endsWith(vol.mark())) {
             return title.titleProper();
         }
-        return proper + " " + vol + "권";
+        return proper + " " + vol.display();
     }
 
     /** 「특별판 (2010)」처럼 어떤 판본들이 있는지 보여 줍니다. */

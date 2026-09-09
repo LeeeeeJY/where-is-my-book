@@ -9,7 +9,8 @@ import java.util.List;
  * @param subtitle         부표제, 없으면 null
  * @param parallelTitle    대등표제(원서명 등), 없으면 null
  * @param seriesTitle      시리즈명, 없으면 null
- * @param volNo            권차. <b>표제 자체의 꼬리에서만 뽑습니다.</b> 아래 설명 참조
+ * @param volume           권차. <b>표제 자체의 꼬리에서만 뽑습니다.</b> 아래 설명 참조. 순서를
+ *                         정하는 서수와 사람에게 보여 줄 표기({@code Volume.label})를 함께 듭니다
  * @param editionTokens    판본 표기. 키에서 빠지지만 화면에는 표시합니다
  * @param adaptationTokens 각색 표기. 병합 거부의 근거가 됩니다
  * @param titleKeyCore     군집화용 키
@@ -27,7 +28,7 @@ public record TitleParts(
         String subtitle,
         String parallelTitle,
         String seriesTitle,
-        Integer volNo,
+        Volume volume,
         List<String> editionTokens,
         List<String> adaptationTokens,
         String titleKeyCore,
@@ -51,10 +52,24 @@ public record TitleParts(
      * 뽑은 값을 쓰는 것이 아니라, 그 반대로 <b>표제에서 못 뽑았을 때만</b> 이 값을 씁니다.
      * 표제에 적힌 「미움받을 용기 2」의 2가 더 믿을 만한 자리이기 때문입니다.
      */
-    public TitleParts withVolNo(Integer fromApi) {
-        if (volNo != null || fromApi == null) return this;
+    public TitleParts withVolume(Volume fromApi) {
+        if (volume != null || fromApi == null) return this;
         return new TitleParts(titleProper, subtitle, parallelTitle, seriesTitle, fromApi,
                 editionTokens, adaptationTokens, titleKeyCore, titleKeyFull, aliasKeys,
                 statementOfResponsibility);
+    }
+
+    /** 숫자만 아는 권차를 채우는 지름길. 표기는 서수 그대로입니다. */
+    public TitleParts withVolNo(Integer fromApi) {
+        return withVolume(fromApi == null ? null : Volume.of(fromApi));
+    }
+
+    /**
+     * 권차의 서수. 정렬과 「같은 권인지」 판정은 이것으로 합니다. 상·중·하는 1·2·3 이라
+     * 상·하만 있는 책도 상이 하보다 앞에 섭니다. <b>화면에 적을 때는 이것을 쓰지 마세요.</b>
+     * 상·하 두 권이 「1권」「3권」이 됩니다. 표기는 {@link Volume#display()} 가 압니다.
+     */
+    public Integer volNo() {
+        return volume == null ? null : volume.ordinal();
     }
 }

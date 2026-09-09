@@ -85,6 +85,13 @@ public final class BibNormalizer {
             Map.of("I", 1, "II", 2, "III", 3, "IV", 4, "V", 5,
                    "VI", 6, "VII", 7, "VIII", 8, "IX", 9, "X", 10);
 
+    /**
+     * 상·중·하의 <b>순서</b>. 정렬과 「같은 권인지」 판정에만 씁니다.
+     *
+     * <p><b>화면에는 이 숫자를 적지 않습니다.</b> 상·하 두 권뿐인 책이 「1권」「3권」으로
+     * 나와서 사용자가 2권을 찾게 됩니다. 실제로 그렇게 나오고 있었습니다. 그래서 권차는
+     * 서수와 표기를 함께 든 {@link Volume} 으로 다루고, 표기는 받은 글자 그대로 둡니다.
+     */
     private static final Map<String, Integer> SANG_HA = Map.of("상", 1, "중", 2, "하", 3);
 
     private static final Map<String, Contributor.Role> ROLE_MAP = Map.ofEntries(
@@ -270,11 +277,11 @@ public final class BibNormalizer {
         }
 
         // A4. 권차는 표제 꼬리에서만 뽑습니다. 부표제의 숫자는 시리즈 번호일 때가 많습니다.
-        Integer volNo = null;
+        Volume volume = null;
         VolumeMatch vm = extractVolume(work);
         if (vm != null) {
             work = vm.remainder();
-            volNo = vm.volNo();
+            volume = vm.volume();
         }
 
         String seriesTitle = null;
@@ -303,18 +310,18 @@ public final class BibNormalizer {
         if (seriesTitle != null) aliases.add(normalizeKey(seriesTitle + work));
 
         return new TitleParts(
-                work, subtitle, parallelTitle, seriesTitle, volNo,
+                work, subtitle, parallelTitle, seriesTitle, volume,
                 dedupe(editionTokens), dedupe(adaptationTokens),
                 core.key(), full.key(), dedupe(aliases), sor);
     }
 
-    private record VolumeMatch(String remainder, int volNo) {}
+    private record VolumeMatch(String remainder, Volume volume) {}
 
     private static VolumeMatch extractVolume(String title) {
         for (Pattern p : VOLUME_PATTERNS) {
             Matcher m = p.matcher(title);
             if (m.matches()) {
-                VolumeMatch vm = accept(m.group(1), Integer.parseInt(m.group(2)));
+                VolumeMatch vm = accept(m.group(1), Volume.of(Integer.parseInt(m.group(2))));
                 if (vm != null) return vm;
             }
         }
@@ -322,7 +329,7 @@ public final class BibNormalizer {
         if (roman.matches()) {
             Integer n = ROMAN.get(roman.group(2).toUpperCase(Locale.ROOT));
             if (n != null) {
-                VolumeMatch vm = accept(roman.group(1), n);
+                VolumeMatch vm = accept(roman.group(1), Volume.of(n));
                 if (vm != null) return vm;
             }
         }
@@ -330,17 +337,22 @@ public final class BibNormalizer {
         if (sangHa.matches()) {
             // 공백으로 떨어진 것과 괄호에 싸인 것을 따로 잡으므로 걸린 쪽을 씁니다.
             String mark = sangHa.group(2) != null ? sangHa.group(2) : sangHa.group(3);
-            VolumeMatch vm = accept(sangHa.group(1), SANG_HA.get(mark));
+            VolumeMatch vm = accept(sangHa.group(1), sangHa(mark));
             if (vm != null) return vm;
         }
         return null;
     }
 
+    /** 상·중·하는 순서만 숫자로 바꾸고 표기는 그대로 둡니다. */
+    private static Volume sangHa(String mark) {
+        return new Volume(SANG_HA.get(mark), mark);
+    }
+
     /** 권차를 떼고 남은 표제에 글자가 하나도 없으면 권차가 아니라 표제 자체입니다. */
-    private static VolumeMatch accept(String remainder, int volNo) {
+    private static VolumeMatch accept(String remainder, Volume volume) {
         String r = remainder.trim();
         boolean hasLetter = r.codePoints().anyMatch(Character::isLetter);
-        return hasLetter ? new VolumeMatch(r, volNo) : null;
+        return hasLetter ? new VolumeMatch(r, volume) : null;
     }
 
     /**
@@ -354,6 +366,16 @@ public final class BibNormalizer {
      * 없으면 상·중·하와 로마 숫자를 봅니다. 읽지 못하면 {@code null} 입니다.
      */
     public static Integer volumeOrdinal(String rawVol) {
+        Volume volume = volume(rawVol);
+        return volume == null ? null : volume.ordinal();
+    }
+
+    /**
+     * 권차 필드 하나를 서수와 표기로 읽습니다. {@link #volumeOrdinal} 과 같은 규칙이되,
+     * 「상」으로 온 값은 <b>표기를 잃지 않습니다.</b> 숫자로만 바꾸면 화면에 「1권」으로
+     * 나가고, 상·하 두 권뿐인 책은 「1권」과 「3권」이 됩니다. 읽지 못하면 {@code null} 입니다.
+     */
+    public static Volume volume(String rawVol) {
         if (rawVol == null || rawVol.isBlank()) return null;
         // **숫자를 이어 붙이지 않습니다.** 숫자가 아닌 것을 전부 지우면 「1-2」 처럼 두 권을
         // 한 권으로 묶은 값이 12권이 됩니다. 실제로 「레 미제라블 12권」이 목록 6위에
@@ -362,14 +384,15 @@ public final class BibNormalizer {
         Matcher digits = FIRST_NUMBER.matcher(rawVol);
         if (digits.find()) {
             try {
-                return Integer.valueOf(digits.group());
+                return Volume.of(Integer.parseInt(digits.group()));
             } catch (NumberFormatException e) {
                 return null;
             }
         }
         Matcher m = BARE_SANG_HA.matcher(rawVol);
-        if (m.matches()) return SANG_HA.get(m.group(1));
-        return ROMAN.get(rawVol.trim().toUpperCase(Locale.ROOT));
+        if (m.matches()) return sangHa(m.group(1));
+        Integer roman = ROMAN.get(rawVol.trim().toUpperCase(Locale.ROOT));
+        return roman == null ? null : Volume.of(roman);
     }
 
     private static int lastIndexOf(String s, Pattern p) {

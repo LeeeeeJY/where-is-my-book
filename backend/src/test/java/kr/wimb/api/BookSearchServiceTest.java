@@ -200,6 +200,48 @@ class BookSearchServiceTest {
         }
     }
 
+    /** 상·하 두 권뿐인 책. 정보나루가 vol 을 글자로 줄 때의 모양이고, 하권이 더 많이 읽혔습니다. */
+    private static final String SANG_HA_ONLY = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <response>
+          <docs>
+            <doc>
+              <bookname><![CDATA[토지]]></bookname>
+              <authors><![CDATA[박경리 지음]]></authors>
+              <publisher><![CDATA[나남]]></publisher>
+              <publication_year>2002</publication_year>
+              <isbn13>9788930040037</isbn13>
+              <vol>하</vol>
+              <loan_count>300</loan_count>
+            </doc>
+            <doc>
+              <bookname><![CDATA[토지]]></bookname>
+              <authors><![CDATA[박경리 지음]]></authors>
+              <publisher><![CDATA[나남]]></publisher>
+              <publication_year>2002</publication_year>
+              <isbn13>9788930040013</isbn13>
+              <vol>상</vol>
+              <loan_count>100</loan_count>
+            </doc>
+          </docs>
+        </response>
+        """;
+
+    /**
+     * <b>상·하만 있는 책이 「1권」과 「3권」으로 나오고 있었습니다.</b> 상·중·하를 1·2·3 으로
+     * 세는 것은 순서를 위해서인데 그 숫자가 화면까지 나갔습니다. 사용자는 없는 2권을 찾게
+     * 됩니다. 표기는 받은 대로 두되 순서는 여전히 상이 하보다 앞입니다.
+     */
+    @Test
+    @DisplayName("상·하로 나뉜 책은 1권·3권이 아니라 상권·하권으로, 상권부터 나온다")
+    void sangHaKeepsItsMarkAndOrder() {
+        var response = service(SANG_HA_ONLY, NEVER_CALLED).search("토지");
+
+        var titles = response.works().stream().map(BookSearchService.WorkResult::title).toList();
+        assertEquals(List.of("토지 상권", "토지 하권"), titles,
+                "하권이 더 많이 읽혔어도 상권이 먼저이고, 숫자로 바꿔 적으면 안 됩니다");
+    }
+
     @Test
     @DisplayName("물어볼 수 없었던 도서관이 있으면 빠짐없이 확인했다고 하지 않는다")
     void aLibraryWeCouldNotAskIsNotAbsence() {

@@ -600,7 +600,7 @@ public class BookSearchService {
                         WorkMatcher.Candidate.of(book.bookname(), book.authors(),
                                 book.publisher(), publicationYear(book),
                                 book.canonicalIsbn13().orElse(null),
-                                book.volumeNumber().orElse(null)),
+                                book.volume().orElse(null)),
                         null))
                 .toList();
 
@@ -610,7 +610,7 @@ public class BookSearchService {
                 .map(book -> SearchDocBuilder.BookRecord.of(
                         book.canonicalIsbn13().orElseThrow(),
                         book.bookname(), book.authors(), book.publisher(),
-                        null, null, book.volumeNumber().orElse(null)))
+                        null, null, book.volume().orElse(null)))
                 .toList();
         return SearchDocBuilder.build(records, clustered.workIdByRecord());
     }

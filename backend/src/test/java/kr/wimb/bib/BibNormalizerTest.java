@@ -144,6 +144,29 @@ class BibNormalizerTest {
             assertNull(BibNormalizer.volumeOrdinal("  "));
             assertNull(BibNormalizer.volumeOrdinal("전집"));
         }
+
+        /**
+         * 순서는 1·2·3 으로 세우되 <b>표기는 잃지 않습니다.</b> 서수만 남기면 화면에
+         * 「1권」으로 나가고, 상·하 두 권뿐인 책은 「1권」과 「3권」이 되어 사용자가 없는
+         * 2권을 찾게 됩니다. 실제로 그렇게 나오고 있었습니다.
+         */
+        @Test
+        @DisplayName("상·중·하는 순서만 숫자로 바꾸고 표기는 그대로 둔다")
+        void keepsSangHaMark() {
+            assertEquals(new Volume(1, "상"), BibNormalizer.parseTitle("토지 상").volume());
+            assertEquals(new Volume(2, "중"), BibNormalizer.parseTitle("토지 중권").volume());
+            assertEquals(new Volume(3, "하"), BibNormalizer.parseTitle("토지(하)").volume());
+            assertEquals(new Volume(1, "상"), BibNormalizer.volume("상"));
+            assertEquals(new Volume(2, "중"), BibNormalizer.volume("(중)"));
+            assertEquals(new Volume(3, "하"), BibNormalizer.volume("하권"));
+            // 숫자와 로마 숫자는 서수가 곧 표기입니다.
+            assertEquals(Volume.of(3), BibNormalizer.parseTitle("토지 3권").volume());
+            assertEquals(Volume.of(2), BibNormalizer.volume("II"));
+            assertNull(BibNormalizer.volume("전집"));
+            // 표제 뒤에 붙일 말입니다.
+            assertEquals("상권", new Volume(1, "상").display());
+            assertEquals("3권", Volume.of(3).display());
+        }
     }
 
     @Nested

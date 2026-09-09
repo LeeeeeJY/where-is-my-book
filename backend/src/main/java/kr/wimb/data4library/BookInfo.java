@@ -2,6 +2,7 @@ package kr.wimb.data4library;
 
 import kr.wimb.bib.BibNormalizer;
 import kr.wimb.bib.Isbn;
+import kr.wimb.bib.Volume;
 
 import java.util.Map;
 import java.util.Optional;
@@ -60,9 +61,17 @@ public record BookInfo(
     /**
      * 권차. API 가 준 값을 우선하고, 없을 때만 제목에서 뽑은 값을 씁니다.
      * 표제를 파싱하는 것보다 이 값이 믿을 만합니다.
+     *
+     * <p><b>서수만이 아니라 표기까지 듭니다.</b> 「상」으로 온 값을 1로만 바꾸면 화면에
+     * 「1권」으로 나가고, 상·하 두 권뿐인 책은 「1권」과 「3권」이 됩니다.
      */
+    public Optional<Volume> volume() {
+        return Optional.ofNullable(BibNormalizer.volume(vol));
+    }
+
+    /** 권차의 서수만. 정렬처럼 순서만 필요한 곳의 지름길입니다. */
     public Optional<Integer> volumeNumber() {
-        return Optional.ofNullable(BibNormalizer.volumeOrdinal(vol));
+        return volume().map(Volume::ordinal);
     }
 
     private static Integer asInt(String value) {
