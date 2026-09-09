@@ -26,29 +26,37 @@
 건드리지 않습니다. 한 묶음이 그 서버에 보내는 요청은 최대 열 번 안쪽입니다.
 **이 값들을 올리기 전에 CLAUDE.md 의 「외부 서버에 대한 예의」를 읽으세요.**
 
-## 사용법
-
-    ./scripts/opac-discover.py --probe            # 검증용 데이터 만들기 (우리 API 를 씁니다)
-    ./scripts/opac-discover.py --limit 30         # 큰 묶음부터 30개 조사 (먼저 이걸로 재 보세요)
-    ./scripts/opac-discover.py --all              # 전부. 오래 걸리고 중단해도 이어서 됩니다
-    ./scripts/opac-discover.py --emit             # 통과한 규칙을 templates.csv 형식으로 출력
-
-작업 파일은 --work (기본 .opac-work/) 아래에 쌓이고, 이미 조사한 묶음은 건너뜁니다.
-
-## 사람이나 다른 클로드가 조사할 때
-
-이 스크립트를 돌릴 수 없는 자리(브라우저만 있는 경우)에서는 조사와 반영을 나눌 수 있습니다.
+## 지금 쓰는 방법은 사람이 주소를 주는 쪽입니다
 
     ./scripts/opac-discover.py --worklist 30 > 작업목록.md    # 조사할 묶음을 표로 뽑기
-    ./scripts/opac-discover.py --import-file 결과.txt         # 받은 결과를 CSV 로
+    ./scripts/opac-discover.py --import-file 결과.txt         # 받은 주소를 CSV 로
 
 `--worklist` 는 묶음마다 **그 도서관이 실제로 소장한 책**을 함께 적어 줍니다. 그 책으로
 물어봐야 0건이 나왔을 때 「규칙이 틀렸다」고 말할 수 있습니다.
 
 `--import-file` 은 받은 줄을 그대로 믿지 않고, 실행해 보지 않고도 잡을 수 있는 것을
-거릅니다. **자리표가 없는 줄과 다른 기관 도메인으로 보내는 줄**이 특히 그렇습니다. 조사한
-쪽이 열어 보지 않고 그럴듯한 주소를 지어냈을 때 가장 잘 걸립니다. 다만 **이것으로 「실제로
-그 책이 나오는지」까지 확인되지는 않습니다.** 그 확인은 위의 `--limit`/`--all` 만 합니다.
+거릅니다. **자리표가 없는 줄과 다른 기관 도메인으로 보내는 줄**이 특히 그렇습니다.
+
+## 자동 조사(`--probe` `--limit` `--all`)는 반쪽입니다
+
+    ./scripts/opac-discover.py --probe            # 검증용 데이터 만들기 (우리 API 를 씁니다)
+    ./scripts/opac-discover.py --limit 30         # 큰 묶음부터 30개 조사
+    ./scripts/opac-discover.py --all              # 전부. 중단해도 이어서 됩니다
+    ./scripts/opac-discover.py --emit             # 통과한 규칙을 templates.csv 형식으로 출력
+
+**2026-09-09 에 상위 30묶음을 실제로 돌려 규칙을 하나도 찾지 못했습니다.** 판정 로직은
+멀쩡한데(가짜 OPAC 일곱 종류를 통과합니다) 실제 도서관에서 걸린 것은 다음 셋입니다.
+
+  - **검색어가 경로에 들어가는 OPAC 을 못 찾습니다.** 노원은 `/KeywordSearchResult/{isbn13}`,
+    부천은 `/search/keyword/{isbn13}` 인데, 자바스크립트가 폼 제출을 가로채 이 주소를 만듭니다.
+    **HTML 어디에도 그 형태가 적혀 있지 않아 폼을 읽는 방식으로는 원리적으로 못 찾습니다.**
+    사람은 주소창을 보고 5초면 압니다.
+  - 국내 공공도서관 상당수가 **해외 IP 를 막습니다.** GitHub Actions 러너에서 30묶음 가운데
+    18묶음이 접속조차 되지 않았습니다(대부분 타임아웃).
+  - 접속된 곳도 검색 폼이 자바스크립트로 그려지거나 POST 라 주소에 검색어가 남지 않습니다.
+
+그래서 **자동 조사에 기대지 마세요.** 국내에서 돌리면 접속 문제는 풀리지만 경로형은 여전히
+못 찾습니다. 지금은 사람이 주소를 주고 `--import-file` 로 반영하는 쪽이 확실합니다.
 """
 
 from __future__ import annotations
