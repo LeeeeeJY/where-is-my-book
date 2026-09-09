@@ -117,17 +117,42 @@ class Pacer:
         self._last[host] = time.time()
 
 
+def normalize_home(url: str | None) -> str | None:
+    """도서관 홈페이지 주소를 쓸 수 있는 모양으로. 못 쓰면 None 입니다.
+
+    **정보나루는 홈페이지가 없는 곳에 `-` 를 줍니다.** 그리고 스킴을 빼고 주는 곳도 있어서
+    (`lib.yongin.go.kr/dongcheon`), 그대로 넘기면 urllib 이 「모르는 주소 유형」으로
+    죽습니다. 실제로 그것 하나가 조사 전체를 멈춰 세웠습니다. 스킴만 빠진 것은 살리고
+    (진짜 도서관 주소입니다) 나머지는 홈페이지가 없는 것으로 봅니다.
+    """
+    if not url:
+        return None
+    url = url.strip()
+    if not url or url in ("-", "_", "없음", "N/A"):
+        return None
+    if not url.startswith(("http://", "https://")):
+        if "://" in url:
+            return None                              # ftp 같은 것은 우리가 다룰 수 없습니다
+        url = "http://" + url
+    p = urllib.parse.urlparse(url)
+    return url if p.netloc and "." in p.netloc else None
+
+
 def fetch(url: str, pacer: Pacer, timeout: float = 20.0) -> tuple[int, str, str]:
-    """(상태코드, 본문, 최종주소). 실패하면 상태코드가 0 이고 본문이 오류 문구입니다."""
+    """(상태코드, 본문, 최종주소). 실패하면 상태코드가 0 이고 본문이 오류 문구입니다.
+
+    **여기서 예외가 새어 나가면 안 됩니다.** 조사는 묶음 수백 개를 도는 일이라, 한 곳의
+    이상한 주소로 전체가 죽으면 그때까지 두드린 남의 서버 요청이 전부 헛것이 됩니다.
+    """
     host = urllib.parse.urlparse(url).netloc
     with pacer.lock_for(host):
         pacer.wait(host)
-        req = urllib.request.Request(url, headers={
-            "User-Agent": UA,
-            "Accept": "text/html,application/xhtml+xml",
-            "Accept-Language": "ko",
-        })
         try:
+            req = urllib.request.Request(url, headers={
+                "User-Agent": UA,
+                "Accept": "text/html,application/xhtml+xml",
+                "Accept-Language": "ko",
+            })
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 raw = resp.read(1_500_000)
                 return resp.status, decode(raw, resp.headers.get("Content-Type", "")), resp.url
@@ -345,6 +370,7 @@ def verify(action: str, field: str, hidden: dict[str, str], kind: str,
 # ── 묶음 ─────────────────────────────────────────────────────────────────────
 
 def group_key(url: str) -> str:
+    url = normalize_home(url) or url
     p = urllib.parse.urlparse(url)
     segs = [s for s in p.path.split("/") if s and "." not in s]
     return p.netloc.lower() + ("/" + segs[0] if segs else "")
@@ -371,7 +397,23 @@ def registrable_domain(host: str) -> str:
 
 
 def investigate(group: dict, probe: dict, pacer: Pacer) -> dict:
-    """묶음 하나를 조사합니다. 대표 도서관의 홈페이지에서 폼을 읽고 검증합니다."""
+    """묶음 하나를 조사합니다. 예외가 새어 나가지 않게 감쌉니다.
+
+    **수백 묶음을 도는 일이라 한 곳의 예외로 전체가 죽으면 안 됩니다.** 실제로 홈페이지
+    주소에 스킴이 빠진 도서관 하나가 조사 전체를 멈춰 세웠고, 그때까지 두드린 남의 서버
+    요청이 전부 헛것이 되었습니다.
+    """
+    try:
+        return _investigate(group, probe, pacer)
+    except Exception as e:                              # 어떤 것이든 그 묶음에서 멈춥니다
+        rep = group["libraries"][0]
+        return {"group": group["key"], "libCodes": [l["libCode"] for l in group["libraries"]],
+                "name": rep["name"], "homepage": rep.get("homepageUrl"), "rules": [],
+                "note": f"조사 중 오류가 났습니다 ({type(e).__name__}: {e})"[:200]}
+
+
+def _investigate(group: dict, probe: dict, pacer: Pacer) -> dict:
+    """대표 도서관의 홈페이지에서 폼을 읽고 검증합니다."""
     rep = group["libraries"][0]
     result = {"group": group["key"], "libCodes": [l["libCode"] for l in group["libraries"]],
               "name": rep["name"], "homepage": rep["homepageUrl"], "rules": [], "note": ""}
@@ -381,9 +423,13 @@ def investigate(group: dict, probe: dict, pacer: Pacer) -> dict:
         result["note"] = "검증용으로 쓸 소장 도서가 두 권이 안 됩니다"
         return result
 
-    parsed = urllib.parse.urlparse(rep["homepageUrl"])
+    home = normalize_home(rep["homepageUrl"])
+    if not home:
+        result["note"] = f"쓸 수 있는 홈페이지 주소가 아닙니다 ({rep['homepageUrl']!r})"
+        return result
+    parsed = urllib.parse.urlparse(home)
     disallows = robots_disallows(f"{parsed.scheme}://{parsed.netloc}", pacer)
-    status, page, final = fetch(rep["homepageUrl"], pacer)
+    status, page, final = fetch(home, pacer)
     if status != 200:
         result["note"] = f"홈페이지를 받지 못했습니다 ({status}: {page[:60]})"
         return result
@@ -576,7 +622,7 @@ def worklist(libs: list[dict], probe: dict, count: int) -> int:
     """
     groups: dict[str, list[dict]] = defaultdict(list)
     for l in libs:
-        if l.get("homepageUrl"):
+        if normalize_home(l.get("homepageUrl")):
             groups[group_key(l["homepageUrl"])].append(l)
 
     rows = []
@@ -615,7 +661,7 @@ def import_findings(path: str, libs: list[dict]) -> int:
     """
     groups: dict[str, list[dict]] = defaultdict(list)
     for l in libs:
-        if l.get("homepageUrl"):
+        if normalize_home(l.get("homepageUrl")):
             groups[group_key(l["homepageUrl"])].append(l)
     # 묶음키를 옮겨 적을 때 `www.` 가 붙고 빠지는 것으로 전부 버려지면 안 됩니다.
     aliases = {k.removeprefix("www."): k for k in groups}
@@ -714,7 +760,7 @@ def main() -> int:
 
     groups: dict[str, list[dict]] = defaultdict(list)
     for l in libs:
-        if l.get("homepageUrl"):
+        if normalize_home(l.get("homepageUrl")):
             groups[group_key(l["homepageUrl"])].append(l)
     # 검증용 책을 많이 가진 도서관을 대표로 세웁니다. 못 고르면 조사 자체가 안 됩니다.
     ordered = sorted(

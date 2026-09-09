@@ -166,6 +166,7 @@ def main() -> int:
     if not ok:
         failures.append("검증 단계")
 
+    failures += check_bad_homepages(probe, pacer)
     failures += check_import(work)
 
     if failures:
@@ -173,6 +174,47 @@ def main() -> int:
         return 1
     print("\n전부 통과했습니다.")
     return 0
+
+
+def check_bad_homepages(probe: dict, pacer) -> list[str]:
+    """홈페이지 주소가 이상한 도서관이 조사를 멈춰 세우지 않는지.
+
+    **실제로 이것 하나가 전체 실행을 죽였습니다.** 정보나루는 홈페이지가 없는 곳에 `-` 를
+    주고 스킴을 빼고 주는 곳도 있는데, 그대로 urllib 에 넘기면 「모르는 주소 유형」으로
+    예외가 나고 그 예외가 조사 전체를 멈춥니다. 그때까지 두드린 남의 서버 요청이 전부
+    헛것이 되므로, 한 묶음의 실패는 그 묶음에서 멈춰야 합니다.
+    """
+    print("\n  이상한 홈페이지 주소")
+    cases = [
+        ("정보나루의 빈 값", "-", None),
+        ("빈 문자열", "", None),
+        ("스킴 없는 진짜 주소", "lib.yongin.go.kr/dongcheon", "http://lib.yongin.go.kr/dongcheon"),
+        ("우리가 못 쓰는 스킴", "ftp://lib.example.kr", None),
+        ("호스트가 아닌 것", "http://localhost", None),
+        ("멀쩡한 주소", "https://lib.example.go.kr/a", "https://lib.example.go.kr/a"),
+    ]
+    failures = []
+    for label, given, want in cases:
+        got = od.normalize_home(given)
+        ok = got == want
+        print(f"  {'✓' if ok else '✗'} {label:18s} {given!r} → {got!r}")
+        if not ok:
+            failures.append(f"주소:{label}")
+
+    # 그리고 그런 도서관을 실제로 조사시켜 봅니다. 예외 대신 사유가 남아야 합니다.
+    for label, url in [("빈 값", "-"), ("없는 호스트", "http://이런호스트는없습니다.invalid/")]:
+        lib = {"libCode": "800009", "name": "이상한도서관", "homepageUrl": url}
+        probe = dict(probe, **{"800009": list(BOOKS)})
+        try:
+            r = od.investigate({"key": "bad", "libraries": [lib]}, probe, pacer)
+            ok = not r["rules"] and bool(r["note"])
+            detail = r["note"][:52]
+        except Exception as e:
+            ok, detail = False, f"예외가 새어 나왔습니다: {type(e).__name__}"
+        print(f"  {'✓' if ok else '✗'} {label:18s} {detail}")
+        if not ok:
+            failures.append(f"조사:{label}")
+    return failures
 
 
 def check_import(work: str) -> list[str]:

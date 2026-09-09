@@ -41,7 +41,7 @@ on:
     paths:
       - '.github/workflows/opac-discover.yml'
 
-# 조사 회차: 1 (이 숫자를 올려 푸시하면 위의 푸시 조건으로 한 번 더 돕니다)
+# 조사 회차: 2 (이 숫자를 올려 푸시하면 위의 푸시 조건으로 한 번 더 돕니다)
 
 # **앞의 실행을 취소하지 않습니다.** 조사한 결과가 커밋되기 전에 끊기면 그때까지 두드린
 # 남의 서버 요청이 헛것이 됩니다. 이미지 빌드와 반대되는 선택이고, 이유도 반대입니다.
@@ -144,7 +144,10 @@ jobs:
           셋을 통과하지 못한 것은 들어가지 않았습니다.
 
           증거는 docs/opac/results.jsonl 에 있습니다."
-          git push
+          # 조사가 도는 몇십 분 사이에 다른 커밋이 올라올 수 있습니다. 그때 그냥 밀면
+          # 거절당하고 조사한 것이 통째로 날아갑니다.
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
 
       - uses: actions/upload-artifact@v4
         if: always()
