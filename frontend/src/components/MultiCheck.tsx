@@ -16,6 +16,14 @@ import { ProgressBar } from './ProgressBar';
 const MAX_LINES = 50;
 
 /**
+ * 후보를 펼쳤을 때 한 번에 보여 주는 수. 한 권 검색의 묶음 크기와 같습니다.
+ *
+ * <p>서버가 후보를 한 권 검색과 같은 상한(100)까지 주므로, 한 번에 다 그리면 고전 한 줄이
+ * 카드 백 개가 됩니다. 순서가 한 권 검색과 같아 찾는 판은 대개 앞쪽에 있습니다.
+ */
+const PICK_PAGE = 20;
+
+/**
  * 동시에 보낼 소장 조회 수.
  *
  * <p>정보나루의 소장 조회는 한 번에 4~5초라 넷씩 물으면 서른 권에 몇 분이 걸립니다.
@@ -524,7 +532,10 @@ function LineRow({
     가장 잘 맞는 것 하나로 답하고, 그게 아닐 때만 펼칩니다. 고르면 다시 접습니다.
   */
   const [allPicks, setAllPicks] = useState(false);
+  /** 펼쳤을 때 몇 개까지 보여 줄지. 「후보 더 보기」가 늘립니다. */
+  const [pickLimit, setPickLimit] = useState(PICK_PAGE);
   const others = row.candidates.length - 1;
+  const visiblePicks = row.candidates.slice(0, pickLimit);
   const pendingLabel = selectedCount > 0 && (checking || row.loading) ? '확인 중' : '확인 전';
 
   return (
@@ -580,7 +591,7 @@ function LineRow({
 
           {allPicks && (
             <ul className="picks__list">
-              {row.candidates.map((candidate, i) => (
+              {visiblePicks.map((candidate, i) => (
                 <li key={candidate.workId}>
                   <button
                     type="button"
@@ -603,6 +614,22 @@ function LineRow({
                 </li>
               ))}
             </ul>
+          )}
+          {/*
+            **잘라 놓고 말하지 않으면 「내 책이 없다」로 읽힙니다.** 한 권 검색의 「더 보기」와
+            같은 크기로 나눠 보여 주되, 몇 개가 더 있는지 밝힙니다.
+          */}
+          {allPicks && row.candidates.length > pickLimit && (
+            <p className="picks__more muted">
+              후보 {row.candidates.length}개 중 {pickLimit}개를 보고 있습니다.{' '}
+              <button
+                type="button"
+                className="link-button link-button--inline"
+                onClick={() => setPickLimit((n) => n + PICK_PAGE)}
+              >
+                후보 더 보기
+              </button>
+            </p>
           )}
         </div>
       ) : (

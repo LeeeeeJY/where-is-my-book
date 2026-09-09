@@ -29,6 +29,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 
 /**
  * 검색어 하나를 받아 저작 단위 결과로 만듭니다.
@@ -72,7 +73,8 @@ public class BookSearchService {
      * 「더 보기」를 즉시 처리할 수 있습니다. 300건을 묶으면 저작이 100~200개쯤 되므로
      * 100이면 대부분의 검색에서 끝까지 넘겨볼 수 있습니다.
      */
-    private static final int MAX_WORKS = 100;
+    /** 한 번에 돌려주는 저작 수. 여러 권 검색의 후보도 같은 상한을 씁니다. */
+    static final int MAX_WORKS = 100;
 
     /** 빠진 자료를 몇 건까지 실어 보낼지. 전체 건수는 droppedNoIsbn 이 말합니다. */
     private static final int MAX_DROPPED_SHOWN = 20;
@@ -465,36 +467,62 @@ public class BookSearchService {
         String queryKey = BibNormalizer.normalizeKey(query == null ? "" : query);
         if (queryKey.isEmpty()) return works;
 
-        // 표제를 한 번만 뜯어 놓고 견줍니다. 비교자 안에서 뜯으면 정렬하는 동안 같은 표제를
-        // 수십 번 다시 파싱합니다.
-        record Sortable(WorkResult work, int tier, String group, Integer volNo, String isbn) {}
-        List<Sortable> rows = works.stream()
-                .map(work -> new Sortable(
+        // 등급이 낮을수록, 같은 등급이면 대출건수가 많을수록 앞입니다.
+        record Strength(int tier, int loans) {}
+        Comparator<Strength> order = Comparator.comparingInt(Strength::tier)
+                .thenComparing(Comparator.comparingInt(Strength::loans).reversed());
+        return sortGrouped(works,
+                work -> new Strength(titleTier(queryKey, work.title()), work.loanCount()), order);
+    }
+
+    /**
+     * 낱권 묶음을 흩뜨리지 않고 세웁니다. <b>한 권 검색과 여러 권 검색이 함께 씁니다.</b>
+     *
+     * <p>묶음 사이의 순서는 {@code order} 가 정하되, 묶음의 자리는 그 묶음에서 <b>가장 앞서는
+     * 판</b>이 정합니다. 낱권 하나가 덜 빌린다고 그 묶음 전체가 아래로 내려가면 안 됩니다.
+     * 묶음 안은 권차 순이고, 권차가 없는 세트와 합본은 묶음의 맨 뒤입니다. 마지막으로 ISBN
+     * 순을 두는 것은, 「먼저 받은 순서」에 맡기면 어느 표기로 검색했는지에 따라 순서가
+     * 달라지기 때문입니다.
+     *
+     * <p>여러 권 검색이 이것을 쓰지 않고 점수만으로 세웠을 때는 <b>같은 판의 낱권이 대출건수에
+     * 따라 흩어졌고, 상한에서 자르면 덜 빌린 권이 빠졌습니다.</b> 「마의 산」을 넣었을 때
+     * 을유문화사 판이 1권과 3권만 남고 2권이 사라진 것이 그것입니다.
+     *
+     * @param strength 판마다 한 번만 계산하는 세기. 비교자 안에서 표제를 뜯으면 정렬하는 동안
+     *                 같은 표제를 수십 번 다시 파싱하므로 미리 계산해 둡니다
+     * @param order    세기의 순서. 작을수록 앞입니다
+     */
+    static <K> List<WorkResult> sortGrouped(
+            List<WorkResult> works, Function<WorkResult, K> strength, Comparator<K> order) {
+        record Sortable<K>(WorkResult work, K strength, String group, Integer volNo, String isbn) {}
+        List<Sortable<K>> rows = works.stream()
+                .map(work -> new Sortable<>(
                         work,
-                        titleTier(queryKey, work.title()),
+                        strength.apply(work),
                         groupKey(work),
                         BibNormalizer.parseTitle(work.title()).volNo(),
                         work.isbn13List().isEmpty() ? "" : work.isbn13List().get(0)))
                 .toList();
 
-        // 묶음의 자리는 그 묶음에서 가장 많이 대출된 판이 정합니다. 낱권 하나가 덜 빌린다고
-        // 그 묶음 전체가 아래로 내려가면 안 됩니다.
-        Map<String, Integer> bestLoans = new HashMap<>();
-        for (Sortable row : rows) bestLoans.merge(row.group(), row.work().loanCount(), Integer::max);
+        Map<String, K> leader = new HashMap<>();
+        for (Sortable<K> row : rows) {
+            leader.merge(row.group(), row.strength(), (a, b) -> order.compare(a, b) <= 0 ? a : b);
+        }
 
-        Comparator<Sortable> order = Comparator
-                .<Sortable>comparingInt(Sortable::tier)
-                .thenComparing(Comparator.comparingInt(
-                        (Sortable row) -> bestLoans.getOrDefault(row.group(), 0)).reversed())
-                // 대출건수가 같은 묶음이 둘이면 여기서 갈라 놓아야 두 묶음이 섞이지 않습니다.
-                .thenComparing(Sortable::group)
-                // 권차가 없는 세트와 합본은 묶음의 맨 뒤입니다.
-                .thenComparing(Sortable::volNo, Comparator.nullsLast(Comparator.naturalOrder()))
-                // 여기까지 와서 「먼저 받은 순서」에 맡기면 어느 표기로 검색했는지에 따라
-                // 순서가 달라집니다.
-                .thenComparing(Sortable::isbn);
+        Comparator<Sortable<K>> full = Comparator
+                .comparing((Sortable<K> row) -> leader.get(row.group()), order)
+                // 세기가 같은 묶음이 둘이면 여기서 갈라 놓아야 두 묶음이 섞이지 않습니다.
+                .thenComparing((Sortable<K> row) -> row.group())
+                .thenComparing((Sortable<K> row) -> row.volNo(),
+                        Comparator.nullsLast(Comparator.naturalOrder()))
+                // **묶음 키는 표제와 출판사뿐이라 저자가 다른 별개의 책이 한 묶음에 들 수
+                // 있습니다.** 권차가 같은(대개 둘 다 없는) 것끼리는 낱권 사이가 아니므로
+                // 세기 순으로 세웁니다. 그래야 「코스모스」가 둘일 때 많이 빌린 쪽이, 저자를
+                // 준 줄에서는 저자가 맞는 쪽이 먼저 옵니다.
+                .thenComparing((Sortable<K> row) -> row.strength(), order)
+                .thenComparing((Sortable<K> row) -> row.isbn());
 
-        return rows.stream().sorted(order).map(Sortable::work).toList();
+        return rows.stream().sorted(full).map(Sortable::work).toList();
     }
 
     /**

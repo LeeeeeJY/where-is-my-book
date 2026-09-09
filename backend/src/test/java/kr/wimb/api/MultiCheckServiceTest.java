@@ -43,6 +43,21 @@ class MultiCheckServiceTest {
         return "<response><docs>" + String.join("", entries) + "</docs></response>";
     }
 
+    /** 출판사와 권차, 대출건수까지 갖춘 서지. 낱권 묶음의 순서를 볼 때 씁니다. */
+    private static String bib(String title, String publisher, String isbn, String vol, int loans) {
+        return """
+            <doc>
+              <bookname><![CDATA[%s]]></bookname>
+              <authors><![CDATA[토마스 만 지음 ; 홍성광 옮김]]></authors>
+              <publisher><![CDATA[%s]]></publisher>
+              <publication_year>2008</publication_year>
+              <isbn13>%s</isbn13>
+              <vol>%s</vol>
+              <loan_count>%d</loan_count>
+            </doc>
+            """.formatted(title, publisher, isbn, vol, loans);
+    }
+
     /** 요청 주소를 보고 다르게 답하는 가짜 정보나루입니다. */
     private static final class FakeD4L implements Data4LibraryClient.Transport {
         /** 검색이 회전 안에서 동시에 나가므로 목록도 동시에 써도 안전해야 합니다. */
@@ -345,5 +360,52 @@ class MultiCheckServiceTest {
         assertEquals("코스모스", lines.get(1).candidates().get(0).title());
         assertEquals("데미안", lines.get(2).candidates().get(0).title());
         assertEquals(MultiCheckService.LineStatus.NOT_FOUND, lines.get(3).status());
+    }
+
+    /**
+     * <b>점수만으로 세우면 같은 판의 낱권이 대출건수에 따라 흩어집니다.</b> 화면이 후보 전체를
+     * 펼쳐 보여 주므로 그 순서가 그대로 사용자에게 읽힙니다. 한 권 검색과 같은 규칙으로
+     * 낱권 묶음을 붙여 두고 묶음 안은 권차 순으로 세웁니다.
+     */
+    @Test
+    @DisplayName("후보는 한 권 검색처럼 낱권 묶음을 붙여서 권차 순으로 세운다")
+    void candidatesKeepVolumesTogether() {
+        var transport = new FakeD4L();
+        transport.answer = q -> docs(
+                bib("마의 산", "을유문화사", "9788932470016", "1", 900),
+                bib("마의 산", "열린책들", "9788932917009", "1", 800),
+                bib("마의 산", "을유문화사", "9788932470030", "3", 700),
+                bib("마의 산", "열린책들", "9788932917016", "2", 600),
+                // 2권이 가장 덜 빌렸어도 1권과 3권 사이에 있어야 합니다.
+                bib("마의 산", "을유문화사", "9788932470023", "2", 10));
+        var line = service(transport).resolve(List.of("마의 산")).lines().get(0);
+
+        assertEquals(MultiCheckService.LineStatus.AMBIGUOUS, line.status());
+        var order = line.candidates().stream()
+                .map(w -> w.publisher() + " " + w.title())
+                .toList();
+        assertEquals(List.of(
+                "을유문화사 마의 산 1권", "을유문화사 마의 산 2권", "을유문화사 마의 산 3권",
+                "열린책들 마의 산 1권", "열린책들 마의 산 2권"), order);
+    }
+
+    /**
+     * <b>후보 상한이 스물넷일 때는 한 권 검색으로 찾으면 나오는 판이 여기서는 안 나왔습니다.</b>
+     * 사용자는 그것을 「내 책이 없다」로 읽습니다. 상한은 한 권 검색이 돌려주는 수와 같습니다.
+     */
+    @Test
+    @DisplayName("후보를 한 권 검색과 같은 수까지 돌려준다")
+    void candidatesAreNotCutShort() {
+        var transport = new FakeD4L();
+        var entries = new ArrayList<String>();
+        String[] isbns = { "9788911000005", "9788911000012", "9788911000029", "9788911000036", "9788911000043", "9788911000050", "9788911000067", "9788911000074", "9788911000081", "9788911000098", "9788911000104", "9788911000111", "9788911000128", "9788911000135", "9788911000142", "9788911000159", "9788911000166", "9788911000173", "9788911000180", "9788911000197", "9788911000203", "9788911000210", "9788911000227", "9788911000234", "9788911000241", "9788911000258", "9788911000265", "9788911000272", "9788911000289", "9788911000296" };
+        for (int i = 0; i < isbns.length; i++) {
+            entries.add(bib("마의 산", "출판사" + i, isbns[i], "1", 1000 - i));
+        }
+        transport.answer = q -> docs(entries.toArray(String[]::new));
+        var line = service(transport).resolve(List.of("마의 산")).lines().get(0);
+
+        assertEquals(isbns.length, line.candidates().size(),
+                "출판사가 다른 판 서른 개가 전부 후보에 있어야 합니다");
     }
 }

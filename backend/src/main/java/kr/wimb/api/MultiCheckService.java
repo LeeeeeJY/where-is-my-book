@@ -30,14 +30,16 @@ import java.util.concurrent.Semaphore;
 public class MultiCheckService {
 
     /**
-     * 한 줄에 보여 줄 후보 수.
+     * 한 줄에 보여 줄 후보 수. <b>한 권 검색이 돌려주는 수와 같습니다.</b>
      *
-     * <p><b>다섯은 너무 적었습니다.</b> 출판사가 다른 번역본을 갈라 놓은 뒤로 「레미제라블」
-     * 같은 고전은 저작이 서른 개를 넘는데, 다섯만 보여 주면 <b>찾는 판이 목록에 아예
-     * 없습니다.</b> 사용자는 그것을 「내 책이 없다」로 읽습니다. 화면이 처음에는 몇 개만
-     * 보여 주고 나머지는 눌러서 펼치므로, 여기서 넉넉히 보내는 편이 낫습니다.
+     * <p><b>다섯은 너무 적었고, 스물넷도 모자랐습니다.</b> 출판사가 다른 번역본을 갈라 놓은
+     * 뒤로 「레미제라블」 같은 고전은 저작이 서른 개를 넘는데, 거기서 자르면 <b>찾는 판이
+     * 목록에 아예 없습니다.</b> 사용자는 그것을 「내 책이 없다」로 읽습니다. 스물넷일 때는
+     * 같은 책을 한 권 검색으로 찾으면 나오는 판이 여기서는 안 나왔고, 낱권 묶음의 일부만
+     * 잘려 「마의 산」 을유문화사 판이 1권과 3권만 남았습니다. 화면이 고른 것 하나만 보여
+     * 주고 나머지는 눌러서 펼치므로, 여기서 넉넉히 보내는 편이 낫습니다.
      */
-    private static final int MAX_CANDIDATES = 24;
+    private static final int MAX_CANDIDATES = BookSearchService.MAX_WORKS;
 
     /** 1위가 2위의 이만큼이면 확정으로 봅니다. */
     private static final double CONFIRM_RATIO = 2.0;
@@ -248,16 +250,21 @@ public class MultiCheckService {
      * 점수 내림차순으로 세우고, <b>점수가 같으면 대출건수가 많은 것을 앞에 둡니다.</b>
      * 결과가 여러 검색을 합친 것이라 정보나루가 준 순서를 그대로 둘 수 없고, 한 권 검색의
      * 같은 등급 정렬과 기준을 맞춥니다.
+     *
+     * <p><b>낱권 묶음은 한 권 검색과 같은 규칙으로 붙여 둡니다</b>({@link
+     * BookSearchService#sortGrouped}). 점수만으로 세우면 같은 판의 1권과 2권이 대출건수에
+     * 따라 다른 출판사 사이로 흩어지고, 상한에서 자르면 덜 빌린 권만 빠집니다. 예전에는
+     * 「첫 후보 하나를 고르는 곳이라 권차 순서가 뜻을 갖지 않는다」고 보았는데, 화면이 후보
+     * 전체를 펼쳐 보여 주게 되면서 순서가 그대로 사용자에게 읽힙니다. 첫 후보는 가장 잘 맞는
+     * 묶음의 첫 권이 되므로 한 권 검색의 첫 줄과 같습니다.
      */
     private static List<BookSearchService.WorkResult> rank(
             List<BookSearchService.WorkResult> works, LineParser.Attempt attempt) {
-        Comparator<BookSearchService.WorkResult> byScore =
-                Comparator.comparingDouble(work -> score(work, attempt));
-        Comparator<BookSearchService.WorkResult> byLoans =
-                Comparator.comparingInt(BookSearchService.WorkResult::loanCount);
-        return works.stream()
-                .sorted(byScore.reversed().thenComparing(byLoans.reversed()))
-                .toList();
+        record Strength(double score, int loans) {}
+        Comparator<Strength> order = Comparator.comparingDouble(Strength::score).reversed()
+                .thenComparing(Comparator.comparingInt(Strength::loans).reversed());
+        return BookSearchService.sortGrouped(works,
+                work -> new Strength(score(work, attempt), work.loanCount()), order);
     }
 
     /**
