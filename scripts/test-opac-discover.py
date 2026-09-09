@@ -21,8 +21,10 @@
 
 from __future__ import annotations
 
+import contextlib
 import http.server
 import importlib.util
+import io
 import json
 import os
 import socket
@@ -163,6 +165,57 @@ def main() -> int:
     print(f"  {'✓' if ok else '✗'} 검증 단계   {steps}")
     if not ok:
         failures.append("검증 단계")
+
+    failures += check_import(work)
+
+    if failures:
+        print(f"\n실패: {', '.join(failures)}")
+        return 1
+    print("\n전부 통과했습니다.")
+    return 0
+
+
+def check_import(work: str) -> list[str]:
+    """조사해 온 결과를 받을 때 무엇을 거르는지.
+
+    브라우저만 있는 자리에서 조사한 결과를 받아 들일 때, 실행해 보지 않고도 잡을 수 있는
+    것들입니다. **다른 기관 도메인으로 보내는 줄**이 특히 중요합니다. 열어 보지 않고
+    그럴듯한 주소를 지어냈을 때 가장 잘 걸리는 자국이기 때문입니다.
+    """
+    print("\n  받은 결과 거르기")
+    libs = [
+        {"libCode": "800001", "name": "가나도서관", "homepageUrl": "https://www.lib.example.go.kr/"},
+        {"libCode": "800002", "name": "다라도서관", "homepageUrl": "https://www.lib.example.go.kr/"},
+        {"libCode": "800003", "name": "마바도서관", "homepageUrl": "https://other.example.or.kr/"},
+    ]
+    cases = [
+        ("정상", "www.lib.example.go.kr | ISBN_SEARCH | UTF-8 | https://www.lib.example.go.kr/s?q={isbn13}", 2),
+        ("www 빠진 키", "lib.example.go.kr | ISBN_SEARCH | UTF-8 | https://www.lib.example.go.kr/s?q={isbn13}", 2),
+        ("다른 서브도메인", "www.lib.example.go.kr | ISBN_SEARCH | UTF-8 | https://search.lib.example.go.kr/s?q={isbn13}", 2),
+        ("다른 기관", "www.lib.example.go.kr | ISBN_SEARCH | UTF-8 | https://vendor.example.com/s?q={isbn13}", 0),
+        ("자리표 없음", "www.lib.example.go.kr | ISBN_SEARCH | UTF-8 | https://www.lib.example.go.kr/s", 0),
+        ("모르는 종류", "www.lib.example.go.kr | ISBN_XX | UTF-8 | https://www.lib.example.go.kr/s?q={isbn13}", 0),
+        ("모르는 인코딩", "www.lib.example.go.kr | ISBN_SEARCH | 없는것 | https://www.lib.example.go.kr/s?q={isbn13}", 0),
+        ("실패 줄", "www.lib.example.go.kr | 실패 | - | -", 0),
+        ("표 머리글", "묶음키 | 종류 | 인코딩 | 주소", 0),
+        ("제목인데 isbn 자리표", "www.lib.example.go.kr | TITLE_SEARCH | UTF-8 | https://www.lib.example.go.kr/s?q={isbn13}", 0),
+    ]
+    failures = []
+    for label, line, want in cases:
+        path = os.path.join(work, "findings.txt")
+        open(path, "w").write(line + "\n")
+        buf, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(err):
+            od.import_findings(path, libs)
+        got = len([l for l in buf.getvalue().splitlines() if l.strip()])
+        ok = got == want
+        print(f"  {'✓' if ok else '✗'} {label:16s} 줄 {got}개 (기대 {want}개)")
+        if not ok:
+            failures.append(f"받기:{label}")
+    return failures
+
+
+def _unused(work: str) -> int:
 
     if failures:
         print(f"\n실패: {', '.join(failures)}")

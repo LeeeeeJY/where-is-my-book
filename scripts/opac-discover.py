@@ -34,6 +34,21 @@
     ./scripts/opac-discover.py --emit             # 통과한 규칙을 templates.csv 형식으로 출력
 
 작업 파일은 --work (기본 .opac-work/) 아래에 쌓이고, 이미 조사한 묶음은 건너뜁니다.
+
+## 사람이나 다른 클로드가 조사할 때
+
+이 스크립트를 돌릴 수 없는 자리(브라우저만 있는 경우)에서는 조사와 반영을 나눌 수 있습니다.
+
+    ./scripts/opac-discover.py --worklist 30 > 작업목록.md    # 조사할 묶음을 표로 뽑기
+    ./scripts/opac-discover.py --import-file 결과.txt         # 받은 결과를 CSV 로
+
+`--worklist` 는 묶음마다 **그 도서관이 실제로 소장한 책**을 함께 적어 줍니다. 그 책으로
+물어봐야 0건이 나왔을 때 「규칙이 틀렸다」고 말할 수 있습니다.
+
+`--import-file` 은 받은 줄을 그대로 믿지 않고, 실행해 보지 않고도 잡을 수 있는 것을
+거릅니다. **자리표가 없는 줄과 다른 기관 도메인으로 보내는 줄**이 특히 그렇습니다. 조사한
+쪽이 열어 보지 않고 그럴듯한 주소를 지어냈을 때 가장 잘 걸립니다. 다만 **이것으로 「실제로
+그 책이 나오는지」까지 확인되지는 않습니다.** 그 확인은 위의 `--limit`/`--all` 만 합니다.
 """
 
 from __future__ import annotations
@@ -335,6 +350,26 @@ def group_key(url: str) -> str:
     return p.netloc.lower() + ("/" + segs[0] if segs else "")
 
 
+# 한국 도메인은 2단계 접미사가 흔해서(`lib.gwe.go.kr`) 뒤의 두 조각만 보면 `go.kr` 이 되어
+# 서로 다른 기관이 같은 도메인으로 읽힙니다. 이 목록에 걸리면 한 조각 더 봅니다.
+SECOND_LEVEL_KR = {"go", "or", "co", "re", "ac", "ne", "pe", "hs", "ms", "es", "sc", "kg"}
+
+
+def registrable_domain(host: str) -> str:
+    """그 호스트가 어느 기관 것인지. `www.` 와 `search.` 같은 앞머리를 흡수합니다.
+
+    OPAC 이 홈페이지와 다른 서브도메인에 있는 것은 정당합니다(`lib.x.kr` 의 검색이
+    `search.x.kr` 에 있는 식). 그래서 호스트가 정확히 같은지가 아니라 **같은 기관인지**를
+    봅니다. 그러면서도 아무 관계 없는 남의 도메인은 그대로 걸립니다.
+    """
+    parts = [p for p in host.lower().split(":")[0].split(".") if p]
+    if len(parts) <= 2:
+        return ".".join(parts)
+    if parts[-1] == "kr" and parts[-2] in SECOND_LEVEL_KR:
+        return ".".join(parts[-3:])
+    return ".".join(parts[-2:])
+
+
 def investigate(group: dict, probe: dict, pacer: Pacer) -> dict:
     """묶음 하나를 조사합니다. 대표 도서관의 홈페이지에서 폼을 읽고 검증합니다."""
     rep = group["libraries"][0]
@@ -448,10 +483,167 @@ def emit(results_path: str) -> int:
     return 0
 
 
+WORKLIST_HEAD = """# OPAC 주소 규칙 조사 — 작업 목록 (묶음 {n}개, 도서관 {covered}곳)
+
+아래 묶음을 조사해 주세요. **한 번에 열 개씩 나눠서** 하시고, 열 개가 끝날 때마다 결과를
+내주세요.
+
+## 묶음마다 할 일
+
+1. 「홈페이지」를 엽니다.
+2. 자료검색 칸에 **「소장 확인용」의 ISBN** 을 넣고 검색합니다. 그 도서관이 실제로 소장한
+   책이라 규칙만 맞으면 반드시 나옵니다.
+3. 결과가 나온 화면의 **주소를 통째로 복사**하고, ISBN 자리를 `{{isbn13}}` 으로 바꿉니다.
+4. **바꾼 주소를 다시 엽니다.** 자리표에 「재확인용」 ISBN 을 넣고 그 책이 나오는지 봅니다.
+5. 한 번 더, 자리표에 **`9799999999999`** 를 넣고 엽니다. 있을 수 없는 ISBN 이라
+   **아무것도 안 나와야 정상**입니다. 여기서 책 목록이 나오면 그 OPAC 은 검색어를 무시하는
+   것이므로 **그 규칙은 버립니다.**
+
+세 번을 다 통과한 것만 적어 주세요.
+
+## 지킬 것
+
+- **열어 보지 않은 주소는 절대 적지 마세요.** 「아마 이런 형식일 것」은 쓸 수 없습니다.
+  틀린 규칙은 링크가 깨지는 것이 아니라 **200 을 주면서 결과만 0건**이 되어, 쓰는 사람에게는
+  「소장한다더니 그 책이 없네」로 보이고 눈에 띄지도 않습니다. **못 찾은 것은 못 찾았다고
+  적는 편이 훨씬 낫습니다.**
+- ISBN 으로 안 되면 제목(「소장 확인용」의 책 제목)으로 시도하고, 제목 자리를 `{{title}}` 로
+  바꿉니다. 주소창의 한글이 `%C4%DA...` 로 보이면 인코딩은 `EUC-KR`, `%EC%BD%94...` 로
+  보이면 `UTF-8` 입니다.
+- 검색 결과에서 책을 눌러 들어간 주소에 ISBN 이 있으면 그것이 더 좋습니다(`ISBN_DETAIL`).
+  내부 등록번호를 쓰면 책마다 달라 규칙이 못 되니 적지 마세요.
+- 주소는 자르지 말고 파라미터를 그대로 두세요. 검색 조건일 때가 있습니다.
+- **다른 기관의 주소를 적으면 걸러집니다.** 규칙은 그 도서관 도메인 안에 있어야 합니다.
+
+## 결과 형식
+
+묶음마다 한 줄씩 주세요. 못 찾은 것도 사유와 함께 남겨 주세요.
+
+```
+묶음키 | ISBN_SEARCH | UTF-8 | https://.../search?q={{isbn13}} | 재확인 통과, 빈검색 0건
+묶음키 | 실패 | - | - | POST 검색이라 주소에 검색어가 안 남습니다
+```
+
+---
+"""
+
+
+def worklist(libs: list[dict], probe: dict, count: int) -> int:
+    """조사할 묶음 목록을 사람이 읽을 수 있게 뽑습니다.
+
+    **검증용 책을 두 권 이상 가진 도서관을 대표로 세웁니다.** 그 도서관이 소장한 책으로
+    물어봐야 0건이 나왔을 때 「규칙이 틀렸다」고 말할 수 있습니다. 아무 책이나 쓰면 규칙이
+    맞는데도 실패로 읽습니다.
+    """
+    groups: dict[str, list[dict]] = defaultdict(list)
+    for l in libs:
+        if l.get("homepageUrl"):
+            groups[group_key(l["homepageUrl"])].append(l)
+
+    rows = []
+    for key, members in sorted(groups.items(), key=lambda kv: -len(kv[1])):
+        rep = max(members, key=lambda l: len(probe.get(l["libCode"], [])))
+        books = [i for i in probe.get(rep["libCode"], []) if i in PROBE_BOOKS][:3]
+        if len(books) < 2:
+            continue
+        rows.append((key, members, rep, books))
+        if len(rows) >= count:
+            break
+
+    print(WORKLIST_HEAD.format(n=len(rows), covered=sum(len(m) for _, m, _, _ in rows)))
+    for i, (key, members, rep, books) in enumerate(rows, 1):
+        if i % 10 == 1:
+            print(f"## {i}~{min(i + 9, len(rows))}번\n")
+        print(f"### {i}. `{key}` — {len(members)}곳\n")
+        print(f"- 대표 도서관: **{rep['name']}** ({rep.get('sido', '')} {rep.get('sigungu', '')})")
+        print(f"- 홈페이지: {rep['homepageUrl']}")
+        print(f"- 소장 확인용: `{books[0]}` 「{PROBE_BOOKS[books[0]]}」")
+        print(f"- 재확인용: `{books[1]}` 「{PROBE_BOOKS[books[1]]}」")
+        print("- 빈 검색용: `9799999999999` (아무것도 안 나와야 합니다)\n")
+    return 0
+
+
+def import_findings(path: str, libs: list[dict]) -> int:
+    """사람이나 다른 도구가 조사해 온 결과를 읽어 CSV 로 바꿉니다.
+
+    한 줄이 묶음 하나입니다. `묶음키 | 종류 | 인코딩 | 주소 | 메모` 형식이고, 「실패」로
+    적힌 줄과 `#` 로 시작하는 줄은 건너뜁니다.
+
+    **여기서 거르는 것이 마지막 방어선입니다.** 조사한 쪽이 열어 보지 않고 그럴듯한 주소를
+    적어 왔을 때, 실행해 보지 않고도 잡을 수 있는 것이 몇 가지 있습니다. 그 가운데 가장
+    잘 걸리는 것이 **호스트가 그 도서관 홈페이지와 다른 경우**입니다. 형식만 맞는 주소는
+    서버가 뜰 때 통과해 버리고, 실제로 눌러 보기 전에는 아무도 모릅니다.
+    """
+    groups: dict[str, list[dict]] = defaultdict(list)
+    for l in libs:
+        if l.get("homepageUrl"):
+            groups[group_key(l["homepageUrl"])].append(l)
+    # 묶음키를 옮겨 적을 때 `www.` 가 붙고 빠지는 것으로 전부 버려지면 안 됩니다.
+    aliases = {k.removeprefix("www."): k for k in groups}
+
+    kinds = {"ISBN_DETAIL", "ISBN_SEARCH", "TITLE_SEARCH"}
+    writer = csv.writer(sys.stdout, lineterminator="\n")
+    problems, taken, covered = [], 0, 0
+    for lineno, raw in enumerate(open(path, encoding="utf-8"), 1):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = [p.strip() for p in line.split("|")]
+        if len(parts) < 4:
+            continue                                    # 표 머리글이나 설명 줄
+        key, kind, encoding, url = parts[:4]
+        if kind in ("실패", "-", "", "종류") or set(kind) <= {"-", ":", " "}:
+            continue                                    # 못 찾은 줄, 표 머리글, 구분선
+        where = f"{lineno}행 {key}"
+        key = key.strip("`").lower()
+        key = key if key in groups else aliases.get(key.removeprefix("www."), key)
+        if key not in groups:
+            problems.append(f"{where}: 모르는 묶음입니다")
+            continue
+        if kind not in kinds:
+            problems.append(f"{where}: 모르는 종류 {kind}")
+            continue
+        try:
+            "".encode(encoding)
+        except LookupError:
+            problems.append(f"{where}: 모르는 인코딩 {encoding}")
+            continue
+        needed = "{title}" if kind == "TITLE_SEARCH" else "{isbn13}"
+        if needed not in url:
+            problems.append(f"{where}: {needed} 자리표가 없습니다")
+            continue
+        if not url.startswith(("http://", "https://")):
+            problems.append(f"{where}: 주소가 아닙니다 — {url[:40]}")
+            continue
+
+        # 남의 도메인으로 보내는 규칙은 받지 않습니다. 조사한 쪽이 열어 보지 않고 그럴듯한
+        # 주소를 지어냈을 때 가장 잘 걸리는 것이 이것입니다. 서브도메인이 다른 것은
+        # 정당하므로(검색이 별도 호스트에 있는 도서관이 있습니다) 기관 단위로 견줍니다.
+        rule_host = urllib.parse.urlparse(url).netloc.lower()
+        home_host = key.split("/")[0]
+        if registrable_domain(rule_host) != registrable_domain(home_host):
+            problems.append(f"{where}: 홈페이지({home_host})와 다른 기관의 주소입니다 "
+                            f"({rule_host})")
+            continue
+
+        taken += 1
+        for lib in groups[key]:
+            writer.writerow([lib["libCode"], kind, encoding.upper(), url])
+            covered += 1
+
+    print(f"# 묶음 {taken}개 → 도서관 {covered}곳", file=sys.stderr)
+    for p in problems:
+        print(f"  버림  {p}", file=sys.stderr)
+    return 1 if problems and taken == 0 else 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--work", default=".opac-work")
+    ap.add_argument("--import-file", help="조사해 온 결과를 읽어 CSV 로 바꿉니다")
+    ap.add_argument("--worklist", type=int, metavar="N",
+                    help="사람이나 다른 클로드가 조사할 묶음 N개를 표로 뽑습니다")
     ap.add_argument("--probe", action="store_true", help="검증용 소장 데이터를 새로 만듭니다")
     ap.add_argument("--limit", type=int, default=0, help="큰 묶음부터 이만큼만 조사합니다")
     ap.add_argument("--all", action="store_true", help="남은 묶음을 전부 조사합니다")
@@ -464,6 +656,8 @@ def main() -> int:
     results_path = os.path.join(args.work, "results.jsonl")
     if args.emit:
         return emit(results_path)
+    if args.import_file:
+        return import_findings(args.import_file, load_libraries(args.work))
 
     libs = load_libraries(args.work)
     probe_path = os.path.join(args.work, "probe.json")
@@ -472,6 +666,9 @@ def main() -> int:
         probe = build_probe(args.work, libs)
     else:
         probe = json.load(open(probe_path))
+
+    if args.worklist:
+        return worklist(libs, probe, args.worklist)
 
     groups: dict[str, list[dict]] = defaultdict(list)
     for l in libs:
