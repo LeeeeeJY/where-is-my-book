@@ -5,6 +5,7 @@ import kr.wimb.holdings.CachingHoldingsClient;
 import kr.wimb.data4library.LibraryInfo;
 import kr.wimb.data4library.RegionCode;
 import kr.wimb.ingest.ApiBudget;
+import kr.wimb.opac.Homepage;
 import kr.wimb.opac.OpacLink;
 import kr.wimb.opac.OpacTemplates;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -336,12 +337,15 @@ public class WimbController {
         if (library == null) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "모르는 도서관입니다.");
         }
+        // 정보나루가 준 홈페이지 주소를 그대로 실으면 안 됩니다. 「없음」을 뜻하는 `-` 나
+        // 스킴이 빠진 주소가 섞여 있는데, 그것을 Location 에 실으면 브라우저가 상대 주소로
+        // 읽어 우리 서버 안의 없는 경로로 갑니다. 자세한 것은 Homepage 에 있습니다.
         String url = opacTemplates.bestFor(libCode, isbn, title)
                 .map(OpacLink::url)
-                .orElse(library.homepage());
-        if (url == null || url.isBlank()) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "보낼 주소가 없습니다.");
-        }
+                .or(() -> Homepage.usable(library.homepage()))
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "이 도서관은 홈페이지 주소를 알려 주지 않았습니다."));
         return ResponseEntity.status(HttpStatus.FOUND).location(URI.create(url)).build();
     }
 
