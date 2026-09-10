@@ -168,6 +168,7 @@ def main() -> int:
 
     failures += check_bad_homepages(probe, pacer)
     failures += check_import(work)
+    failures += check_import_patterns(work)
     failures += check_gaps(work)
 
     if failures:
@@ -294,6 +295,95 @@ def check_import(work: str) -> list[str]:
               f"경고 {'있음' if warned else '없음'}")
         if not ok:
             failures.append(f"받기:{label}")
+    return failures
+
+
+def check_import_patterns(work: str) -> list[str]:
+    """상세 패턴을 받을 때 무엇을 거르는지. 서버가 뜰 때 실패시키는 조건과 같아야 합니다.
+
+    서버(OpacTemplates)는 그룹이 하나가 아니거나 빈 문자열에 맞는 정규식을 만나면 뜨지
+    않습니다. 배포한 뒤에 그것을 알면 늦으므로 받는 자리에서 먼저 거릅니다. 그리고 같은
+    열쇠가 이미 다른 정규식으로 들어 있으면 넣지 않습니다. 서버는 열쇠가 겹쳐도 뜨지 않습니다.
+    """
+    print("\n  상세 패턴 받기")
+    libs = [
+        {"libCode": "800001", "name": "가나도서관", "homepageUrl": "https://www.lib.example.go.kr/"},
+        {"libCode": "800003", "name": "마바도서관", "homepageUrl": "https://other.example.or.kr/"},
+    ]
+    good = 'href=["\'](/book\\?bookkey=[^"\']*)["\']'
+    cases = [
+        ("정상", f"www.lib.example.go.kr | DETAIL_PATTERN | www.lib.example.go.kr | {good}", 1),
+        ("경로로 좁힌 열쇠", f"www.lib.example.go.kr | DETAIL_PATTERN | www.lib.example.go.kr/opac | {good}", 1),
+        ("다른 기관 열쇠", f"www.lib.example.go.kr | DETAIL_PATTERN | vendor.example.com | {good}", 0),
+        ("모르는 묶음", f"nowhere.example.kr | DETAIL_PATTERN | nowhere.example.kr | {good}", 0),
+        ("그룹이 둘", 'www.lib.example.go.kr | DETAIL_PATTERN | www.lib.example.go.kr | href=["\'](/a)(/b)["\']', 0),
+        ("그룹이 없음", 'www.lib.example.go.kr | DETAIL_PATTERN | www.lib.example.go.kr | href=["\']/book[^"\']*["\']', 0),
+        ("빈 문자열에 맞음", "www.lib.example.go.kr | DETAIL_PATTERN | www.lib.example.go.kr | (.*)", 0),
+        ("파이썬 전용 문법", "www.lib.example.go.kr | DETAIL_PATTERN | www.lib.example.go.kr | (?P<h>/book[^\"]*)", 0),
+        ("정규식이 깨짐", "www.lib.example.go.kr | DETAIL_PATTERN | www.lib.example.go.kr | href=([^", 0),
+        # 정규식 안의 | 는 칸 구분이 아닙니다. 넷째 칸부터는 전부 정규식입니다.
+        ("정규식에 | 포함", 'www.lib.example.go.kr | DETAIL_PATTERN | www.lib.example.go.kr | href=["\'](/book/[^"\']*|/detail/[^"\']*)["\']', 1),
+        ("검색 규칙 줄은 건너뜀", "www.lib.example.go.kr | ISBN_SEARCH | UTF-8 | https://www.lib.example.go.kr/s?q={isbn13}", 0),
+    ]
+    failures = []
+    for label, line, want in cases:
+        path = os.path.join(work, "patterns.txt")
+        open(path, "w").write(line + "\n")
+        buf, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(err):
+            od.import_patterns(path, libs, os.path.join(work, "no-such.csv"))
+        rows = [l for l in buf.getvalue().splitlines() if l.strip()]
+        ok = len(rows) == want
+        if ok and want == 1:
+            # 서버는 첫 쉼표 뒤를 그대로 정규식으로 읽습니다. 따옴표가 있다고 CSV 규칙대로
+            # 감싸 버리면 깨진 정규식이 들어가 서버가 뜨지 않습니다. 글자 그대로 나가야 합니다.
+            regex = line.split("|", 3)[3].strip()
+            ok = rows[0] == f"{line.split('|')[2].strip().lower()},{regex}"
+        print(f"  {'✓' if ok else '✗'} {label:22s} 줄 {len(rows)}개 (기대 {want}개)")
+        if not ok:
+            failures.append(f"패턴 받기:{label}")
+
+    # 이미 들어 있는 열쇠. 같은 정규식이면 조용히 건너뛰고, 다르면 넣지 않고 알립니다.
+    existing = os.path.join(work, "detail-patterns.csv")
+    open(existing, "w").write("# 머리말\nwww.lib.example.go.kr," + good + "\n")
+    other = 'href=["\'](/other/[^"\']*)["\']'
+    for label, regex, want_rows, want_warn in [("이미 같은 정규식", good, 0, False),
+                                               ("이미 다른 정규식", other, 0, True)]:
+        path = os.path.join(work, "patterns.txt")
+        open(path, "w").write(f"www.lib.example.go.kr | DETAIL_PATTERN | www.lib.example.go.kr | {regex}\n")
+        buf, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(err):
+            od.import_patterns(path, libs, existing)
+        rows = [l for l in buf.getvalue().splitlines() if l.strip()]
+        warned = "이미 다른" in err.getvalue()
+        ok = len(rows) == want_rows and warned == want_warn
+        print(f"  {'✓' if ok else '✗'} {label:22s} 줄 {len(rows)}개 (기대 {want_rows}개), "
+              f"경고 {'있음' if warned else '없음'}")
+        if not ok:
+            failures.append(f"패턴 받기:{label}")
+
+    # 검색 규칙을 받는 통로에 패턴 줄이 섞이면 버리지 않고 어디로 가야 하는지 알립니다.
+    path = os.path.join(work, "findings.txt")
+    open(path, "w").write(f"www.lib.example.go.kr | DETAIL_PATTERN | www.lib.example.go.kr | {good}\n")
+    buf, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(err):
+        od.import_findings(path, libs)
+    rows = [l for l in buf.getvalue().splitlines() if l.strip()]
+    ok = not rows and "--import-patterns" in err.getvalue()
+    print(f"  {'✓' if ok else '✗'} {'규칙 통로의 패턴 줄':22s} 줄 {len(rows)}개, 안내 {'있음' if ok else '없음'}")
+    if not ok:
+        failures.append("패턴 받기:규칙 통로")
+
+    # 두 책의 href 에서 패턴을 만드는 규칙. 공통 앞머리를 마지막 구분 문자까지 자릅니다.
+    made = od.pattern_from_hrefs(["/book?bookkey=150671418", "/book?bookkey=152233"])
+    ok = made == good and od.pattern_problem(made) is None
+    print(f"  {'✓' if ok else '✗'} {'앞머리 자르기':22s} {made}")
+    if not ok:
+        failures.append("패턴 만들기:앞머리")
+    ok = od.pattern_from_hrefs(["/a", "/b"]) is None and od.pattern_from_hrefs(["/x", "/x"]) is None
+    print(f"  {'✓' if ok else '✗'} {'앞머리가 없으면 패턴 없음':22s}")
+    if not ok:
+        failures.append("패턴 만들기:없음")
     return failures
 
 

@@ -102,6 +102,13 @@ class WimbControllerTest {
         return new RateLimit(1_000_000, 1_000_000, 0, 100, Clock.systemUTC());
     }
 
+    /** 상세 해석이 필요 없는 테스트용. 실제 HTTP 로 나가면 안 됩니다. */
+    private static kr.wimb.opac.DetailResolver noResolver() {
+        return new kr.wimb.opac.DetailResolver(url -> {
+            throw new java.io.IOException("테스트에서는 OPAC 을 부르지 않습니다");
+        }, Clock.systemUTC());
+    }
+
     private static WimbController controllerWith(Data4LibraryClient.Transport transport) {
         var budget = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 100_000),
                 Clock.fixed(Instant.parse("2026-09-06T00:00:00Z"), ZoneId.of("UTC")));
@@ -109,7 +116,7 @@ class WimbControllerTest {
         var search = new BookSearchService(client, new HoldingsLookup(
                 (isbn, region) -> List.of(), HoldingsLookup.RegionModeStore.documented()));
         return new WimbController(client, search, new MultiCheckService(search), budget,
-                kr.wimb.opac.OpacTemplates.load(),
+                kr.wimb.opac.OpacTemplates.load(), noResolver(),
                 new CachingHoldingsClient((isbn, region) -> List.of(), Duration.ofHours(6), 100,
                         Clock.systemUTC()),
                 unlimited(), new BrowseService(client),
@@ -129,7 +136,7 @@ class WimbControllerTest {
         var search = new BookSearchService(client, new HoldingsLookup(
                 holdings, HoldingsLookup.RegionModeStore.documented()));
         return new WimbController(client, search, new MultiCheckService(search), budget,
-                kr.wimb.opac.OpacTemplates.load(),
+                kr.wimb.opac.OpacTemplates.load(), noResolver(),
                 new CachingHoldingsClient((isbn, region) -> List.of(), Duration.ofHours(6), 100,
                         Clock.systemUTC()),
                 unlimited(), new BrowseService(client),
@@ -149,8 +156,106 @@ class WimbControllerTest {
             public Instant instant() { return now.get(); }
         };
         return new WimbController(client, search, new MultiCheckService(search), budget,
-                kr.wimb.opac.OpacTemplates.load(), new CachingHoldingsClient((isbn, region) -> List.of(), Duration.ofHours(6), 100,
+                kr.wimb.opac.OpacTemplates.load(), noResolver(), new CachingHoldingsClient((isbn, region) -> List.of(), Duration.ofHours(6), 100,
                         Clock.systemUTC()), unlimited(), new BrowseService(client), moving);
+    }
+
+    // ── 도서관 링크 (/api/go) ──────────────────────────────────────────────
+
+    /** 주소마다 정해 둔 HTML 을 주는 가짜 OPAC. 무엇을 받았는지 기록합니다. */
+    private static final class FakeOpac implements kr.wimb.opac.DetailResolver.Fetcher {
+        final List<String> asked = new ArrayList<>();
+        final Map<String, String> pages = new java.util.HashMap<>();
+        boolean down = false;
+
+        @Override public kr.wimb.opac.DetailResolver.Page fetch(URI url) throws java.io.IOException {
+            asked.add(url.toString());
+            if (url.getPath().equals("/robots.txt")) return new kr.wimb.opac.DetailResolver.Page(404, "", url);
+            if (down) throw new java.io.IOException("connect timed out");
+            String body = pages.getOrDefault(url.toString(), "<p>검색결과가 없습니다</p>");
+            return new kr.wimb.opac.DetailResolver.Page(200, body, url);
+        }
+    }
+
+    private static final List<String> EXAMPLE_RULE = List.of(
+            "110001,ISBN_SEARCH,UTF-8,https://lib.example.kr/search?q={isbn13}");
+    private static final List<String> EXAMPLE_PATTERN = List.of(
+            "lib.example.kr,href=\"(/book/[^\"]+)\"");
+
+    private static WimbController linkController(FakeOpac opac, List<String> patterns) {
+        var transport = new RegionAware();
+        var budget = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 100_000),
+                Clock.fixed(Instant.parse("2026-09-06T00:00:00Z"), ZoneId.of("UTC")));
+        var client = new Data4LibraryClient(transport, "테스트키", budget);
+        var search = new BookSearchService(client, new HoldingsLookup(
+                (isbn, region) -> List.of(), HoldingsLookup.RegionModeStore.documented()));
+        var controller = new WimbController(client, search, new MultiCheckService(search), budget,
+                kr.wimb.opac.OpacTemplates.of(EXAMPLE_RULE, patterns),
+                new kr.wimb.opac.DetailResolver(opac, Clock.systemUTC()),
+                new CachingHoldingsClient((isbn, region) -> List.of(), Duration.ofHours(6), 100,
+                        Clock.systemUTC()),
+                unlimited(), new BrowseService(client),
+                Clock.fixed(Instant.parse("2026-09-06T00:00:00Z"), ZoneId.of("UTC")));
+        controller.libraries();   // 도서관 마스터를 채워야 /api/go 가 그 도서관을 압니다.
+        return controller;
+    }
+
+    private static String sentTo(WimbController controller, String... isbns) {
+        return controller.go("110001", List.of(isbns), "코스모스").getHeaders().getLocation().toString();
+    }
+
+    @Test
+    @DisplayName("상세 패턴이 있으면 검색 결과를 받아 그 책의 상세로 보낸다")
+    void goResolvesDetailPage() {
+        var opac = new FakeOpac();
+        opac.pages.put("https://lib.example.kr/search?q=9788983711892", "<a href=\"/book/150671418\">코스모스</a>");
+
+        assertEquals("https://lib.example.kr/book/150671418",
+                sentTo(linkController(opac, EXAMPLE_PATTERN), "9788983711892"));
+        assertEquals(kr.wimb.opac.OpacLink.Kind.DETAIL_LOOKUP,
+                kr.wimb.opac.OpacTemplates.of(EXAMPLE_RULE, EXAMPLE_PATTERN).kindFor("110001"),
+                "화면에도 상세 조회 단계라고 미리 말해야 합니다");
+    }
+
+    @Test
+    @DisplayName("상세 링크를 못 찾으면 검색 결과로 내려간다")
+    void goFallsBackToSearchResults() {
+        var opac = new FakeOpac();   // 아무 페이지도 등록하지 않아 링크가 없습니다.
+
+        assertEquals("https://lib.example.kr/search?q=9788983711892",
+                sentTo(linkController(opac, EXAMPLE_PATTERN), "9788983711892"));
+    }
+
+    @Test
+    @DisplayName("첫 판에 링크가 없으면 다음 판으로 한 번 더 찾는다")
+    void goTriesTheNextEditionAfterAMiss() {
+        // 정보나루는 특별판을 가졌다고 했는데 OPAC 은 초판으로 등록해 둔 경우입니다.
+        var opac = new FakeOpac();
+        opac.pages.put("https://lib.example.kr/search?q=B", "<a href=\"/book/2\">코스모스</a>");
+
+        assertEquals("https://lib.example.kr/book/2", sentTo(linkController(opac, EXAMPLE_PATTERN), "A", "B", "C"));
+        assertEquals(2, opac.asked.stream().filter(u -> u.contains("/search")).count(),
+                "셋째 판까지 두드리지 않습니다. 한 번에 몇 초씩입니다: " + opac.asked);
+    }
+
+    @Test
+    @DisplayName("페이지를 아예 못 받았으면 다른 판으로 또 두드리지 않는다")
+    void goDoesNotRetryAnUnreachableHost() {
+        var opac = new FakeOpac();
+        opac.down = true;
+
+        assertEquals("https://lib.example.kr/search?q=A", sentTo(linkController(opac, EXAMPLE_PATTERN), "A", "B"));
+        assertEquals(1, opac.asked.stream().filter(u -> u.contains("/search")).count(),
+                "닿지 않는 호스트를 두 번 기다리게 하면 안 됩니다: " + opac.asked);
+    }
+
+    @Test
+    @DisplayName("패턴이 없는 OPAC 은 아무것도 받지 않고 검색 결과로 보낸다")
+    void goWithoutPatternDoesNotFetch() {
+        var opac = new FakeOpac();
+
+        assertEquals("https://lib.example.kr/search?q=A", sentTo(linkController(opac, List.of()), "A"));
+        assertTrue(opac.asked.isEmpty(), "남의 서버를 이유 없이 두드리지 않습니다");
     }
 
     @Test
@@ -194,6 +299,8 @@ class WimbControllerTest {
         assertEquals(List.of("31"), askedRegions, "정보나루가 알려 준 소속으로 물어야 합니다");
         assertTrue(holdings.complete(), "물어볼 수 있었으므로 빠짐없이 확인한 것입니다");
         assertEquals(List.of("310001"), holdings.libCodes());
+        assertEquals(Map.of("310001", List.of("9788983711892")), holdings.heldIsbns(),
+                "화면이 링크에 넣을 수 있게 어느 판을 가졌는지도 함께 나가야 합니다");
     }
 
     @Test

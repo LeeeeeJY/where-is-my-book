@@ -280,9 +280,16 @@ export async function fetchLoanStatus(
   return get<LoanStatus>(`/api/loan?${params}`);
 }
 
-export function libraryLink(libCode: string, isbn13?: string, title?: string): string {
+/**
+ * 도서관으로 넘기는 주소. **ISBN 은 그 도서관이 실제로 가진 판부터 여러 개를 보냅니다.**
+ *
+ * <p>순서는 `isbnsForLink` 가 정합니다. 서버는 앞의 것으로 상세를 찾고, 그 판에 링크가 없으면
+ * 다음 것으로 한 번 더 찾습니다. 첫 ISBN 하나만 보내던 때는 그 판이 없는 도서관에서 검색이
+ * 0건이 되어 「소장한다더니 그 책이 없네」로 보였습니다.
+ */
+export function libraryLink(libCode: string, isbn13List?: readonly string[], title?: string): string {
   const params = new URLSearchParams();
-  if (isbn13) params.set('isbn', isbn13);
+  for (const isbn13 of isbn13List ?? []) if (isbn13) params.append('isbn', isbn13);
   if (title) params.set('title', title);
   const query = params.toString();
   return `${BASE}/api/go/${encodeURIComponent(libCode)}${query ? `?${query}` : ''}`;
@@ -324,6 +331,11 @@ export type ResolveResponse = {
 
 export type HoldingsResponse = {
   libCodes: string[];
+  /**
+   * 도서관마다 **그 도서관이 가진 것으로 확인된** 판본의 ISBN. 도서관 링크가 저작의 첫 ISBN 이
+   * 아니라 이것을 먼저 넣어야 그 도서관 OPAC 에서 0건이 나오지 않습니다.
+   */
+  heldIsbns?: Record<string, string[]>;
   complete: boolean;
   unreadable: boolean;
   /**

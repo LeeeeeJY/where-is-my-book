@@ -6,6 +6,7 @@ import kr.wimb.data4library.LibraryInfo;
 import kr.wimb.data4library.RegionCode;
 import kr.wimb.ingest.ApiBudget;
 import kr.wimb.opac.Homepage;
+import kr.wimb.opac.DetailResolver;
 import kr.wimb.opac.OpacLink;
 import kr.wimb.opac.OpacTemplates;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -52,6 +53,9 @@ public class WimbController {
     private final RateLimit rateLimit;
     private final OpacTemplates opacTemplates;
 
+    /** 누를 때 검색 결과에서 상세 링크를 뽑는 쪽. 규칙 표만으로는 상세에 닿지 못합니다. */
+    private final DetailResolver detailResolver;
+
     /**
      * 도서관 마스터를 메모리에 담아 둡니다. 1,619건뿐이라 이걸로 충분하고,
      * 매번 정보나루를 부르면 예산이 검색에 쓸 몫까지 갉아먹습니다.
@@ -93,21 +97,24 @@ public class WimbController {
     @Autowired
     public WimbController(Data4LibraryClient client, BookSearchService searchService,
                           MultiCheckService multiCheckService, ApiBudget budget,
-                          OpacTemplates opacTemplates, CachingHoldingsClient holdingsCache,
+                          OpacTemplates opacTemplates, DetailResolver detailResolver,
+                          CachingHoldingsClient holdingsCache,
                           RateLimit rateLimit, BrowseService browseService) {
-        this(client, searchService, multiCheckService, budget, opacTemplates, holdingsCache,
-                rateLimit, browseService, Clock.systemUTC());
+        this(client, searchService, multiCheckService, budget, opacTemplates, detailResolver,
+                holdingsCache, rateLimit, browseService, Clock.systemUTC());
     }
 
     /** 재시도 시각을 시험할 수 있도록 시계를 받는 생성자입니다. */
     WimbController(Data4LibraryClient client, BookSearchService searchService,
                    MultiCheckService multiCheckService, ApiBudget budget,
-                   OpacTemplates opacTemplates, CachingHoldingsClient holdingsCache,
+                   OpacTemplates opacTemplates, DetailResolver detailResolver,
+                   CachingHoldingsClient holdingsCache,
                    RateLimit rateLimit, BrowseService browseService, Clock clock) {
         this.browseService = browseService;
         this.rateLimit = rateLimit;
         this.holdingsCache = holdingsCache;
         this.opacTemplates = opacTemplates;
+        this.detailResolver = detailResolver;
         this.client = client;
         this.searchService = searchService;
         this.multiCheckService = multiCheckService;
@@ -278,11 +285,14 @@ public class WimbController {
     public record HoldingsRequest(List<String> isbn13List, List<String> libs) {}
 
     /**
-     * @param asOf 조회 시각. <b>화면에 반드시 표시합니다.</b> 캐시에서 나온 답이면 캐시된
-     *             날짜이고, 여러 답이 섞였으면 가장 오래된 날짜입니다.
+     * @param heldIsbns 도서관마다 <b>그 도서관이 가진 것으로 확인된</b> 판본의 ISBN. 화면은
+     *                  도서관 링크에 저작의 첫 ISBN 이 아니라 이 값을 먼저 넣습니다. 첫 ISBN 으로
+     *                  보내면 그 판이 없는 도서관의 OPAC 검색이 규칙이 맞아도 0건이 됩니다.
+     * @param asOf      조회 시각. <b>화면에 반드시 표시합니다.</b> 캐시에서 나온 답이면 캐시된
+     *                  날짜이고, 여러 답이 섞였으면 가장 오래된 날짜입니다.
      */
-    public record HoldingsResponse(List<String> libCodes, boolean complete, boolean unreadable,
-                                   String asOf) {}
+    public record HoldingsResponse(List<String> libCodes, Map<String, List<String>> heldIsbns,
+                                   boolean complete, boolean unreadable, String asOf) {}
 
     /**
      * 붙여넣은 목록을 줄 단위로 해석하고 책을 확정합니다. <b>소장 조회는 하지 않습니다.</b>
@@ -317,36 +327,69 @@ public class WimbController {
                 request.isbn13List(), regionsOf(selected), selected, unaskableCount(selected));
         // 답을 실제로 받은 날짜를 말합니다. 받은 답이 없으면(물어보지 못했으면) 오늘입니다.
         String asOf = (result.asOf() != null ? result.asOf() : LocalDate.now(SEOUL)).toString();
-        return new HoldingsResponse(result.libCodes(), result.complete(), result.unreadable(), asOf);
+        return new HoldingsResponse(result.libCodes(), result.heldIsbns(), result.complete(),
+                result.unreadable(), asOf);
     }
 
+    /** 상세를 찾으려고 검색 결과를 받아 볼 ISBN 수의 상한. 한 번에 몇 초씩이라 둘까지입니다. */
+    static final int MAX_DETAIL_ATTEMPTS = 2;
+
     /**
-     * 도서관 페이지로 넘깁니다.
+     * 도서관 페이지로 넘깁니다. 상세 → 검색 결과 → 홈페이지 순으로 갈 수 있는 데까지 갑니다.
      *
-     * <p>지금은 홈페이지까지만 보냅니다. 도서관마다 OPAC 이 달라 상세 페이지 주소를
-     * 만들려면 벤더 계열별 템플릿이 필요한데, 그건 실제 주소를 확인하며 채워야 합니다.
-     * <b>어느 단계의 링크인지 화면에 밝히는 것이 중요합니다.</b> 조용히 홈페이지로 보내면
+     * <p><b>{@code isbn} 은 여러 개를 받고, 앞의 것이 그 도서관이 실제로 가진 판입니다.</b>
+     * 화면이 {@code /api/holdings} 의 {@code heldIsbns} 를 앞에 세워 보냅니다. 저작의 첫 ISBN 으로
+     * 검색하면 그 판이 없는 도서관에서는 규칙이 맞아도 0건이 되어 「소장한다더니 그 책이
+     * 없네」로 보이기 때문입니다.
+     *
+     * <p>ISBN 검색 규칙에 상세 패턴이 붙어 있으면 그 검색 결과를 서버가 받아 상세 링크를
+     * 뽑아 보냅니다({@link DetailResolver}). 첫 ISBN 으로 링크가 없으면(그 판이 OPAC 에 없는
+     * 것) 다음 ISBN 으로 한 번 더 해 보고, <b>페이지를 아예 못 받았으면 다른 판으로 또 두드리지
+     * 않습니다.</b> 닿지 않는 호스트를 두 번 기다리게 하는 것이고 결과도 같기 때문입니다.
+     * 어느 쪽이든 못 찾으면 검색 결과 주소로 보냅니다. 지금까지의 동작 그대로라 나빠지는
+     * 것은 없고, 화면은 {@code DETAIL_LOOKUP} 에 그 가능성을 함께 적습니다.
+     *
+     * <p><b>어느 단계의 링크인지 화면에 밝히는 것이 중요합니다.</b> 조용히 홈페이지로 보내면
      * 사용자는 검색 결과 자체가 틀렸다고 생각합니다.
      */
     @GetMapping("/go/{libCode}")
     public ResponseEntity<Void> go(@PathVariable String libCode,
-                                   @RequestParam(required = false) String isbn,
+                                   @RequestParam(required = false) List<String> isbn,
                                    @RequestParam(required = false) String title) {
         loadCatalogQuietly(List.of(libCode));
         LibraryInfo library = catalog.get(libCode);
         if (library == null) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "모르는 도서관입니다.");
         }
+        List<String> isbns = isbn == null ? List.of()
+                : isbn.stream().filter(s -> s != null && !s.isBlank()).map(String::strip).toList();
+        String first = isbns.isEmpty() ? null : isbns.get(0);
         // 정보나루가 준 홈페이지 주소를 그대로 실으면 안 됩니다. 「없음」을 뜻하는 `-` 나
         // 스킴이 빠진 주소가 섞여 있는데, 그것을 Location 에 실으면 브라우저가 상대 주소로
         // 읽어 우리 서버 안의 없는 경로로 갑니다. 자세한 것은 Homepage 에 있습니다.
-        String url = opacTemplates.bestFor(libCode, isbn, title)
-                .map(OpacLink::url)
+        String url = opacTemplates.bestFor(libCode, first, title)
+                .map(link -> detailOrSame(libCode, link, isbns))
                 .or(() -> Homepage.usable(library.homepage()))
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND,
                         "이 도서관은 홈페이지 주소를 알려 주지 않았습니다."));
         return ResponseEntity.status(HttpStatus.FOUND).location(URI.create(url)).build();
+    }
+
+    /** ISBN 검색 링크에 상세 패턴이 있으면 상세를 찾아 보고, 못 찾으면 그 링크 그대로입니다. */
+    private String detailOrSame(String libCode, OpacLink link, List<String> isbns) {
+        if (link.kind() != OpacLink.Kind.ISBN_SEARCH) return link.url();
+        var pattern = opacTemplates.detailPatternFor(link.url());
+        if (pattern.isEmpty()) return link.url();
+        for (String candidate : isbns.subList(0, Math.min(MAX_DETAIL_ATTEMPTS, isbns.size()))) {
+            String searchUrl = candidate.equals(isbns.get(0)) ? link.url()
+                    : opacTemplates.bestFor(libCode, candidate, null).map(OpacLink::url).orElse(null);
+            if (searchUrl == null) continue;
+            var outcome = detailResolver.resolve(searchUrl, pattern.get().regex());
+            if (outcome.status() == DetailResolver.Status.RESOLVED) return outcome.detailUrl();
+            if (outcome.status() != DetailResolver.Status.NO_MATCH) break;
+        }
+        return link.url();
     }
 
     /**
@@ -439,24 +482,32 @@ public class WimbController {
 
     @GetMapping("/status")
     public Map<String, Object> status() {
-        return Map.of(
-                "librariesLoaded", catalog.size(),
-                "callsUsedToday", budget.used(Data4LibraryClient.SOURCE_CODE),
-                "callsRemaining", budget.remaining(Data4LibraryClient.SOURCE_CODE),
-                // **한도가 실제로 도는지 알 방법이 있어야 합니다.** 호출이 갑자기 줄었을 때
-                // 이 숫자가 없으면 사람이 안 오는 것인지 우리가 막고 있는 것인지 구별할 수
-                // 없어 추측하게 됩니다. 주소 자체는 내보내지 않습니다. 개인정보이고,
-                // 세고 있다는 사실만으로 이 진단에는 충분합니다.
-                "rateLimitedClients", rateLimit.trackedClients(),
-                // **캐시가 실제로 살아 있는지 알 방법이 있어야 합니다.** 이 숫자가 없으면
-                // 재배포 뒤에 호출이 줄지 않을 때, 스냅샷을 못 되살린 것인지 저장이 안 된
-                // 것인지 캐시가 원래 안 도는 것인지 구별할 수 없어 추측하게 됩니다.
-                // 배포 직후 이 값이 0이면 스냅샷을 잃은 것입니다.
-                "holdingCacheEntries", holdingsCache.size(),
-                // 둘러보기는 도서관마다 하루 한 번만 부릅니다. 이 값이 방문자 수를 따라
-                // 늘면 날짜 경계가 잘못 잡힌 것이고, 재배포마다 0이면 캐시를 잃는 것입니다.
-                "browseStories", browseService.cacheSizes().get("browseStories"),
-                "browsePopular", browseService.cacheSizes().get("browsePopular"));
+        Map<String, Object> out = new java.util.LinkedHashMap<>();
+        out.put("librariesLoaded", catalog.size());
+        out.put("callsUsedToday", budget.used(Data4LibraryClient.SOURCE_CODE));
+        out.put("callsRemaining", budget.remaining(Data4LibraryClient.SOURCE_CODE));
+        // **한도가 실제로 도는지 알 방법이 있어야 합니다.** 호출이 갑자기 줄었을 때
+        // 이 숫자가 없으면 사람이 안 오는 것인지 우리가 막고 있는 것인지 구별할 수
+        // 없어 추측하게 됩니다. 주소 자체는 내보내지 않습니다. 개인정보이고,
+        // 세고 있다는 사실만으로 이 진단에는 충분합니다.
+        out.put("rateLimitedClients", rateLimit.trackedClients());
+        // **캐시가 실제로 살아 있는지 알 방법이 있어야 합니다.** 이 숫자가 없으면
+        // 재배포 뒤에 호출이 줄지 않을 때, 스냅샷을 못 되살린 것인지 저장이 안 된
+        // 것인지 캐시가 원래 안 도는 것인지 구별할 수 없어 추측하게 됩니다.
+        // 배포 직후 이 값이 0이면 스냅샷을 잃은 것입니다.
+        out.put("holdingCacheEntries", holdingsCache.size());
+        // 둘러보기는 도서관마다 하루 한 번만 부릅니다. 이 값이 방문자 수를 따라
+        // 늘면 날짜 경계가 잘못 잡힌 것이고, 재배포마다 0이면 캐시를 잃는 것입니다.
+        out.put("browseStories", browseService.cacheSizes().get("browseStories"));
+        out.put("browsePopular", browseService.cacheSizes().get("browsePopular"));
+        // OPAC 규칙이 실제로 실려 있는지. 배포 직후 0이면 규칙 파일을 잃은 것이고(예전에
+        // .gitignore 가 삼킨 적이 있습니다), 상세 해석의 성적은 어디서 새는지를 말합니다.
+        // resolved 는 상세로 갔고, missed 는 페이지는 받았는데 링크가 없었고(그 판이 없거나
+        // 패턴이 안 맞음), failed 는 페이지를 못 받은 것(해외 IP 차단이면 여기가 늡니다)입니다.
+        out.put("opacRuleLibraries", opacTemplates.size());
+        out.put("opacDetailPatterns", opacTemplates.patternCount());
+        out.putAll(detailResolver.stats());
+        return out;
     }
 
     /**

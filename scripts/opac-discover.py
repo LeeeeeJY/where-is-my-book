@@ -97,6 +97,8 @@ PROBE_BOOKS = {
 }
 DEFAULT_CSV = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                            "backend/src/main/resources/opac/templates.csv")
+DEFAULT_PATTERNS_CSV = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                    "backend/src/main/resources/opac/detail-patterns.csv")
 
 # 있을 수 없는 ISBN. 체크디지트까지 맞지 않아 어느 도서관에도 없습니다.
 ABSENT_ISBN = "9799999999999"
@@ -333,6 +335,85 @@ def page_has(page: str, title: str) -> bool:
 def says_no_result(page: str) -> bool:
     text = squash(re.sub(r"<[^>]+>", " ", page))
     return any(squash(h) in text for h in NO_RESULT_HINTS)
+
+
+# ── 상세 패턴 ────────────────────────────────────────────────────────────────
+#
+# 상세 주소는 대부분 도서관 내부 키를 써서 {isbn13} 자리표로는 못 만듭니다. 대신 ISBN 검색
+# 결과 HTML 안에 그 링크가 있으므로, 서버가 누를 때 그 페이지를 받아 링크를 뽑습니다
+# (DetailResolver). 「어떤 모양의 링크를 뽑을지」가 상세 패턴이고, 여기서 만들고 검증합니다.
+#
+# **서버는 자바스크립트를 돌리지 않고 UA 가 위의 UA 입니다.** 그래서 패턴 검증은 브라우저가
+# 아니라 fetch() 로, 서버와 같은 방식으로 받은 HTML 에 대고 합니다.
+
+# 자바 정규식에 없는 파이썬 전용 문법. 서버가 뜨지 못하는 것보다 여기서 거르는 편이 낫습니다.
+PYTHON_ONLY_REGEX = ("(?P<", "(?P=", "(?#")
+
+
+def pattern_problem(regex: str) -> str | None:
+    """서버가 받아 줄 수 없는 패턴이면 그 이유. 서버(OpacTemplates)와 같은 조건입니다."""
+    if not regex:
+        return "정규식이 비어 있습니다"
+    if any(tok in regex for tok in PYTHON_ONLY_REGEX):
+        return "자바에 없는 정규식 문법입니다"
+    try:
+        compiled = re.compile(regex)
+    except re.error as e:
+        return f"정규식이 잘못되었습니다 ({e})"
+    if compiled.groups != 1:
+        return f"잡을 그룹이 정확히 하나여야 합니다 (지금 {compiled.groups}개)"
+    if compiled.search(""):
+        return "빈 문자열에도 맞는 정규식입니다"
+    return None
+
+
+def first_href(regex: str, page: str) -> str | None:
+    """서버가 하는 것과 똑같이, 첫 번째로 잡히는 링크. 없으면 None."""
+    m = re.search(regex, page)
+    return m.group(1) if m else None
+
+
+def title_link(page: str, title: str) -> str | None:
+    """본문에서 그 책 제목이 적힌 첫 링크의 href (HTML 에 적힌 그대로)."""
+    want = squash(title)
+    for m in re.finditer(r"<a\b([^>]*)>(.*?)</a>", page, re.I | re.S):
+        href = attr_of(m.group(1), "href")
+        if not href:
+            continue
+        if want in squash(re.sub(r"<[^>]+>", " ", m.group(2))):
+            return href
+    return None
+
+
+def escape_regex(s: str) -> str:
+    """파이썬과 자바 양쪽에서 같은 뜻이 되도록 특수 문자만 앞에 역슬래시를 붙입니다."""
+    return "".join("\\" + c if c in "\\.^$|?*+()[]{}" else c for c in s)
+
+
+def pattern_from_hrefs(hrefs: list[str]) -> str | None:
+    """두 책의 상세 href 에서 **공통 앞머리**를 찾아 패턴으로 만듭니다.
+
+    `/book?bookkey=150671418` 과 `/book?bookkey=200000279016535` 이면 앞머리는
+    `/book?bookkey=` 이고, 패턴은 `href=["'](/book\\?bookkey=[^"']*)["']` 입니다.
+
+    앞머리는 마지막 구분 문자(`/ ? = & # ;`)까지로 자릅니다. 두 키가 우연히 같은 숫자로
+    시작하면 그 숫자까지 앞머리에 들어가 셋째 책에는 안 맞는 패턴이 되기 때문입니다.
+    """
+    if len(hrefs) < 2 or any(not h for h in hrefs):
+        return None
+    a, b = hrefs[0], hrefs[1]
+    n = 0
+    while n < min(len(a), len(b)) and a[n] == b[n]:
+        n += 1
+    prefix = a[:n]
+    cut = max(prefix.rfind(c) for c in "/?=&#;")
+    if cut < 0:
+        return None
+    prefix = prefix[:cut + 1]
+    # 앞머리가 「/」 하나뿐이면 아무 링크나 잡습니다. 그건 패턴이 아닙니다.
+    if len(prefix.strip("/")) == 0:
+        return None
+    return 'href=["\'](' + escape_regex(prefix) + '[^"\']*)["\']'
 
 
 def verify(action: str, field: str, hidden: dict[str, str], kind: str,
@@ -765,7 +846,7 @@ def import_findings(path: str, libs: list[dict]) -> int:
 
     kinds = {"ISBN_DETAIL", "ISBN_SEARCH", "TITLE_SEARCH"}
     writer = csv.writer(sys.stdout, lineterminator="\n")
-    problems, taken, covered = [], 0, 0
+    problems, taken, covered, patterns = [], 0, 0, 0
     seen: dict[tuple[str, str], str] = {}
     for lineno, raw in enumerate(open(path, encoding="utf-8"), 1):
         line = raw.strip()
@@ -777,6 +858,9 @@ def import_findings(path: str, libs: list[dict]) -> int:
         key, kind, encoding, url = parts[:4]
         if kind in ("실패", "-", "", "종류") or set(kind) <= {"-", ":", " "}:
             continue                                    # 못 찾은 줄, 표 머리글, 구분선
+        if kind == "DETAIL_PATTERN":
+            patterns += 1                               # 다른 파일로 갑니다. --import-patterns
+            continue
         where = f"{lineno}행 {key}"
         key = key.strip("`").lower()
         whole_org = key.endswith("*")
@@ -831,6 +915,88 @@ def import_findings(path: str, libs: list[dict]) -> int:
             covered += 1
 
     print(f"# 묶음 {taken}개 → 도서관 {covered}곳", file=sys.stderr)
+    if patterns:
+        print(f"# 상세 패턴 줄 {patterns}개는 여기서 다루지 않습니다. "
+              f"--import-patterns 로 detail-patterns.csv 에 넣으세요.", file=sys.stderr)
+    for p in problems:
+        print(f"  버림  {p}", file=sys.stderr)
+    return 1 if problems and taken == 0 else 0
+
+
+def existing_patterns(csv_path: str) -> dict[str, str]:
+    """지금 detail-patterns.csv 에 든 (열쇠 → 정규식)."""
+    out: dict[str, str] = {}
+    if not os.path.exists(csv_path):
+        return out
+    for raw in open(csv_path, encoding="utf-8"):
+        line = raw.strip()
+        if not line or line.startswith("#") or "," not in line:
+            continue
+        key, _, regex = line.partition(",")
+        out[key.strip().lower().rstrip("/")] = regex.strip()
+    return out
+
+
+def import_patterns(path: str, libs: list[dict], csv_path: str = DEFAULT_PATTERNS_CSV) -> int:
+    """조사 결과의 `DETAIL_PATTERN` 줄을 읽어 detail-patterns.csv 형식(`열쇠,정규식`)으로 바꿉니다.
+
+    줄 모양은 `묶음키 | DETAIL_PATTERN | 열쇠 | 정규식` 입니다. 열쇠는 검색 규칙 주소의
+    호스트(필요하면 호스트/경로조각)이고, 정규식에 `|` 가 있을 수 있어 넷째 칸부터는 전부
+    정규식으로 봅니다. 그래서 **패턴 줄에는 메모 칸을 두지 않습니다.**
+
+    여기서 거르는 것은 서버가 뜰 때 실패시키는 것과 같습니다(그룹 하나, 빈 문자열 불일치,
+    자바에 없는 문법). 서버가 뜨지 못하는 것보다 여기서 알려 주는 편이 낫습니다. 그리고
+    **같은 열쇠가 이미 다른 정규식으로 들어 있으면 넣지 않습니다.** 서버는 열쇠가 겹치면
+    뜨지 않으므로, 어느 쪽이 맞는지 사람이 정해 한 줄로 만들어야 합니다.
+    """
+    groups: dict[str, list[dict]] = defaultdict(list)
+    for l in libs:
+        if normalize_home(l.get("homepageUrl")):
+            groups[group_key(l["homepageUrl"])].append(l)
+    aliases = {k.removeprefix("www."): k for k in groups}
+    already = existing_patterns(csv_path)
+
+    # csv.writer 를 쓰지 않습니다. 정규식에 따옴표가 있으면 CSV 규칙대로 감싸는데, 서버는
+    # 첫 쉼표 뒤를 그대로 정규식으로 읽으므로 감싼 채로 들어가면 깨진 정규식이 됩니다.
+    problems, taken = [], 0
+    emitted: dict[str, str] = {}
+    for lineno, raw in enumerate(open(path, encoding="utf-8"), 1):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = [p.strip() for p in line.split("|")]
+        if len(parts) < 4 or parts[1] != "DETAIL_PATTERN":
+            continue
+        where = f"{lineno}행 {parts[0]}"
+        key = parts[0].strip("`").lower().removesuffix("*").strip()
+        key = key if key in groups else aliases.get(key.removeprefix("www."), key)
+        if key not in groups:
+            problems.append(f"{where}: 모르는 묶음입니다")
+            continue
+        host_key = parts[2].lower().rstrip("/")
+        regex = "|".join(parts[3:]).strip()
+        if not host_key or host_key.startswith("/") or "://" in host_key:
+            problems.append(f"{where}: 열쇠는 호스트(또는 호스트/경로)여야 합니다 — {parts[2]}")
+            continue
+        # 남의 기관 호스트에 패턴을 다는 것은 규칙을 남의 도메인으로 보내는 것과 같은 자국입니다.
+        if registrable_domain(host_key.split("/")[0]) != registrable_domain(key.split("/")[0]):
+            problems.append(f"{where}: 홈페이지({key})와 다른 기관의 열쇠입니다 ({host_key})")
+            continue
+        problem = pattern_problem(regex)
+        if problem:
+            problems.append(f"{where}: {problem} — {regex}")
+            continue
+        before = emitted.get(host_key) or already.get(host_key)
+        if before is not None:
+            if before != regex:
+                problems.append(f"{where}: 열쇠 {host_key} 가 이미 다른 정규식으로 잡혀 있습니다 — "
+                                f"{before[:60]}")
+            continue
+        emitted[host_key] = regex
+        taken += 1
+        print(f"{host_key},{regex}")
+
+    print(f"# 상세 패턴 {taken}개", file=sys.stderr)
     for p in problems:
         print(f"  버림  {p}", file=sys.stderr)
     return 1 if problems and taken == 0 else 0
@@ -841,6 +1007,10 @@ def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--work", default=".opac-work")
     ap.add_argument("--import-file", help="조사해 온 결과를 읽어 CSV 로 바꿉니다")
+    ap.add_argument("--import-patterns", metavar="FILE",
+                    help="조사 결과의 DETAIL_PATTERN 줄을 detail-patterns.csv 형식으로 바꿉니다")
+    ap.add_argument("--patterns-csv", default=DEFAULT_PATTERNS_CSV,
+                    help="이미 들어 있는 상세 패턴 파일. 겹치는 열쇠를 거르는 데 씁니다")
     ap.add_argument("--worklist", type=int, metavar="N",
                     help="사람이나 다른 클로드가 조사할 묶음 N개를 표로 뽑습니다")
     ap.add_argument("--probe", action="store_true", help="검증용 소장 데이터를 새로 만듭니다")
@@ -864,6 +1034,8 @@ def main() -> int:
         return gaps(args.gaps, load_libraries(args.work))
     if args.import_file:
         return import_findings(args.import_file, load_libraries(args.work))
+    if args.import_patterns:
+        return import_patterns(args.import_patterns, load_libraries(args.work), args.patterns_csv)
 
     libs = load_libraries(args.work)
     probe_path = os.path.join(args.work, "probe.json")

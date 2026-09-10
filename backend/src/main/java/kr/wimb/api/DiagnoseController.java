@@ -2,9 +2,15 @@ package kr.wimb.api;
 
 import kr.wimb.data4library.Data4LibraryClient;
 import kr.wimb.ingest.ApiBudget;
+import kr.wimb.opac.DetailResolver;
+import kr.wimb.opac.OpacLink;
+import kr.wimb.opac.OpacTemplates;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -41,10 +47,15 @@ public class DiagnoseController {
 
     private final Data4LibraryClient client;
     private final ApiBudget budget;
+    private final OpacTemplates opacTemplates;
+    private final DetailResolver detailResolver;
 
-    public DiagnoseController(Data4LibraryClient client, ApiBudget budget) {
+    public DiagnoseController(Data4LibraryClient client, ApiBudget budget,
+                              OpacTemplates opacTemplates, DetailResolver detailResolver) {
         this.client = client;
         this.budget = budget;
+        this.opacTemplates = opacTemplates;
+        this.detailResolver = detailResolver;
     }
 
     /**
@@ -85,6 +96,52 @@ public class DiagnoseController {
             out.put("data4library", "error");
             out.put("reason", e.getMessage());
         }
+        return out;
+    }
+
+    /**
+     * 이 서버가 그 도서관의 OPAC 에 닿아 상세 링크를 뽑을 수 있는지 <b>지금 실제로</b> 해 봅니다.
+     *
+     * <p>상세 패턴은 국내 회선의 브라우저로 확인한 것인데, 서버는 미국 리전에서 자바스크립트
+     * 없이 받습니다. 그 둘이 어긋나는 자리가 둘입니다. 해외 IP 를 막는 OPAC 이면 여기서
+     * {@code FETCH_FAILED} 가 나오고, 결과를 자바스크립트로 그리는 OPAC 이면 {@code NO_MATCH}
+     * 가 나옵니다. 화면에서는 둘 다 「검색 결과로 갔다」로만 보여 구별할 수 없으므로 이 진단이
+     * 있어야 합니다. 기억해 둔 답은 쓰지 않습니다. 캐시가 답하면 닿는지를 확인한 것이 아닙니다.
+     *
+     * <p>이 호출은 그 도서관 서버로 요청을 한 번 보냅니다. 자동으로 돌리지 마세요.
+     */
+    @GetMapping("/diagnose/opac")
+    public Map<String, Object> opac(@RequestParam String lib, @RequestParam String isbn) {
+        if (lib.isBlank() || isbn.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "lib 과 isbn 이 필요합니다.");
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("libCode", lib);
+        out.put("isbn", isbn);
+        out.put("kind", opacTemplates.kindFor(lib).name());
+        var link = opacTemplates.bestFor(lib, isbn, null);
+        if (link.isEmpty()) {
+            out.put("status", "NO_RULE");
+            out.put("note", "이 도서관에는 ISBN 검색 규칙이 없습니다. 홈페이지로 갑니다.");
+            return out;
+        }
+        out.put("searchUrl", link.get().url());
+        if (link.get().kind() != OpacLink.Kind.ISBN_SEARCH) {
+            out.put("status", "NO_LOOKUP_NEEDED");
+            out.put("note", "상세 주소를 미리 만들 수 있는 도서관이라 검색 결과를 받지 않습니다.");
+            return out;
+        }
+        var pattern = opacTemplates.detailPatternFor(link.get().url());
+        if (pattern.isEmpty()) {
+            out.put("status", "NO_PATTERN");
+            out.put("note", "이 OPAC 의 상세 패턴이 detail-patterns.csv 에 없습니다. 검색 결과로 갑니다.");
+            return out;
+        }
+        out.put("patternKey", pattern.get().key());
+        var outcome = detailResolver.probe(link.get().url(), pattern.get().regex());
+        out.put("status", outcome.status().name());
+        out.put("detailUrl", outcome.detailUrl());
+        out.put("note", outcome.note());
         return out;
     }
 

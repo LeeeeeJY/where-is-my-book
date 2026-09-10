@@ -3,6 +3,11 @@ import type { BookState } from './tripPlan';
 /** 소장 조회 결과에서 화면 판정에 필요한 부분만. 한 권 검색과 여러 권 검색이 같은 모양을 씁니다. */
 export type HoldingFacts = {
   libCodes: string[];
+  /**
+   * 도서관마다 그 도서관이 가진 것으로 확인된 판본의 ISBN. 링크는 이것을 먼저 씁니다
+   * (`opacLink.ts` 의 `isbnsForLink`). 예전 서버 응답에는 없으므로 선택 항목입니다.
+   */
+  heldIsbns?: Record<string, string[]>;
   /** 저작에 묶인 판본을 빠짐없이 확인했는지 */
   complete: boolean;
   /** 조회 자체가 실패했는지 */

@@ -136,6 +136,17 @@ public class WimbConfiguration implements WebMvcConfigurer {
     }
 
     /**
+     * 누를 때 검색 결과에서 상세 링크를 뽑는 쪽. 상세 주소가 도서관 내부 키라 규칙 표로는
+     * 못 만드는 OPAC 이 대부분이라, 이것이 없으면 링크가 검색 결과에서 멈춥니다. 남의 서버로
+     * 나가는 요청이므로 답을 기억하고 호스트마다 동시 둘까지만 나갑니다.
+     */
+    @Bean
+    public kr.wimb.opac.DetailResolver detailResolver() {
+        return new kr.wimb.opac.DetailResolver(kr.wimb.opac.DetailResolver.httpFetcher(),
+                Clock.systemUTC());
+    }
+
+    /**
      * (ISBN, 지역) 한 쌍의 소장 답을 기억해 두는 시간.
      *
      * <p>정보나루의 소장 데이터는 하루 단위로 갱신되므로 몇 시간 안의 답은 다시 물어도

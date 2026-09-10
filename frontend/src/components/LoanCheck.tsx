@@ -73,7 +73,13 @@ export function LoanCheck({ libCode, isbn13List }: { libCode: string; isbn13List
 }
 
 /** 한 도서관에서 물어볼 책 한 권. */
-export type SweepBook = { key: string; title: string; isbn13List: string[] };
+export type SweepBook = {
+  key: string;
+  title: string;
+  isbn13List: string[];
+  /** 도서관마다 그 도서관이 가진 것으로 확인된 판. 책 링크가 이것을 먼저 씁니다. */
+  heldIsbns?: Record<string, string[]>;
+};
 
 /** 한 권의 답. 못 물어본 것은 `'failed'` 로 남기고 「빌릴 수 없다」와 섞지 않습니다. */
 export type SweepResult = LoanStatus | 'failed';

@@ -221,7 +221,7 @@ function Story({
           <li className="lib">
             <a
               className="chip chip--strong chip--go chip--wrap"
-              href={libraryLink(libCode, story.isbn13, story.title)}
+              href={libraryLink(libCode, [story.isbn13], story.title)}
               target="_blank"
               rel="noreferrer"
               title={linkLabel(library?.linkKind)}

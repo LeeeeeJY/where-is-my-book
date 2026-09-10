@@ -16,6 +16,10 @@ export function linkLabel(kind: LinkKind | undefined): string {
   switch (kind) {
     case 'ISBN_DETAIL':
       return '이 책 페이지로 이동';
+    case 'DETAIL_LOOKUP':
+      // 누를 때 찾는 것이라 못 찾을 수 있습니다. 그때는 검색 결과로 내려가는데, 그 사실을
+      // 미리 말해 두지 않으면 사용자는 검색 결과 화면을 보고 「페이지라더니」로 읽습니다.
+      return '이 책 페이지로 이동 (찾지 못하면 검색 결과)';
     case 'ISBN_SEARCH':
       return '이 책 검색 결과로 이동';
     case 'TITLE_SEARCH':
@@ -41,6 +45,7 @@ export function linkLabel(kind: LinkKind | undefined): string {
 export function linkBadge(kind: LinkKind | undefined): string {
   switch (kind) {
     case 'ISBN_DETAIL':
+    case 'DETAIL_LOOKUP':
       return '이 책 페이지';
     case 'ISBN_SEARCH':
       return '이 책 검색';
@@ -54,4 +59,25 @@ export function linkBadge(kind: LinkKind | undefined): string {
 /** 목록에 홈페이지로 내려앉은 도서관이 섞여 있는지. 있으면 아래에 한 번 설명합니다. */
 export function anyHomepageOnly(kinds: (LinkKind | undefined)[]): boolean {
   return kinds.some((kind) => kind === undefined || kind === 'HOMEPAGE');
+}
+
+/**
+ * 도서관 링크에 넣을 ISBN 을 **그 도서관이 실제로 가진 판부터** 세웁니다.
+ *
+ * <p>저작의 첫 ISBN 으로 보내면, 그 판이 없고 다른 판만 있는 도서관에서는 OPAC 의 ISBN 검색이
+ * **규칙이 맞아도 0건**이 됩니다. 사용자에게는 「소장한다더니 그 책이 없네」로 보이고, 판본이
+ * 많은 책일수록 자주 그렇습니다. 서버가 `/api/holdings` 의 `heldIsbns` 로 어느 판을 가졌는지
+ * 알려 주므로 그것을 앞에 세우고, 나머지 판은 뒤에 붙입니다. 서버가 상세를 찾을 때 첫 판에
+ * 없으면 다음 판으로 한 번 더 찾습니다.
+ *
+ * <p>`heldIsbns` 가 없으면(예전 서버 응답이거나 조회 전) 저작의 목록 그대로입니다. 그때는
+ * 예전과 같은 동작이고, 나아지지는 않지만 나빠지지도 않습니다.
+ */
+export function isbnsForLink(
+  held: readonly string[] | undefined,
+  all: readonly string[],
+): string[] {
+  const first = held ?? [];
+  const rest = all.filter((isbn) => !first.includes(isbn));
+  return [...first, ...rest];
 }

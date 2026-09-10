@@ -29,17 +29,34 @@
 무시하는 OPAC 이 실제로 있습니다(제주·구미·용산). 검색어를 세션에 담아 두는 방식이라,
 같은 창에서 확인하면 통과하지만 **사용자에게는 죽은 링크가 나갑니다.**
 
+## 상세 페이지까지
+
+검색 규칙을 찾으면 상세도 함께 시도합니다. 검색 결과에서 책을 눌러 들어간 주소에 ISBN 이
+그대로 있으면 `ISBN_DETAIL` 자리표 규칙이 되고, **대부분처럼 내부 키를 쓰면 자리표 대신
+「검색 결과에서 상세 링크를 뽑는 패턴」(`DETAIL_PATTERN`)을 만듭니다.** 서버가 누를 때
+ISBN 검색 결과를 받아 그 패턴으로 링크를 꺼내 상세로 보냅니다(`DetailResolver`).
+
+패턴은 **서버와 같은 방식으로 받은 HTML** 에 대고 검증합니다. 브라우저에는 자바스크립트가
+그린 링크까지 보이지만 서버에는 없기 때문입니다. 첫 번째로 잡히는 링크가 그 책이어야 하고,
+없는 ISBN 에는 아무것도 잡히지 않아야 하며, 뽑은 링크가 쿠키 없는 새 창에서 열려야 합니다.
+
+`--patterns` 는 **이미 검색 규칙이 있는 도서관**(templates.csv)에 대해 이 상세 단계만
+돌립니다. 사람이 채운 규칙 217줄이 13개 시스템이라, 패턴 열몇 줄이면 전부 상세로 갑니다.
+
 ## 쓰는 법
 
     ./scripts/opac-discover.py --probe          # 검증용 소장 데이터 (우리 API 를 씁니다)
-    ./scripts/opac-browse.py --limit 30         # 큰 묶음부터 30개
+    ./scripts/opac-browse.py --patterns         # 규칙 있는 도서관의 상세 패턴부터
+    ./scripts/opac-browse.py --limit 30         # 큰 묶음부터 30개 (검색 규칙 + 상세)
     ./scripts/opac-browse.py --gaps             # 규칙 있는 기관에서 빠진 도서관만 확인
     ./scripts/opac-browse.py --emit > findings.txt
     ./scripts/opac-discover.py --import-file findings.txt >> \\
         backend/src/main/resources/opac/templates.csv
+    ./scripts/opac-discover.py --import-patterns findings.txt >> \\
+        backend/src/main/resources/opac/detail-patterns.csv
 
-**`--emit` 은 `--import-file` 이 읽는 형식으로 냅니다.** 거기서 자리표·인코딩·다른 기관
-도메인을 한 번 더 거르므로 그 통로를 우회하지 마세요.
+**`--emit` 은 `--import-file`/`--import-patterns` 가 읽는 형식으로 냅니다.** 거기서
+자리표·인코딩·다른 기관 도메인·정규식 조건을 한 번 더 거르므로 그 통로를 우회하지 마세요.
 
 ## 외부 서버에 대한 예의
 
@@ -59,6 +76,7 @@ import os
 import sys
 import urllib.parse
 from collections import defaultdict
+from html import unescape as html_unescape
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 _spec = importlib.util.spec_from_file_location("opac_discover", os.path.join(HERE, "opac-discover.py"))
@@ -227,6 +245,69 @@ def detail_rule(browser, template: str, books: list[str], pacer, timeout: float)
         context.close()
 
 
+def detail_pattern(browser, template: str, books: list[str], pacer, timeout: float):
+    """상세 주소가 내부 키라 자리표를 못 만들 때, **검색 결과에서 상세 링크를 뽑는 패턴**을
+    만들어 검증합니다. (패턴 정보 또는 None, 사유) 를 돌려줍니다.
+
+    서버(DetailResolver)가 누를 때 하는 일을 여기서 미리 해 봅니다. 그래서 **브라우저가 아니라
+    서버와 같은 방식**(자바스크립트 없이, 같은 UA 의 fetch)으로 검색 결과를 받습니다.
+    브라우저로 보면 자바스크립트가 그린 링크까지 보이는데 서버에는 없어서, 여기서 통과한
+    패턴이 서버에서는 잡히지 않게 됩니다.
+
+    세 겹은 그대로입니다.
+      양성   두 책의 검색 결과에서 패턴이 **첫 번째로** 잡는 링크가 그 책의 링크여야 합니다.
+             서버는 첫 번째 것을 쓰므로, 「최근 본 책」 같은 링크가 먼저 잡히면 엉뚱한 책으로
+             갑니다.
+      음성   없는 ISBN 의 검색 결과에서는 아무것도 잡히지 않아야 합니다.
+      재확인 뽑은 링크를 **쿠키 없는 새 창**에서 열어 그 책이 나와야 합니다. 세션에 묶인
+             내부 키라면 여기서 걸립니다.
+    """
+    hrefs, pages = [], {}
+    for isbn in books[:2]:
+        title = od.PROBE_BOOKS[isbn]
+        status, page_html, final = od.fetch(template.replace("{isbn13}", isbn), pacer, timeout)
+        if status != 200 or not od.page_has(page_html, title):
+            return None, "자바스크립트 없이 받으면 그 책이 보이지 않습니다 (서버도 못 봅니다)"
+        href = od.title_link(page_html, title)
+        if not href:
+            return None, "검색 결과의 제목에 링크가 없습니다"
+        hrefs.append(href)
+        pages[isbn] = (page_html, final)
+    if hrefs[0] == hrefs[1]:
+        return None, "두 책의 상세 링크가 같습니다. 책마다 다른 주소가 아닙니다"
+
+    regex = od.pattern_from_hrefs(hrefs)
+    if not regex:
+        return None, "두 상세 링크에 공통 앞머리가 없습니다"
+    if od.pattern_problem(regex):
+        return None, f"만든 패턴이 서버 조건에 맞지 않습니다 ({od.pattern_problem(regex)})"
+
+    # ① 양성 — 첫 번째로 잡히는 링크가 그 책이어야 합니다
+    for isbn in books[:2]:
+        page_html, _ = pages[isbn]
+        if od.first_href(regex, page_html) != od.title_link(page_html, od.PROBE_BOOKS[isbn]):
+            return None, "패턴이 그 책보다 다른 링크를 먼저 잡습니다"
+
+    # ② 음성 — 없는 ISBN 에는 아무것도 잡히지 않아야 합니다
+    status, ghost, _ = od.fetch(template.replace("{isbn13}", od.ABSENT_ISBN), pacer, timeout)
+    if status == 200 and od.first_href(regex, ghost):
+        return None, "없는 ISBN 의 결과에서도 링크가 잡힙니다"
+
+    # ③ 재확인 — 뽑은 링크를 새 창에서 열어 그 책이 나와야 합니다
+    page_html, final = pages[books[1]]
+    detail_url = urllib.parse.urljoin(final, html_unescape(od.first_href(regex, page_html)))
+    if detail_url == template.replace("{isbn13}", books[1]):
+        return None, "뽑은 링크가 검색 결과 자기 주소입니다"
+    # 자리표가 없는 주소라 opens_fresh 는 그것을 그대로 엽니다.
+    hit, _, _ = opens_fresh(browser, detail_url, books[1], od.PROBE_BOOKS[books[1]], pacer, timeout)
+    if not hit:
+        return None, "뽑은 상세 링크를 새 창에서 열면 그 책이 나오지 않습니다 (세션에 묶인 키)"
+
+    host_key = urllib.parse.urlparse(template).netloc.lower()
+    return {"kind": "DETAIL_PATTERN", "hostKey": host_key, "pattern": regex,
+            "examples": hrefs}, ""
+
+
 def investigate(browser, key: str, members: list[dict], rep: dict, books: list[str],
                 pacer, timeout: float) -> dict:
     """묶음 하나. 예외가 새어 나가면 수백 묶음짜리 조사가 통째로 죽습니다."""
@@ -299,6 +380,14 @@ def investigate(browser, key: str, members: list[dict], rep: dict, books: list[s
             if detail:
                 out["rules"].insert(0, {"kind": "ISBN_DETAIL", "encoding": "UTF-8",
                                         "url": detail})
+                return out
+
+            # ⑤ 내부 키면 자리표 대신 **패턴**입니다. 서버가 누를 때 검색 결과에서 뽑습니다.
+            pattern, why = detail_pattern(browser, template, books, pacer, timeout)
+            if pattern:
+                out["rules"].append(pattern)
+            else:
+                out["detailNote"] = why
             return out
 
         out["note"] = out["note"] or "주소에 검색어가 남지 않습니다"
@@ -351,9 +440,12 @@ def run(work: str, limit: int, host_delay: float, timeout: float) -> int:
                     sink.flush()
                     mark = "찾음" if r["rules"] else "  — "
                     found += 1 if r["rules"] else 0
-                    detail = r["rules"][0]["url"] if r["rules"] else r["note"][:44]
-                    print(f"[{i}/{len(rows)}] {mark} {key:34s} {len(members):3d}곳  {detail}",
+                    kinds = "+".join(x["kind"] for x in r["rules"])
+                    detail = (r["rules"][0].get("url") or r["rules"][0].get("pattern")) if r["rules"] else r["note"][:44]
+                    print(f"[{i}/{len(rows)}] {mark} {key:34s} {len(members):3d}곳  {kinds:36s} {detail}",
                           file=sys.stderr)
+                    if r.get("detailNote"):
+                        print(f"          상세 패턴 없음: {r['detailNote']}", file=sys.stderr)
         finally:
             browser.close()
     print(f"\n묶음 {found}/{len(rows)} 에서 규칙을 찾았습니다", file=sys.stderr)
@@ -361,16 +453,111 @@ def run(work: str, limit: int, host_delay: float, timeout: float) -> int:
 
 
 def emit(work: str) -> int:
-    """`--import-file` 이 읽는 형식으로. 거기서 한 번 더 걸러집니다."""
-    path = os.path.join(work, "browse.jsonl")
-    if not os.path.exists(path):
+    """`--import-file`/`--import-patterns` 가 읽는 형식으로. 거기서 한 번 더 걸러집니다."""
+    paths = [p for p in (os.path.join(work, "browse.jsonl"), os.path.join(work, "patterns.jsonl"))
+             if os.path.exists(p)]
+    if not paths:
         print("조사 결과가 없습니다.", file=sys.stderr)
         return 1
     print("# opac-browse.py 가 브라우저로 확인한 주소입니다. 세 겹 검증을 통과한 것만 있습니다.")
-    for line in open(path):
-        r = json.loads(line)
-        for rule in r["rules"]:
-            print(f"{r['key']} | {rule['kind']} | {rule['encoding']} | {rule['url']}")
+    print("# DETAIL_PATTERN 줄은 --import-patterns 로, 나머지는 --import-file 로 넣습니다.")
+    for path in paths:
+        for line in open(path):
+            r = json.loads(line)
+            for rule in r["rules"]:
+                if rule["kind"] == "DETAIL_PATTERN":
+                    # 정규식에 | 가 있을 수 있어 넷째 칸이 마지막입니다. 메모를 붙이지 마세요.
+                    print(f"{r['key']} | DETAIL_PATTERN | {rule['hostKey']} | {rule['pattern']}")
+                else:
+                    for key in r.get("keys", [r["key"]]):
+                        print(f"{key} | {rule['kind']} | {rule['encoding']} | {rule['url']}")
+    return 0
+
+
+def find_patterns(work: str, csv_path: str, patterns_csv: str, host_delay: float,
+                  timeout: float, limit: int) -> int:
+    """이미 검색 규칙이 있는 도서관들에 대해 **상세 단계만** 돌립니다.
+
+    사람이 채운 규칙 217줄은 열세 개 시스템이라, 시스템마다 패턴 한 줄이면 그 도서관 전체가
+    검색 결과가 아니라 상세로 갑니다. 검색 규칙을 다시 찾을 필요는 없으므로 규칙 주소로
+    바로 결과를 받아 봅니다. 열쇠(호스트)에 이미 패턴이 있으면 건너뜁니다.
+
+    결과는 `patterns.jsonl` 에 남고 `--emit` 이 함께 냅니다. 상세 주소에 ISBN 이 그대로
+    있는 곳은 `ISBN_DETAIL` 규칙으로 나옵니다(그 주소를 함께 쓰는 묶음마다 한 줄).
+    """
+    sync_playwright = playwright()
+    libs = od.load_libraries(work)
+    probe_path = os.path.join(work, "probe.json")
+    if not os.path.exists(probe_path):
+        print("probe.json 이 없습니다. 먼저 ./scripts/opac-discover.py --probe 를 돌리세요.",
+              file=sys.stderr)
+        return 1
+    probe = json.load(open(probe_path))
+    by_code = {l["libCode"]: l for l in libs}
+
+    by_template: dict[str, list[dict]] = defaultdict(list)
+    for row in csv.reader(open(csv_path, encoding="utf-8")):
+        if not row or row[0].lstrip().startswith("#") or len(row) < 4:
+            continue
+        if row[1].strip() == "ISBN_SEARCH" and row[0].strip() in by_code:
+            by_template[row[3].strip()].append(by_code[row[0].strip()])
+
+    existing = od.existing_patterns(patterns_csv)
+    results_path = os.path.join(work, "patterns.jsonl")
+    done = {json.loads(l)["template"] for l in open(results_path)} if os.path.exists(results_path) else set()
+    todo = [(t, m) for t, m in sorted(by_template.items(), key=lambda kv: -len(kv[1]))
+            if t not in done and urllib.parse.urlparse(t).netloc.lower() not in existing]
+    if limit:
+        todo = todo[:limit]
+    print(f"검색 규칙이 있는 주소 {len(by_template)}개 가운데 {len(todo)}개의 상세를 봅니다",
+          file=sys.stderr)
+
+    pacer = od.Pacer(host_delay)
+    found = 0
+    hosts_done: set[str] = set()
+    with sync_playwright() as p:
+        browser = chromium(p)
+        try:
+            with open(results_path, "a") as sink:
+                for i, (template, members) in enumerate(todo, 1):
+                    host = urllib.parse.urlparse(template).netloc.lower()
+                    rep = od.pick_representative(members, probe)
+                    books = [b for b in probe.get(rep["libCode"], []) if b in od.PROBE_BOOKS][:3]
+                    keys = sorted({od.group_key(m["homepageUrl"]) for m in members
+                                   if od.normalize_home(m.get("homepageUrl"))})
+                    out = {"template": template, "key": keys[0] if keys else host, "keys": keys,
+                           "libCodes": [m["libCode"] for m in members], "rep": rep["name"],
+                           "rules": [], "note": ""}
+                    if host in hosts_done:
+                        out["note"] = "같은 호스트의 패턴을 이미 찾았습니다"
+                    elif len(books) < 2:
+                        out["note"] = "검증용으로 쓸 소장 도서가 모자랍니다"
+                    else:
+                        try:
+                            detail = detail_rule(browser, template, books, pacer, timeout)
+                            if detail:
+                                out["rules"].append({"kind": "ISBN_DETAIL", "encoding": "UTF-8",
+                                                     "url": detail})
+                            else:
+                                pattern, why = detail_pattern(browser, template, books, pacer, timeout)
+                                if pattern:
+                                    out["rules"].append(pattern)
+                                    hosts_done.add(host)
+                                else:
+                                    out["note"] = why
+                        except Exception as e:
+                            out["note"] = f"{type(e).__name__}: {e}"
+                    sink.write(json.dumps(out, ensure_ascii=False) + "\n")
+                    sink.flush()
+                    found += 1 if out["rules"] else 0
+                    shown = ((out["rules"][0].get("url") or out["rules"][0].get("pattern"))
+                             if out["rules"] else out["note"][:60])
+                    print(f"[{i}/{len(todo)}] {'찾음' if out['rules'] else '  — '} {host:32s} "
+                          f"{len(members):3d}곳  {shown}", file=sys.stderr)
+        finally:
+            browser.close()
+    print(f"\n주소 {found}/{len(todo)} 에서 상세로 가는 길을 찾았습니다. --emit 으로 뽑으세요.",
+          file=sys.stderr)
     return 0
 
 
@@ -450,6 +637,10 @@ def main() -> int:
     ap.add_argument("--emit", action="store_true", help="찾은 규칙을 import 형식으로 출력")
     ap.add_argument("--gaps", metavar="CSV", nargs="?", const=od.DEFAULT_CSV,
                     help="규칙 있는 기관에서 빠진 도서관이 그 검색 화면에 나오는지 확인")
+    ap.add_argument("--patterns", action="store_true",
+                    help="이미 검색 규칙이 있는 도서관(templates.csv)의 상세 패턴만 찾습니다")
+    ap.add_argument("--templates-csv", default=od.DEFAULT_CSV)
+    ap.add_argument("--patterns-csv", default=od.DEFAULT_PATTERNS_CSV)
     ap.add_argument("--host-delay", type=float, default=3.0, help="같은 호스트의 요청 간격(초)")
     ap.add_argument("--timeout", type=float, default=20.0)
     args = ap.parse_args()
@@ -459,6 +650,9 @@ def main() -> int:
         return emit(args.work)
     if args.gaps:
         return check_gaps(args.work, args.gaps, args.host_delay, args.timeout)
+    if args.patterns:
+        return find_patterns(args.work, args.templates_csv, args.patterns_csv,
+                             args.host_delay, args.timeout, args.limit)
     return run(args.work, args.limit, args.host_delay, args.timeout)
 
 
