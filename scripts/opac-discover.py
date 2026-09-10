@@ -95,6 +95,9 @@ PROBE_BOOKS = {
     "9788983711892": "코스모스",
     "9788983920683": "해리 포터와 마법사의 돌",
 }
+DEFAULT_CSV = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                           "backend/src/main/resources/opac/templates.csv")
+
 # 있을 수 없는 ISBN. 체크디지트까지 맞지 않아 어느 도서관에도 없습니다.
 ABSENT_ISBN = "9799999999999"
 ABSENT_TITLE = "존재하지않는제목갈매기수프변주"
@@ -568,6 +571,48 @@ def summary(results_path: str) -> int:
     return 0
 
 
+def gaps(csv_path: str, libs: list[dict]) -> int:
+    """규칙이 있는 기관인데 규칙을 못 받은 도서관을 셉니다.
+
+    **묶음키가 홈페이지의 첫 경로 조각까지 보기 때문에 한 시스템이 갈립니다.** 분관이
+    저마다 `.../jungang`, `.../wolgye` 를 쓰면 서로 다른 묶음이 되고, 사람은 대표 한 곳만
+    조사해 주소를 주므로 **나머지가 조용히 빠집니다.** 빠진 쪽이 하필 큰 도서관입니다.
+    작은도서관은 대개 홈페이지가 시스템 최상위라 한 묶음에 뭉쳐 있고, 분관 페이지를 따로
+    가진 곳이 사람이 실제로 가는 도서관이기 때문입니다.
+
+    실제로 노원은 작은도서관 스물일곱 곳이 책 검색으로 가는 동안 노원중앙·상계·불암·화랑을
+    비롯한 여덟 곳이 홈페이지로 갔습니다. **화면에는 아무 이상이 없어 보입니다.** 소장
+    목록에 이름은 나오고 눌리기도 하니, 도착한 곳이 홈페이지라는 것은 눌러 본 사람만
+    압니다.
+
+    여기서 세는 것은 「넓히면 된다」가 아니라 **「확인할 곳이 여기 있다」**입니다. 분관마다
+    장서가 따로인 시스템도 있어서(안산의 지금 규칙은 작은도서관 전용 검색입니다) 넓히려면
+    검색 결과 화면에 그 분관 이름이 실제로 보이는지 봐야 합니다.
+    """
+    have: set[str] = set()
+    for row in csv.reader(open(csv_path, encoding="utf-8")):
+        if row and not row[0].lstrip().startswith("#") and len(row) >= 4:
+            have.add(row[0].strip())
+
+    by_org: dict[str, list[dict]] = defaultdict(list)
+    for l in libs:
+        home = normalize_home(l.get("homepageUrl"))
+        if home:
+            by_org[registrable_domain(urllib.parse.urlparse(home).netloc)].append(l)
+
+    missing = 0
+    for org, members in sorted(by_org.items(), key=lambda kv: -len(kv[1])):
+        without = [l for l in members if l["libCode"] not in have]
+        if not without or len(without) == len(members):
+            continue                                    # 규칙이 아예 없는 기관은 조사 대상
+        print(f"\n[{org}]  규칙 있음 {len(members) - len(without)}곳 · 빠짐 {len(without)}곳")
+        for l in sorted(without, key=lambda x: x["name"]):
+            print(f"   {l['libCode']}  {l['name']}  →  {l.get('homepageUrl')}")
+        missing += len(without)
+    print(f"\n같은 기관에 규칙이 있는데 빠진 도서관 {missing}곳", file=sys.stderr)
+    return 0
+
+
 def emit(results_path: str) -> int:
     if not os.path.exists(results_path):
         print("조사 결과가 없습니다. 먼저 --limit 이나 --all 로 도세요.", file=sys.stderr)
@@ -690,21 +735,38 @@ def import_findings(path: str, libs: list[dict]) -> int:
     한 줄이 묶음 하나입니다. `묶음키 | 종류 | 인코딩 | 주소 | 메모` 형식이고, 「실패」로
     적힌 줄과 `#` 로 시작하는 줄은 건너뜁니다.
 
+    **묶음키 뒤에 `*` 를 붙이면 같은 기관의 도서관 전체로 넓힙니다.** 묶음키는 홈페이지의
+    호스트와 첫 경로 조각이라, 분관마다 경로가 다른 곳은 한 시스템인데도 묶음이 갈립니다
+    (`www.nowonlib.kr` 과 `nowonlib.kr/jungang`). 그런 곳은 대개 **분관들의 검색이 한
+    화면에 있는데**, 갈린 채로 두면 정작 사람이 많이 가는 큰 도서관만 규칙을 못 받습니다.
+    실제로 노원은 작은도서관 스물일곱 곳에 규칙이 들어가고 노원중앙·상계·화랑을 비롯한
+    여덟 곳이 빠져 있었습니다.
+
+    **그래도 기본은 좁은 쪽입니다.** 분관마다 장서가 따로인 시스템에서 넓히면 **어느 책을
+    눌러도 남의 도서관 목록이 뜹니다.** 안산이 그런 경우인데, 지금 있는 규칙이
+    `lib.ansan.go.kr/smalllib/...` 라 작은도서관 전용 검색입니다. 그래서 `*` 는 검색 결과
+    화면에 **그 분관들의 이름이 실제로 보이는 것을 확인한 사람만** 붙입니다.
+
     **여기서 거르는 것이 마지막 방어선입니다.** 조사한 쪽이 열어 보지 않고 그럴듯한 주소를
     적어 왔을 때, 실행해 보지 않고도 잡을 수 있는 것이 몇 가지 있습니다. 그 가운데 가장
     잘 걸리는 것이 **호스트가 그 도서관 홈페이지와 다른 경우**입니다. 형식만 맞는 주소는
     서버가 뜰 때 통과해 버리고, 실제로 눌러 보기 전에는 아무도 모릅니다.
     """
     groups: dict[str, list[dict]] = defaultdict(list)
+    by_org: dict[str, list[dict]] = defaultdict(list)
     for l in libs:
-        if normalize_home(l.get("homepageUrl")):
-            groups[group_key(l["homepageUrl"])].append(l)
+        home = normalize_home(l.get("homepageUrl"))
+        if not home:
+            continue
+        groups[group_key(l["homepageUrl"])].append(l)
+        by_org[registrable_domain(urllib.parse.urlparse(home).netloc)].append(l)
     # 묶음키를 옮겨 적을 때 `www.` 가 붙고 빠지는 것으로 전부 버려지면 안 됩니다.
     aliases = {k.removeprefix("www."): k for k in groups}
 
     kinds = {"ISBN_DETAIL", "ISBN_SEARCH", "TITLE_SEARCH"}
     writer = csv.writer(sys.stdout, lineterminator="\n")
     problems, taken, covered = [], 0, 0
+    seen: dict[str, str] = {}
     for lineno, raw in enumerate(open(path, encoding="utf-8"), 1):
         line = raw.strip()
         if not line or line.startswith("#"):
@@ -717,6 +779,8 @@ def import_findings(path: str, libs: list[dict]) -> int:
             continue                                    # 못 찾은 줄, 표 머리글, 구분선
         where = f"{lineno}행 {key}"
         key = key.strip("`").lower()
+        whole_org = key.endswith("*")
+        key = key.removesuffix("*").strip()
         key = key if key in groups else aliases.get(key.removeprefix("www."), key)
         if key not in groups:
             problems.append(f"{where}: 모르는 묶음입니다")
@@ -747,8 +811,18 @@ def import_findings(path: str, libs: list[dict]) -> int:
                             f"({rule_host})")
             continue
 
+        targets = by_org[registrable_domain(home_host)] if whole_org else groups[key]
         taken += 1
-        for lib in groups[key]:
+        for lib in targets:
+            # 한 도서관이 두 줄에 걸리는 것은 `*` 를 붙이면 흔해집니다. 같은 주소면 조용히
+            # 넘어가고, 다른 주소면 **어느 쪽이 맞는지 우리가 모르므로** 알립니다.
+            before = seen.get(lib["libCode"])
+            if before is not None:
+                if before != url:
+                    problems.append(f"{where}: {lib['name']}({lib['libCode']}) 가 이미 다른 "
+                                    f"주소로 잡혀 있습니다 — {before[:60]}")
+                continue
+            seen[lib["libCode"]] = url
             writer.writerow([lib["libCode"], kind, encoding.upper(), url])
             covered += 1
 
@@ -770,6 +844,8 @@ def main() -> int:
     ap.add_argument("--all", action="store_true", help="남은 묶음을 전부 조사합니다")
     ap.add_argument("--emit", action="store_true", help="통과한 규칙을 CSV 형식으로 출력합니다")
     ap.add_argument("--summary", action="store_true", help="지금까지의 성적표와 실패 사유")
+    ap.add_argument("--gaps", metavar="CSV", nargs="?", const=DEFAULT_CSV,
+                    help="규칙이 있는 기관인데 규칙을 못 받은 도서관을 셉니다")
     ap.add_argument("--concurrency", type=int, default=4, help="서로 다른 호스트를 몇 개씩 겹칠지")
     ap.add_argument("--host-delay", type=float, default=3.0, help="같은 호스트의 요청 간격(초)")
     args = ap.parse_args()
@@ -780,6 +856,8 @@ def main() -> int:
         return emit(results_path)
     if args.summary:
         return summary(results_path)
+    if args.gaps:
+        return gaps(args.gaps, load_libraries(args.work))
     if args.import_file:
         return import_findings(args.import_file, load_libraries(args.work))
 

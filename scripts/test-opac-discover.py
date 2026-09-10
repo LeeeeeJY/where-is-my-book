@@ -168,6 +168,7 @@ def main() -> int:
 
     failures += check_bad_homepages(probe, pacer)
     failures += check_import(work)
+    failures += check_gaps(work)
 
     if failures:
         print(f"\n실패: {', '.join(failures)}")
@@ -231,6 +232,9 @@ def check_import(work: str) -> list[str]:
         {"libCode": "800001", "name": "가나도서관", "homepageUrl": "https://www.lib.example.go.kr/"},
         {"libCode": "800002", "name": "다라도서관", "homepageUrl": "https://www.lib.example.go.kr/"},
         {"libCode": "800003", "name": "마바도서관", "homepageUrl": "https://other.example.or.kr/"},
+        # 분관 페이지를 따로 가진 큰 도서관. 묶음키가 달라져 조용히 빠지던 자리입니다.
+        {"libCode": "800004", "name": "사아도서관", "homepageUrl": "https://lib.example.go.kr/jungang"},
+        {"libCode": "800005", "name": "자차도서관", "homepageUrl": "https://lib.example.go.kr/bunkwan"},
     ]
     cases = [
         ("정상", "www.lib.example.go.kr | ISBN_SEARCH | UTF-8 | https://www.lib.example.go.kr/s?q={isbn13}", 2),
@@ -243,6 +247,14 @@ def check_import(work: str) -> list[str]:
         ("실패 줄", "www.lib.example.go.kr | 실패 | - | -", 0),
         ("표 머리글", "묶음키 | 종류 | 인코딩 | 주소", 0),
         ("제목인데 isbn 자리표", "www.lib.example.go.kr | TITLE_SEARCH | UTF-8 | https://www.lib.example.go.kr/s?q={isbn13}", 0),
+        # `*` 는 같은 기관 전체로 넓힙니다. 분관 페이지를 따로 가진 큰 도서관이 빠지던 것을
+        # 메우는 자리인데, **넓히면서 남의 기관까지 데려가면 안 됩니다.** 800003 은 다른
+        # 기관이라 다섯 곳 가운데 넷만 나와야 합니다.
+        ("기관 전체", "www.lib.example.go.kr* | ISBN_SEARCH | UTF-8 | https://www.lib.example.go.kr/s?q={isbn13}", 4),
+        # 별표가 없으면 예전 그대로 좁게 갑니다. **기본이 좁은 쪽이어야 합니다.**
+        ("별표 없으면 그대로", "www.lib.example.go.kr | ISBN_SEARCH | UTF-8 | https://www.lib.example.go.kr/s?q={isbn13}", 2),
+        # 넓힌 줄이 다른 기관 주소를 들고 있으면 넓히기 전에 걸러야 합니다.
+        ("기관 전체인데 남의 주소", "www.lib.example.go.kr* | ISBN_SEARCH | UTF-8 | https://vendor.example.com/s?q={isbn13}", 0),
     ]
     failures = []
     for label, line, want in cases:
@@ -253,9 +265,71 @@ def check_import(work: str) -> list[str]:
             od.import_findings(path, libs)
         got = len([l for l in buf.getvalue().splitlines() if l.strip()])
         ok = got == want
-        print(f"  {'✓' if ok else '✗'} {label:16s} 줄 {got}개 (기대 {want}개)")
+        print(f"  {'✓' if ok else '✗'} {label:22s} 줄 {got}개 (기대 {want}개)")
         if not ok:
             failures.append(f"받기:{label}")
+
+    # 한 도서관이 두 줄에 걸리는 것은 `*` 를 쓰면 흔합니다. 같은 주소면 한 줄만 나가고,
+    # 다른 주소면 **어느 쪽이 맞는지 우리가 모르므로** 사유가 남아야 합니다.
+    same = ("www.lib.example.go.kr* | ISBN_SEARCH | UTF-8 | https://www.lib.example.go.kr/s?q={isbn13}\n"
+            "lib.example.go.kr/jungang | ISBN_SEARCH | UTF-8 | https://www.lib.example.go.kr/s?q={isbn13}\n")
+    other = ("www.lib.example.go.kr* | ISBN_SEARCH | UTF-8 | https://www.lib.example.go.kr/s?q={isbn13}\n"
+             "lib.example.go.kr/jungang | ISBN_SEARCH | UTF-8 | https://www.lib.example.go.kr/t?q={isbn13}\n")
+    for label, text, want_rows, want_warn in [("겹치는 줄 같은 주소", same, 4, False),
+                                              ("겹치는 줄 다른 주소", other, 4, True)]:
+        path = os.path.join(work, "findings.txt")
+        open(path, "w").write(text)
+        buf, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(err):
+            od.import_findings(path, libs)
+        rows = len([l for l in buf.getvalue().splitlines() if l.strip()])
+        warned = "이미 다른" in err.getvalue()
+        ok = rows == want_rows and warned == want_warn
+        print(f"  {'✓' if ok else '✗'} {label:22s} 줄 {rows}개 (기대 {want_rows}개), "
+              f"경고 {'있음' if warned else '없음'}")
+        if not ok:
+            failures.append(f"받기:{label}")
+    return failures
+
+
+def check_gaps(work: str) -> list[str]:
+    """규칙이 있는 기관인데 규칙을 못 받은 도서관을 셀 수 있는지.
+
+    **이 보고가 없으면 아무도 눈치채지 못합니다.** 화면에는 이상이 없어 보이고, 도착한
+    곳이 홈페이지라는 것은 실제로 눌러 본 사람만 압니다. 실제로 노원에서 작은도서관
+    스물일곱 곳이 책 검색으로 가는 동안 사람이 많이 가는 여덟 곳이 홈페이지로 갔습니다.
+    """
+    print("\n  빠진 도서관 세기")
+    libs = [
+        {"libCode": "800001", "name": "가나도서관", "homepageUrl": "https://www.lib.example.go.kr/"},
+        {"libCode": "800004", "name": "사아도서관", "homepageUrl": "https://lib.example.go.kr/jungang"},
+        {"libCode": "800003", "name": "마바도서관", "homepageUrl": "https://other.example.or.kr/"},
+    ]
+    csv_path = os.path.join(work, "templates.csv")
+    failures = []
+
+    # 800001 에만 규칙이 있으면 같은 기관인 800004 가 빠진 것으로 잡혀야 합니다.
+    open(csv_path, "w").write("# 주석\n800001,ISBN_SEARCH,UTF-8,https://www.lib.example.go.kr/s?q={isbn13}\n")
+    buf, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(err):
+        od.gaps(csv_path, libs)
+    ok = "사아도서관" in buf.getvalue() and "마바도서관" not in buf.getvalue()
+    print(f"  {'✓' if ok else '✗'} {'같은 기관만 셉니다':22s} "
+          f"{'남의 기관은 세지 않습니다' if ok else buf.getvalue()[:60]}")
+    if not ok:
+        failures.append("빠짐:같은 기관만")
+
+    # 둘 다 규칙이 있으면 아무것도 나오지 않아야 합니다.
+    open(csv_path, "w").write(
+        "800001,ISBN_SEARCH,UTF-8,https://www.lib.example.go.kr/s?q={isbn13}\n"
+        "800004,ISBN_SEARCH,UTF-8,https://www.lib.example.go.kr/s?q={isbn13}\n")
+    buf, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(err):
+        od.gaps(csv_path, libs)
+    ok = "0곳" in err.getvalue()
+    print(f"  {'✓' if ok else '✗'} {'다 채우면 0곳':22s} {err.getvalue().strip()[-20:]}")
+    if not ok:
+        failures.append("빠짐:다 채우면 0곳")
     return failures
 
 

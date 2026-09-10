@@ -120,6 +120,16 @@
 111415,ISBN_SEARCH,UTF-8,https://www.nowonlib.kr/KeywordSearchResult/{isbn13}
 711611,ISBN_SEARCH,UTF-8,https://www.nowonlib.kr/KeywordSearchResult/{isbn13}
 741562,ISBN_SEARCH,UTF-8,https://www.nowonlib.kr/KeywordSearchResult/{isbn13}
+# 아래 여덟 곳은 홈페이지가 nowonlib.kr/jungang 처럼 분관 경로라 묶음이 갈려 빠져 있었습니다.
+# 통합검색 결과 화면에 이 이름들이 그대로 나오는 것을 확인했습니다(2026-09-10).
+111058,ISBN_SEARCH,UTF-8,https://www.nowonlib.kr/KeywordSearchResult/{isbn13}
+111307,ISBN_SEARCH,UTF-8,https://www.nowonlib.kr/KeywordSearchResult/{isbn13}
+111485,ISBN_SEARCH,UTF-8,https://www.nowonlib.kr/KeywordSearchResult/{isbn13}
+111239,ISBN_SEARCH,UTF-8,https://www.nowonlib.kr/KeywordSearchResult/{isbn13}
+111085,ISBN_SEARCH,UTF-8,https://www.nowonlib.kr/KeywordSearchResult/{isbn13}
+111484,ISBN_SEARCH,UTF-8,https://www.nowonlib.kr/KeywordSearchResult/{isbn13}
+111047,ISBN_SEARCH,UTF-8,https://www.nowonlib.kr/KeywordSearchResult/{isbn13}
+111519,ISBN_SEARCH,UTF-8,https://www.nowonlib.kr/KeywordSearchResult/{isbn13}
 111351,ISBN_SEARCH,UTF-8,http://www.unilib.dobong.kr/site/search/search00.do?cmd_name=bookandnonbooksearch&search_type=detail&manage_code=MA%2CMB%2CMC%2CME%2CMG%2CMJ%2CMF%2CMH%2CSA%2CMD%2CSB%2CSL%2CSM%2CSN%2CSO%2CSP%2CSK%2CSQ%2CSR%2CSS%2CST%2CSU%2CSG%2CSH%2CSC&search_txt={isbn13}
 111270,ISBN_SEARCH,UTF-8,http://www.unilib.dobong.kr/site/search/search00.do?cmd_name=bookandnonbooksearch&search_type=detail&manage_code=MA%2CMB%2CMC%2CME%2CMG%2CMJ%2CMF%2CMH%2CSA%2CMD%2CSB%2CSL%2CSM%2CSN%2CSO%2CSP%2CSK%2CSQ%2CSR%2CSS%2CST%2CSU%2CSG%2CSH%2CSC&search_txt={isbn13}
 111208,ISBN_SEARCH,UTF-8,http://www.unilib.dobong.kr/site/search/search00.do?cmd_name=bookandnonbooksearch&search_type=detail&manage_code=MA%2CMB%2CMC%2CME%2CMG%2CMJ%2CMF%2CMH%2CSA%2CMD%2CSB%2CSL%2CSM%2CSN%2CSO%2CSP%2CSK%2CSQ%2CSR%2CSS%2CST%2CSU%2CSG%2CSH%2CSC&search_txt={isbn13}
