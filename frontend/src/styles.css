@@ -681,11 +681,6 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
 }
 .chip--on:hover { background: var(--surface); border-color: var(--accent); }
 
-/* 순위 숫자. 15절이 대출건수를 주지 않아 순위만 옵니다. */
-.browse__rank {
-  flex: none; align-self: flex-start; min-width: 16px; padding-top: 3px;
-  font-size: 12px; font-weight: 600; color: var(--muted);
-}
 
 /*
   **한 칸으로 둡니다.** 후보 목록(.picks__list)은 700px 이상에서 두 칸으로 갈라지는데,

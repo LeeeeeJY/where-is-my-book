@@ -154,7 +154,6 @@ export function Browse({
 
           <p className="muted browse__note">
             최근 30일 동안 {currentLibrary?.name ?? '이 도서관'}에서 많이 빌려 간 순서입니다.
-            대출건수가 같으면 같은 순위이고, 그만큼 다음 순위를 건너뜁니다.
             {/*
               **연령대를 「그 나이가 읽을 책」으로 읽히게 두지 마세요.** 실제로 받아 보니
               어느 도서관의 「성인」 1·2위가 「흔한남매 과학 탐험대」와 「설민석의 한국사
@@ -248,6 +247,18 @@ function Story({
 /**
  * 인기 목록의 한 줄.
  *
+ * <h2>순위 숫자를 적지 않습니다</h2>
+ *
+ * <p>15절이 대출건수 없이 순위만 주는데, <b>실제로 재어 보니 동점이 너무 많아 숫자가
+ * 아무 말도 하지 못했습니다.</b> 일곱 도서관 41개 목록에서 스무 권에 든 서로 다른 순위가
+ * 중앙값 <b>두 개</b>였고, 가장 큰 동점 덩어리가 중앙값 <b>열두 권</b>이었으며, 여덟 목록은
+ * <b>전원이 같은 순위</b>였습니다. 「3」이 여섯 줄, 「1」이 스무 줄 이어지는 화면입니다.
+ *
+ * <p>목록 자체가 이미 많이 빌려 간 차례이므로 <b>순서만 남기고 숫자를 뗐습니다.</b>
+ * 1부터 20까지 새로 매기지는 않습니다. 정보나루가 주지 않은 순서를 우리가 지어내는
+ * 것이라, 동점인 스무 권에 없는 등수를 붙이게 됩니다. 값 자체는 진단에 쓰므로 응답에는
+ * 그대로 둡니다.
+ *
  * <p><b>소장을 묻지 않습니다.</b> 이 목록이 곧 그 도서관에서 빌려 간 기록이라 거기 있느냐고
  * 되물을 이유가 없습니다. 물어볼 값어치가 있는 것은 지금 빌릴 수 있는지뿐입니다.
  *
@@ -258,7 +269,6 @@ function Story({
 function PopularRow({ book, libCode }: { book: BrowsePopularBook; libCode: string }) {
   return (
     <li className="pick pick--flat">
-      <span className="browse__rank">{book.rank || ''}</span>
       <Cover src={book.imageUrl} className="pick__cover" />
       <span className="pick__body">
         <span className="pick__title">{book.title}</span>
