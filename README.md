@@ -153,6 +153,37 @@ cd frontend && node tools/make-og-image.mjs
 | `backend/src/main/java/kr/wimb/query` | 붙여넣은 목록의 줄 해석. 외부 호출이 없습니다 |
 | `frontend/src` | 도서관 선택, 한 권 검색, 여러 권 검색 화면 |
 
+### 무엇을 열어 두는가
+
+**프론트**(Vercel). 앱 밖의 정적 파일은 자바스크립트가 돌지 않아도 열립니다.
+
+| 주소 | 무엇 |
+|---|---|
+| `/` | 앱. 고른 도서관이 `?libs=` 로 붙어 그대로 공유됩니다 |
+| `/privacy` | 개인정보처리방침. `vercel.json` 이 `/privacy.html` 로 넘깁니다 |
+| `/robots.txt`, `/sitemap.xml` | 크롤러 규칙과 주소 목록 |
+| `/og.png` | 공유 미리보기 그림. 원본은 `frontend/tools/og-image.html` |
+
+**API**. 소장은 `/api/holdings` 한 곳에서만 답하고 검색은 소장을 부르지 않습니다.
+그 이유는 `CLAUDE.md` 에 있습니다.
+
+| 주소 | 방식 | 무엇 |
+|---|---|---|
+| `/api/libraries` | GET | 도서관 마스터. 위경도까지 함께 |
+| `/api/search` | GET | 책 검색(제목·저자·출판사·ISBN). **소장은 답하지 않습니다** |
+| `/api/check/resolve` | POST | 붙여 넣은 목록의 줄 해석과 책 확정 |
+| `/api/holdings` | POST | 저작 하나의 소장 도서관. 판본 전체를 함께 보냅니다 |
+| `/api/loan` | GET | 그 도서관의 대출 상태. **어제 기준입니다** |
+| `/api/go/{도서관부호}` | GET | 도서관 페이지로 넘김 |
+| `/api/version` | GET | 커밋 해시와 빌드 시각 |
+| `/api/status` | GET | 도서관 수, 오늘 쓴 호출, 캐시 항목 수, 세고 있는 주소 수 |
+| `/api/diagnose` | GET | 나가는 IP 와 정보나루 응답. **열 때마다 호출을 하나 씁니다** |
+| `/robots.txt` | GET | 크롤러가 `/api/go/…` 를 따라다니지 못하게 막습니다 |
+
+**주소마다 매긴 호출 무게는 여기에 적지 않습니다.** `RateLimitInterceptor.costOf` 하나가
+정본이고, 숫자를 베껴 두면 그것이 바뀔 때 이 표만 조용히 거짓이 됩니다. 이 저장소는 같은
+일을 이미 두 번 겪었습니다.
+
 「내 주변」은 **반경 5km 안**을 가까운 순으로 보여 줍니다. 도서관은 멀리 다니지 않으므로
 좁게 잡았습니다. 3km 로 내리면 서울 도심 말고는 대부분 0~1곳이 나오는데, 그러면 아래의
 안내가 기본 상태가 되어 아무도 읽지 않게 됩니다.
