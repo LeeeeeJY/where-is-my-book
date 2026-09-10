@@ -608,8 +608,13 @@ function BookCard({
         */}
         {work.detailUrl && (
           <p className="book__editions">
-            <a href={work.detailUrl} target="_blank" rel="noreferrer">
-              정보나루에서 이 책 정보 보기
+            <a
+              className="chip chip--sm chip--go"
+              href={work.detailUrl}
+              target="_blank"
+              rel="noreferrer"
+            >
+              정보나루 책 정보
             </a>
           </p>
         )}
@@ -692,32 +697,30 @@ function Holdings({
           const library = byCode.get(code);
           return (
             <li key={code} className="lib">
-              <div className="lib__head">
-                {/*
-                  어느 단계의 링크인지 밝힙니다. 조용히 홈페이지로 보내면 사용자는
-                  검색 결과 자체가 틀렸다고 생각합니다. 다만 줄마다 한 문장씩 붙이면
-                  스무 곳에서 같은 말이 스무 번 반복되어 목록이 읽히지 않습니다.
-                  줄에는 짧게 붙이고 뜻은 목록 아래에 한 번만 풀어 씁니다.
-                */}
-                {/*
-                  **배지까지 링크 안에 둡니다.** 「홈페이지」 배지는 테두리가 둥글어
-                  버튼처럼 보이는데, 예전에는 이름에만 링크가 걸려 있어 배지를 누르면
-                  아무 일도 일어나지 않았습니다. 누를 것처럼 생긴 것은 눌려야 합니다.
-                */}
-                <a
-                  className="lib__link"
-                  href={libraryLink(code, work.isbn13List[0], work.title)}
-                  target="_blank"
-                  rel="noreferrer"
-                  title={linkLabel(library?.linkKind)}
-                >
-                  <span className="lib__name">{library ? library.name : code}</span>
-                  {/* 기본값(홈페이지)에는 배지를 달지 않습니다. 이유는 linkBadge 에 있습니다. */}
-                  {linkBadge(library?.linkKind) && (
-                    <span className="lib__kind">{linkBadge(library?.linkKind)}</span>
-                  )}
-                </a>
-              </div>
+              {/*
+                어느 단계의 링크인지 밝힙니다. 조용히 홈페이지로 보내면 사용자는
+                검색 결과 자체가 틀렸다고 생각합니다. 다만 줄마다 한 문장씩 붙이면
+                스무 곳에서 같은 말이 스무 번 반복되어 목록이 읽히지 않습니다.
+                줄에는 짧게 붙이고 뜻은 목록 아래에 한 번만 풀어 씁니다.
+              */}
+              {/*
+                **배지까지 칩 안에 둡니다.** 예전에는 배지가 테두리 있는 알약이라 그것만
+                버튼처럼 보였는데, 정작 눌러도 아무 일이 없었습니다. 이제 칩 전체가 눌리고
+                배지는 그 안의 작은 글자입니다. 누를 것처럼 생긴 것은 눌려야 합니다.
+              */}
+              <a
+                className="chip chip--strong chip--go chip--wrap"
+                href={libraryLink(code, work.isbn13List[0], work.title)}
+                target="_blank"
+                rel="noreferrer"
+                title={linkLabel(library?.linkKind)}
+              >
+                <span className="lib__name">{library ? library.name : code}</span>
+                {/* 기본값(홈페이지)에는 배지를 달지 않습니다. 이유는 linkBadge 에 있습니다. */}
+                {linkBadge(library?.linkKind) && (
+                  <span className="lib__kind">{linkBadge(library?.linkKind)}</span>
+                )}
+              </a>
               <LoanCheck libCode={code} isbn13List={work.isbn13List} />
             </li>
           );

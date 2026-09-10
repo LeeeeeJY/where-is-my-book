@@ -707,7 +707,12 @@ function ChosenBook({ work, tag, tagTitle }: { work: WorkResult; tag: string; ta
           {work.isbn13List.length > 1 && ` · 판본 ${work.isbn13List.length}개`}
         </span>
         {work.detailUrl && (
-          <a className="pick__link" href={work.detailUrl} target="_blank" rel="noreferrer">
+          <a
+            className="chip chip--sm chip--go"
+            href={work.detailUrl}
+            target="_blank"
+            rel="noreferrer"
+          >
             정보나루 책 정보
           </a>
         )}
@@ -1016,14 +1021,18 @@ function LibraryRow({
             </p>
           )}
           <div className="rank__actions">
+            {/*
+              **채운 칩은 「그 도서관으로 간다」는 뜻입니다.** 한 권 검색의 도서관 이름과
+              같은 모양이라, 두 화면에서 같은 색이 같은 말을 합니다.
+            */}
             <a
-              className="rank__site"
+              className="chip chip--strong chip--go"
               href={libraryLink(rank.libCode)}
               target="_blank"
               rel="noreferrer"
               title={linkLabel(library?.linkKind)}
             >
-              도서관 홈페이지 ↗
+              도서관 홈페이지
             </a>
             {/*
               「이 도서관에 가면 이 중에 몇 권을 빌릴 수 있나」가 여러 권 검색의 실제
