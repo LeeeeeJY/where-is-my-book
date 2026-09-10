@@ -706,15 +706,21 @@ function ChosenBook({ work, tag, tagTitle }: { work: WorkResult; tag: string; ta
           {[work.author, work.publisher].filter(Boolean).join(' · ')}
           {work.isbn13List.length > 1 && ` · 판본 ${work.isbn13List.length}개`}
         </span>
+        {/*
+          칩을 격자(.pick__body)에 바로 두면 칸 폭만큼 늘어나 카드 너비의 단추가 됩니다.
+          한 권 검색과 같은 줄(.book__links)에 담아 제 크기로 둡니다.
+        */}
         {work.detailUrl && (
-          <a
-            className="chip chip--sm chip--go"
-            href={work.detailUrl}
-            target="_blank"
-            rel="noreferrer"
-          >
-            정보나루 책 정보
-          </a>
+          <span className="book__links">
+            <a
+              className="chip chip--sm chip--go"
+              href={work.detailUrl}
+              target="_blank"
+              rel="noreferrer"
+            >
+              정보나루 책 정보
+            </a>
+          </span>
         )}
       </span>
       <span className="pick__tag" title={tagTitle}>✓ {tag}</span>

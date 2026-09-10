@@ -89,19 +89,24 @@ export function Browse({
   const shown = groups.find((row) => row.key === group) ?? groups[0];
 
   return (
-    <div className="browse">
+    <section className="browse">
       {/*
-        **둘러볼 도서관은 맨 위 한 곳에서만 정합니다.** 예전 시안은 이 자리가 목록 머리에
-        있었는데, 그러면 위의 「오늘의 이야기」와 아래 목록의 범위가 서로 달라 보였습니다.
+        **검색 카드와 다른 카드이고, 둘러볼 도서관은 제목 옆에서 정합니다.** 예전에는 검색
+        입력 칸 바로 아래 같은 카드 안에 「둘러볼 도서관」 선택 칸이 있었는데, 그 칸이 검색
+        입력 칸과 같은 모양이라 다섯째 검색 조건처럼 읽혔습니다. 실제로 헷갈린다는 말을
+        들었습니다. 카드를 나누고 선택은 칩 모양의 알약으로 바꿔, 여기가 「검색」이 아니라
+        「구경」이라는 것을 모양으로 말합니다.
+
+        **맨 위 한 곳에서만 정합니다.** 목록 머리마다 따로 두면 위의 「오늘의 이야기」와
+        아래 목록의 범위가 서로 달라 보입니다.
       */}
-      {codes.length > 1 && (
-        <div className="browse__scope">
-          <label className="muted" htmlFor="browse-lib">
-            둘러볼 도서관
-          </label>
+      <header className="browse__head">
+        <h2>둘러보기</h2>
+        {codes.length > 1 ? (
           <select
-            id="browse-lib"
-            className="text-input browse__pick"
+            className="browse__pick"
+            aria-label="둘러볼 도서관"
+            title="둘러볼 도서관"
             value={current}
             onChange={(event) => setLibCode(event.target.value)}
           >
@@ -111,8 +116,11 @@ export function Browse({
               </option>
             ))}
           </select>
-        </div>
-      )}
+        ) : (
+          /* 고를 것이 없으면 이름만 적습니다. 누를 것처럼 생긴 것은 눌려야 합니다. */
+          <span className="browse__lib muted">{currentLibrary?.name ?? current}</span>
+        )}
+      </header>
 
       {data === 'failed' && (
         <div className="banner banner--info">
@@ -126,9 +134,7 @@ export function Browse({
 
       {groups.length > 0 && (
         <>
-          <div className="browse__head">
-            <h2>요즘 많이 빌려 간 책</h2>
-          </div>
+          <h3 className="browse__title">요즘 많이 빌려 간 책</h3>
           {/*
             연령 묶음은 서버가 한 번에 다 받아 두었으므로 눌러도 정보나루를 부르지
             않습니다. **비어 있는 묶음은 서버가 아예 담지 않습니다.** 그려 두고 눌렀는데
@@ -171,7 +177,7 @@ export function Browse({
       )}
 
       {data === 'loading' && <p className="muted">둘러볼 것을 받는 중입니다.</p>}
-    </div>
+    </section>
   );
 }
 
@@ -196,7 +202,7 @@ function Story({
   return (
     <section className="daily">
       <div className="daily__head">
-        <h2>오늘의 이야기</h2>
+        <h3 className="browse__title">오늘의 이야기</h3>
         <span className="daily__date muted">{formatDay(story.date)}</span>
       </div>
 
@@ -212,30 +218,29 @@ function Story({
         </div>
 
         {story.detailUrl && (
-          <p className="book__editions">
+          <p className="book__links">
             <a className="chip chip--sm chip--go" href={story.detailUrl} target="_blank" rel="noreferrer">
               정보나루 책 정보
             </a>
           </p>
         )}
 
+        {/* 한 권 검색의 소장 도서관 줄과 같은 구조입니다. 칩 둘이 `.lib` 바로 아래에 놓입니다. */}
         <ul className="holding__list">
           <li className="lib">
-            <span className="lib__head">
-              <a
-                className="chip chip--strong chip--go chip--wrap"
-                href={libraryLink(libCode, story.isbn13, story.title)}
-                target="_blank"
-                rel="noreferrer"
-                title={linkLabel(library?.linkKind)}
-              >
-                <span className="lib__name">{library?.name ?? libCode}</span>
-                {linkBadge(library?.linkKind) && (
-                  <span className="lib__kind">{linkBadge(library?.linkKind)}</span>
-                )}
-              </a>
-              <LoanCheck libCode={libCode} isbn13List={[story.isbn13]} />
-            </span>
+            <a
+              className="chip chip--strong chip--go chip--wrap"
+              href={libraryLink(libCode, story.isbn13, story.title)}
+              target="_blank"
+              rel="noreferrer"
+              title={linkLabel(library?.linkKind)}
+            >
+              <span className="lib__name">{library?.name ?? libCode}</span>
+              {linkBadge(library?.linkKind) && (
+                <span className="lib__kind">{linkBadge(library?.linkKind)}</span>
+              )}
+            </a>
+            <LoanCheck libCode={libCode} isbn13List={[story.isbn13]} />
           </li>
         </ul>
       </div>
@@ -319,7 +324,7 @@ function PopularRow({
       {open && (
         <div className="drawer">
           {book.detailUrl && (
-            <p className="book__editions">
+            <p className="book__links">
               <a
                 className="chip chip--sm chip--go"
                 href={book.detailUrl}
@@ -403,21 +408,19 @@ function Held({
           const library = libraries.find((row) => row.libCode === code);
           return (
             <li key={code} className="lib">
-              <span className="lib__head">
-                <a
-                  className="chip chip--strong chip--go chip--wrap"
-                  href={libraryLink(code, isbn13List[0], title)}
-                  target="_blank"
-                  rel="noreferrer"
-                  title={linkLabel(library?.linkKind)}
-                >
-                  <span className="lib__name">{library?.name ?? code}</span>
-                  {linkBadge(library?.linkKind) && (
-                    <span className="lib__kind">{linkBadge(library?.linkKind)}</span>
-                  )}
-                </a>
-                <LoanCheck libCode={code} isbn13List={isbn13List} />
-              </span>
+              <a
+                className="chip chip--strong chip--go chip--wrap"
+                href={libraryLink(code, isbn13List[0], title)}
+                target="_blank"
+                rel="noreferrer"
+                title={linkLabel(library?.linkKind)}
+              >
+                <span className="lib__name">{library?.name ?? code}</span>
+                {linkBadge(library?.linkKind) && (
+                  <span className="lib__kind">{linkBadge(library?.linkKind)}</span>
+                )}
+              </a>
+              <LoanCheck libCode={code} isbn13List={isbn13List} />
             </li>
           );
         })}
