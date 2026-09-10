@@ -22,6 +22,7 @@ import type { LoanPhrase } from '../domain/loanStatus';
 export function LoanCheck({ libCode, isbn13List }: { libCode: string; isbn13List: string[] }) {
   const [state, setState] = useState<'idle' | 'asking' | 'failed'>('idle');
   const [status, setStatus] = useState<LoanStatus | null>(null);
+  const asking = state === 'asking';
 
   if (isbn13List.length === 0) return null;
 
@@ -41,7 +42,7 @@ export function LoanCheck({ libCode, isbn13List }: { libCode: string; isbn13List
     <button
       type="button"
       className="chip"
-      disabled={state === 'asking'}
+      disabled={asking}
       title={LOAN_DISCLAIMER}
       onClick={() => {
         setState('asking');
@@ -54,7 +55,19 @@ export function LoanCheck({ libCode, isbn13List }: { libCode: string; isbn13List
         );
       }}
     >
-      {state === 'asking' ? '확인 중' : '대출 상태 확인'}
+      {/*
+        **두 문구를 겹쳐 두고 쓰지 않는 쪽을 감춥니다. 삼항 연산자로 글자만 갈아 끼우는
+        쪽으로 되돌리지 마세요.** 「확인 중」은 「대출 상태 확인」보다 짧아서 단추가 그만큼
+        좁아지는데, 줄어든 폭이 마침 도서관 이름 옆에 들어맞으면 아래 줄에 있던 단추가 이름
+        옆으로 올라붙습니다. 두 줄이던 도서관 한 곳이 한 줄로 줄었다가, 답이 도착해 문구가
+        칩 아래 한 줄로 내려가면 다시 두 줄이 됩니다. 누른 자리가 눈앞에서 두 번 움직이는
+        것이라, 사용자는 자기가 무엇을 눌렀고 답이 어디에 왔는지를 놓칩니다.
+        폭을 붙드는 것은 `.chip__swap` 이고 자세한 이유는 거기에 적어 두었습니다.
+      */}
+      <span className="chip__swap">
+        <span className={asking ? 'chip__swap--off' : undefined}>대출 상태 확인</span>
+        <span className={asking ? undefined : 'chip__swap--off'}>확인 중</span>
+      </span>
     </button>
   );
 }
