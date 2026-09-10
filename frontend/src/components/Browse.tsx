@@ -239,7 +239,7 @@ function Story({
 
       <p className="muted daily__note">
         {library?.name ?? '이 도서관'} 서가의 소설 {story.poolSize.toLocaleString('ko-KR')}권 가운데
-        오늘 하나를 골랐습니다. 내일 다른 책이 옵니다.
+        오늘 하나를 골랐습니다. 내일은 다른 책을 고릅니다.
       </p>
     </section>
   );
