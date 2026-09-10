@@ -6,8 +6,21 @@
   --muted: #77716a;
   --accent: #2f6f4f;
   /* 강조색의 옅은 바탕과 진한 쪽. 칩과 hover 가 색을 지어내지 않게 여기에 둡니다. */
-  --accent-soft: #eef4f0;
+  --accent-soft: #e6f0ea;
   --accent-deep: #245a3f;
+  /* 채운 칩의 테두리. 옅은 바탕만으로는 흰 바탕에서 경계가 사라집니다. */
+  --accent-line: #c2d8cb;
+  /*
+    누르는 자리의 테두리. `--line` 은 카드 구분선이라 그 색을 칩에 쓰면 단추가 아니라 글자
+    둘레의 얼룩처럼 보였습니다. 눌리는 것은 이것으로 두르고, 나누는 선은 `--line` 으로 긋습니다.
+  */
+  --chip-line: #d4cfc7;
+  /*
+    도서관 한 곳을 한 덩어리로 묶는 바탕. 테두리 대신 바탕색으로 묶습니다. 카드 안에 테두리
+    상자, 그 안에 테두리 칩이 들어가면 선이 세 겹이 되어 전부 다닥다닥 붙어 보입니다.
+  */
+  --tile: #f4f2ee;
+  --lift: 0 1px 2px rgba(35, 32, 28, 0.06);
   --warn-bg: #fdf6e3;
   --warn-line: #e6d9b0;
   color-scheme: light;
@@ -59,7 +72,7 @@ body {
 .banner {
   margin: 20px 0;
   padding: 12px 14px;
-  border-radius: 8px;
+  border-radius: 10px;
   font-size: 14px;
   line-height: 1.55;
 }
@@ -128,7 +141,7 @@ body {
   }
 }
 
-.picker, .results {
+.picker, .results, .browse {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -161,20 +174,28 @@ body {
 
 .search-tab { display: grid; gap: 10px; }
 .text-input {
-  width: 100%; padding: 8px 10px; font: inherit;
-  border: 1px solid var(--line); border-radius: 6px; background: var(--surface);
+  width: 100%; padding: 9px 12px; font: inherit;
+  border: 1px solid var(--chip-line); border-radius: 8px; background: var(--surface);
+}
+.text-input:focus {
+  outline: none; border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(47, 111, 79, 0.15);
 }
 
 .button {
-  appearance: none; padding: 9px 14px; font: inherit; font-weight: 600;
-  background: var(--accent); color: #fff; border: 0; border-radius: 6px; cursor: pointer;
+  appearance: none; padding: 10px 16px; font: inherit; font-weight: 600;
+  background: var(--accent); color: #fff; border: 0; border-radius: 8px; cursor: pointer;
+  transition: background-color 0.12s ease;
 }
-.button:disabled { opacity: 0.6; cursor: default; }
+.button:hover { background: var(--accent-deep); }
+.button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.button:disabled { opacity: 0.6; cursor: default; background: var(--accent); }
 /* 되짚어 확인하라는 권유입니다. 검색만큼 눈에 띄면 검색을 가립니다. */
 .button--quiet {
   background: var(--surface); color: var(--accent);
   border: 1px solid var(--accent); font-weight: 600;
 }
+.button--quiet:hover { background: var(--accent-soft); }
 
 /*
   **누르는 자리를 한 모양으로 모읍니다.**
@@ -188,37 +209,64 @@ body {
   자리는 전부 이것입니다. **다만 문장 속에 섞이는 것은 `.link-button` 으로 남깁니다.**
   「목록 고치기」나 「내 위치 다시 잡기」처럼 글 가운데 있는 자리에 칩을 넣으면 줄 높이가
   튀어 문장이 읽히지 않습니다.
+
+  **무게는 셋이고 색이 그것을 말합니다.** 짙은 녹색으로 채운 `.button` 이 그 화면의 주된
+  행동, 옅은 녹색으로 채운 `.chip--strong` 이 「그 도서관으로 간다」, 흰 바탕의 `.chip` 이
+  그 밖의 모든 것입니다. 예전에는 칩 글자가 전부 녹색이고 테두리가 구분선 색이라, 단추로
+  보이지도 않으면서 화면이 온통 녹색 글자였습니다.
 */
 .chip {
   appearance: none;
-  display: inline-flex; align-items: center; gap: 5px;
-  max-width: 100%; padding: 5px 11px; min-height: 30px;
+  display: inline-flex; align-items: center; gap: 6px;
+  max-width: 100%; padding: 6px 14px; min-height: 34px;
   font: inherit; font-size: 13px; font-weight: 600; line-height: 1.3;
-  color: var(--accent); background: var(--surface);
-  border: 1px solid var(--line); border-radius: 999px;
+  color: var(--text); background: var(--surface);
+  border: 1px solid var(--chip-line); border-radius: 999px;
+  box-shadow: var(--lift);
   cursor: pointer; text-decoration: none; text-align: left;
-  transition: background-color 0.12s ease, border-color 0.12s ease;
+  transition: background-color 0.12s ease, border-color 0.12s ease, transform 0.08s ease;
 }
-.chip:hover { border-color: var(--accent); background: var(--accent-soft); }
-.chip:disabled { color: var(--muted); background: var(--bg); cursor: default; }
-.chip:disabled:hover { border-color: var(--line); background: var(--bg); }
+.chip:hover { background: var(--bg); border-color: #bcb6ad; }
+.chip:active { transform: translateY(1px); box-shadow: none; }
+.chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.chip:disabled {
+  color: var(--muted); background: var(--bg); box-shadow: none;
+  cursor: default; transform: none;
+}
+.chip:disabled:hover { border-color: var(--chip-line); background: var(--bg); }
 
 /* 그 줄에서 가장 하고 싶은 것. 소장 도서관으로 가는 것이 여기에 해당합니다. */
-.chip--strong { border-color: var(--accent); background: var(--accent-soft); }
-.chip--strong:hover { background: #e2ece6; }
+.chip--strong {
+  color: var(--accent-deep); background: var(--accent-soft); border-color: var(--accent-line);
+}
+.chip--strong:hover { background: #dbe9e0; border-color: var(--accent); }
 
 /*
   **화면 밖으로 나간다는 것을 미리 알립니다.** 새 탭이 열리는데 아무 표시가 없으면
   사용자는 이 화면이 사라진 줄 압니다. 화살표를 글자로 적지 말고 여기서 붙이세요.
   자리마다 손으로 적으면 언젠가 한쪽이 빠집니다.
 */
-.chip--go::after { content: '↗'; flex: none; font-size: 11px; font-weight: 500; opacity: 0.7; }
+.chip--go::after { content: '↗'; flex: none; font-size: 12px; font-weight: 600; opacity: 0.6; }
 
 /* 후보 카드 안처럼 자리가 좁은 곳. */
-.chip--sm { padding: 3px 9px; min-height: 26px; font-size: 12px; }
+.chip--sm { padding: 4px 12px; min-height: 30px; font-size: 12px; }
 
-/* 이름이 긴 도서관은 칩 안에서 줄을 바꿉니다. 한 줄로 버티면 카드를 뚫고 나갑니다. */
-.chip--wrap { flex-wrap: wrap; }
+/*
+  이름이 긴 도서관은 칩 안에서 줄을 바꿉니다. 한 줄로 버티면 카드를 뚫고 나갑니다.
+  flex 로 접으면 화살표가 따로 떨어져 한 줄을 혼자 차지하므로, 이 칩만 글줄로 흐르게 두고
+  화살표는 붙임 공백(U+00A0)으로 앞 글자에 묶습니다. 위아래 여백은 한 줄일 때 글줄이
+  가운데 오도록 잡은 값입니다.
+*/
+.chip--wrap { display: inline-block; white-space: normal; padding-top: 8px; padding-bottom: 8px; }
+/* 「이 책 검색」 같은 배지는 통째로 다음 줄로 내려갑니다. 글자 사이에서 끊기면 못 읽습니다. */
+.chip--wrap .lib__kind { margin-left: 5px; white-space: nowrap; }
+.chip--wrap.chip--go::after { content: '\00a0↗'; }
+
+/*
+  칩을 여럿 늘어놓는 줄. **사이를 반드시 띄웁니다.** 연령 묶음이 이 규칙 없이 놓여 있어서
+  여섯 개가 한 줄에 다닥다닥 붙은 채 아래 목록에 그대로 이어졌습니다.
+*/
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 12px; }
 
 /*
   **세로로 쌓는 칸 안에서는 칩이 늘어나지 않게 붙들어야 합니다.** 넓은 화면에서 도서관
@@ -262,12 +310,12 @@ body {
   모호한 줄의 후보 고르기.
   제목과 저자만 있던 칩으로는 어느 판인지 알 수 없어 표지와 출판사를 함께 보여 줍니다.
 */
-.picks__list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.picks__list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 .pick {
   appearance: none; width: 100%; text-align: left; cursor: pointer;
   display: flex; gap: 10px; align-items: center;
-  padding: 8px 10px; font: inherit;
-  background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+  padding: 10px 12px; font: inherit;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
 }
 .pick--on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 /* 고른 책은 단추가 아니라 카드입니다. 누를 것처럼 보이면 안 됩니다. */
@@ -313,13 +361,12 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
 
 .asof {
   margin: 12px 0;
-  padding: 9px 11px;
+  padding: 10px 12px;
   font-size: 13px;
   line-height: 1.55;
   color: var(--muted);
-  background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: 7px;
+  background: var(--tile);
+  border-radius: 10px;
 }
 
 .book-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
@@ -333,14 +380,15 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
 
 .book {
   display: grid;
-  grid-template-columns: 56px 1fr;
-  gap: 12px;
+  grid-template-columns: 56px minmax(0, 1fr);
+  column-gap: 12px;
   padding-top: 14px;
   border-top: 1px solid var(--line);
 }
 .book:first-child { border-top: 0; padding-top: 0; }
 
 .book__cover {
+  grid-row: 1;
   width: 56px; height: 80px; object-fit: cover;
   border: 1px solid var(--line); border-radius: 4px; background: var(--bg);
 }
@@ -351,9 +399,23 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
   제목과 저자가 두세 글자마다 줄바꿈됩니다. 표지를 감추는 방식이 나중에 바뀌어도 이
   한 줄이 배치를 지킵니다.
 */
-.book__body { min-width: 0; grid-column: 2; }
+.book__body { min-width: 0; grid-column: 2; grid-row: 1; }
 .book__title { margin: 0 0 2px; font-size: 15px; line-height: 1.4; }
 .book__meta, .book__editions { margin: 0; font-size: 13px; }
+/* 정보나루 책 정보처럼 책에 딸린 링크 칩. 글줄에 바로 붙이면 칩이 글줄에 눌립니다. */
+.book__links { margin: 8px 0 0; display: flex; flex-wrap: wrap; gap: 8px; }
+
+/*
+  **소장 결과는 좁은 화면에서 표지 아래 한 줄을 통째로 씁니다.** 표지 옆 칸에 넣으면
+  400px 화면에서 남는 폭이 260px 남짓이라, 도서관 이름이 두 줄로 접히고 대출 확인 단추가
+  그 아래로 떨어져 도서관 한 곳이 세 줄을 차지했습니다. 넓은 화면에서는 본문과 같은 칸에
+  두고 표지가 두 줄에 걸치게 해서, 본문이 짧아도 소장 결과가 바로 아래에 붙습니다.
+*/
+.book__holding { grid-column: 1 / -1; grid-row: 2; min-width: 0; }
+@media (min-width: 560px) {
+  .book__cover { grid-row: 1 / 3; }
+  .book__holding { grid-column: 2; }
+}
 
 /*
   소장 결과의 네 상태를 색과 문구 양쪽으로 구분합니다.
@@ -366,7 +428,7 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
   padding: 8px 10px;
   background: var(--warn-bg);
   border: 1px solid var(--warn-line);
-  border-radius: 7px;
+  border-radius: 8px;
 }
 
 .holding__count { margin: 0 0 8px; }
@@ -376,28 +438,31 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
   도서관 한 곳이 한 덩어리입니다. 예전에는 이름과 링크 설명과 대출 버튼을 한 줄에 이어
   붙였는데, 좁은 화면에서 아무 데서나 줄이 바뀌어 어디까지가 한 도서관인지 알 수 없었습니다.
 */
-.holding__list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.holding__list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
 /*
   **이름과 대출 확인을 같은 모양의 칩 둘로 나란히 둡니다.** 예전에는 이름이 밑줄 링크였고
   대출 확인은 밑줄 텍스트 버튼이라 둘이 같은 무게로 보였습니다. 하나는 나를 도서관으로
   데려가고 하나는 여기서 답하는데, 생김새가 그 차이를 말해 주지 않았습니다.
+
+  **묶는 것은 테두리가 아니라 바탕색입니다.** 카드 테두리 안에 테두리 상자, 그 안에 테두리
+  칩이 들어가면 선이 세 겹이라 어디까지가 한 도서관인지 오히려 안 보입니다. 바탕색 한 덩어리
+  위에 흰 칩과 녹색 칩이 놓이면 선은 칩 둘레 한 겹뿐입니다.
 */
 .lib {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px;
-  padding: 8px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 10px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  padding: 10px 12px;
+  background: var(--tile);
+  border-radius: 12px;
 }
-.lib__name { font-size: 13px; font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.lib__name { min-width: 0; overflow-wrap: anywhere; }
 /* 어느 단계의 링크인지. 짧게 붙이되 없애지는 않습니다. 칩 안이라 테두리는 뺍니다. */
-.lib__kind { font-size: 11px; font-weight: 500; color: var(--muted); }
+.lib__kind { font-size: 11px; font-weight: 500; opacity: 0.75; }
 /*
   대출 상태의 답은 칩 아래 한 줄로 내려놓습니다. 칩 옆에 붙이면 도서관 이름이 밀려
   줄이 흐트러지고, 날짜까지 함께 오는 문구라 대개 한 줄을 다 씁니다.
 */
-.lib > .loan, .lib > .muted { flex: 1 1 100%; margin: 0; }
-.holding__note { margin: 8px 0 0; font-size: 12px; line-height: 1.5; }
+.lib > .loan, .lib > .muted { flex: 1 1 100%; margin: 0; padding: 0 2px; font-size: 13px; }
+.holding__note { margin: 10px 0 0; font-size: 12px; line-height: 1.5; }
 
 /* ── 여러 권 검색 ───────────────────────────────────────────────────── */
 
@@ -488,7 +553,7 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
   나란히 놓아 한눈에 견주게 합니다.
 */
 @media (min-width: 700px) {
-  .picks__list { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .picks__list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 }
 
 /* 한 도서관에서 여러 책의 대출 상태를 한 번에 본 결과. 펼쳐지면 한 줄을 다 차지합니다. */
@@ -563,27 +628,58 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
 .rank__books-label { font-weight: 600; margin-right: 2px; }
 .rank__books a { color: var(--accent); }
 /* 대출 확인과 홈페이지 링크. 이 도서관에 관한 단추는 여기 한 줄뿐입니다. */
-.rank__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 6px 0 0; }
+.rank__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0 0; }
 .rank__note { margin: 4px 0 0; font-size: 12px; line-height: 1.5; }
 
 /* ── 둘러보기 ──────────────────────────────────────────────────────── */
+
+/*
+  **검색 카드와 다른 카드입니다.** 예전에는 검색 입력 칸 바로 아래 같은 카드 안에 「둘러볼
+  도서관」 선택 칸이 있었는데, 그 칸이 검색 입력 칸과 같은 모양이라 다섯째 검색 조건처럼
+  읽혔습니다. 카드를 나누고 도서관을 고르는 자리를 제목 옆의 알약으로 바꿔, 여기가 「검색」이
+  아니라 「구경」이라는 것을 모양으로 말합니다. 탭은 늘리지 않습니다. 검색어를 넣으면 이
+  카드는 사라지고 결과가 그 자리를 차지합니다.
+*/
+.browse__head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px 12px; flex-wrap: wrap; margin: 0 0 14px;
+}
+.browse__head h2 { margin: 0; font-size: 16px; min-width: 0; }
+/*
+  둘러볼 도서관. **검색 입력 칸과 같은 모양이면 안 됩니다.** 칩과 같은 알약으로 두고,
+  브라우저 기본 화살표를 지운 자리에 작은 꺾쇠를 그립니다.
+*/
+.browse__pick {
+  appearance: none; -webkit-appearance: none;
+  max-width: 100%; min-width: 0; min-height: 34px;
+  padding: 6px 32px 6px 14px;
+  font: inherit; font-size: 13px; font-weight: 600; color: var(--text);
+  background: var(--surface)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M2 3.5l3 3 3-3' fill='none' stroke='%2323201c' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+    no-repeat right 12px center;
+  background-size: 10px 10px;
+  border: 1px solid var(--chip-line); border-radius: 999px; box-shadow: var(--lift);
+  cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.browse__pick:hover { background-color: var(--bg); border-color: #bcb6ad; }
+.browse__pick:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* 고른 도서관이 한 곳뿐이면 고를 것이 없으므로 이름만 적습니다. 누를 것처럼 생기면 안 됩니다. */
+.browse__lib { font-size: 13px; }
+
+/* 카드 안의 두 단락. 「오늘의 이야기」와 「요즘 많이 빌려 간 책」입니다. */
+.browse__title { margin: 0; font-size: 15px; }
+.browse__note { margin: 12px 0 0; font-size: 12px; line-height: 1.55; }
 
 /*
   **고른 것을 표시합니다.** 채운 칩(.chip--strong)을 쓰지 않습니다. 그것은 「그 도서관으로
   간다」는 뜻으로만 쓰기로 했고, 같은 색이 두 가지를 뜻하면 두 화면에서 같은 말을 한다는
   약속이 깨집니다. 대신 .pick--on 이 쓰는 겹테두리를 그대로 씁니다.
 */
-.chip--on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
-
-.browse__lead { margin: 12px 0 0; }
-.browse__scope {
-  display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
-  margin: 12px 0 0; font-size: 13px;
+.chip--on {
+  color: var(--accent-deep); border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
 }
-.browse__pick { width: auto; max-width: 100%; min-width: 0; }
-.browse__popular { margin: 20px 0 0; border-top: 1px solid var(--line); padding-top: 16px; }
-.browse__head h3 { margin: 0; font-size: 15px; }
-.browse__note { margin: 12px 0 0; font-size: 12px; line-height: 1.55; }
+.chip--on:hover { background: var(--surface); border-color: var(--accent); }
 
 /* 순위 숫자. 15절이 대출건수를 주지 않아 순위만 옵니다. */
 .browse__rank {
@@ -595,6 +691,9 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
   **한 칸으로 둡니다.** 후보 목록(.picks__list)은 700px 이상에서 두 칸으로 갈라지는데,
   여기는 줄마다 칩이 둘씩 붙어서 두 칸에 넣으면 이름이 접힙니다. 자기 탭을 차지하므로
   세로로 길어져도 됩니다.
+
+  줄을 눌러 펼치던 서랍(.drawer)과 그에 딸린 규칙은 함께 걷어냈습니다. 이 목록은 소장을
+  묻지 않으므로 펼칠 것이 없습니다.
 */
 .browse__list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 
@@ -605,24 +704,25 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
 /* 줄 안의 칩들. 좁은 화면에서 줄을 바꿉니다. */
 .browse__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 4px; }
 
-/* 연령 묶음 단추 줄. 비어 있는 묶음은 서버가 담지 않으므로 개수가 도서관마다 다릅니다. */
-.browse__ages { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; }
 
 /*
-  오늘의 이야기. 상자는 .asof 와 같은 처리(--bg 바탕 + 테두리)입니다. 새 색을 만들지 않고
+  오늘의 이야기. 상자는 도서관 줄과 같은 바탕색 한 덩어리입니다. 새 색을 만들지 않고
   「이 자리는 아래 목록과 다른 것」만 말합니다.
 */
-.daily { margin: 16px 0 0; }
+/*
+  **두 단락 사이에 선을 둡니다.** 「오늘의 이야기」와 「요즘 많이 빌려 간 책」은 성격이
+  다른데, 선이 없으면 이야기 아래의 설명 문단과 다음 제목이 붙어 한 덩어리로 읽힙니다.
+*/
+.daily { border-bottom: 1px solid var(--line); margin: 16px 0; padding-bottom: 16px; }
 .daily__head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.daily__head h3 { margin: 0; font-size: 15px; min-width: 0; }
 /*
   **날짜를 제목 옆에 둡니다.** 이 책은 하루에 한 번만 바뀌어서 새로 고쳐도 그대로인데,
   아무 표시가 없으면 사용자는 그것을 고장으로 읽고 계속 새로 고칩니다.
 */
 .daily__date { flex: none; font-size: 13px; white-space: nowrap; }
 .daily__card {
-  margin: 10px 0 0; padding: 12px;
-  background: var(--bg); border: 1px solid var(--line); border-radius: 10px;
+  margin: 12px 0 0; padding: 14px;
+  background: var(--tile); border-radius: 12px;
 }
 .daily__book { display: grid; grid-template-columns: 56px 1fr; gap: 12px; }
 /* 표제는 반드시 둘째 칸입니다. 표지가 빠져도 본문이 첫 칸으로 밀려 들어가지 않습니다. */
@@ -638,4 +738,8 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
   font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   background: var(--surface); border: 1px solid var(--line); border-radius: 6px;
 }
-.daily__note { margin: 10px 0 0; font-size: 12px; line-height: 1.55; }
+.daily__note { margin: 12px 0 0; font-size: 12px; line-height: 1.55; }
+.daily__card .book__links { margin-top: 12px; }
+.daily__card .holding__list { margin-top: 12px; }
+/* 상자 자체가 바탕이라 안의 도서관 줄은 바탕을 다시 깔지 않습니다. 회색 위의 회색이 됩니다. */
+.daily__card .lib { padding: 0; background: transparent; border-radius: 0; }

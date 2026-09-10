@@ -499,7 +499,7 @@ ISBN 을 알 수 없어 소장을 확인하지 못하는 자료가 {droppedNoIsb
         하지 않으면 사용자는 찾던 책이 없다고 결론짓습니다. 실제로는 스물한 번째에
         있을 수 있습니다.
       */}
-      <p className="more">
+      <div className="more">
         {/*
           「180개를 찾아 위에서 100개까지 봅니다 · 20개 보는 중」은 20개만 보이는데 왜 100개
           이야기가 나오는지 알 수 없었습니다. 지금 보는 수만 말하고, 상한(100)에 실제로
@@ -533,7 +533,7 @@ ISBN 을 알 수 없어 소장을 확인하지 못하는 자료가 {droppedNoIsb
             <DroppedList books={droppedBooks} total={droppedNoIsbn} />
           </>
         )}
-      </p>
+      </div>
     </>
   );
 }
@@ -607,7 +607,7 @@ function BookCard({
           반복됐습니다.
         */}
         {work.detailUrl && (
-          <p className="book__editions">
+          <p className="book__links">
             <a
               className="chip chip--sm chip--go"
               href={work.detailUrl}
@@ -618,7 +618,14 @@ function BookCard({
             </a>
           </p>
         )}
+      </div>
 
+      {/*
+        **소장 결과는 본문 칸이 아니라 격자의 셋째 칸입니다.** 좁은 화면에서 표지 아래 한 줄을
+        통째로 써야 도서관 이름과 대출 확인 단추가 한 줄에 들어갑니다. 넓은 화면에서 어느
+        칸에 놓일지는 styles.css 의 .book__holding 이 정합니다.
+      */}
+      <div className="book__holding">
         <Holdings
           work={work}
           byCode={byCode}

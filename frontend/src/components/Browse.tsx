@@ -20,10 +20,15 @@ import { LoanCheck } from './LoanCheck';
  *
  * <h2>탭 하나를 차지합니다</h2>
  *
- * <p>처음에는 한 권 검색의 빈 화면에 얹었습니다. 랭킹의 목적이 「검색어를 정하게 돕는
- * 것」이라 그 자리가 맞아 보였는데, <b>실제로 띄워 보니 검색 칸 넷 아래에 오늘의 이야기와
- * 스무 권짜리 목록과 안내 문단이 겹쳐 첫 화면이 복잡해졌습니다.</b> 검색하러 온 사람에게는
- * 검색 칸만 보이는 편이 낫습니다.
+ * <p>처음에는 한 권 검색의 빈 화면에 얹었고, 그다음에는 검색 카드 아래의 다른 카드로
+ * 떼어 냈습니다. 랭킹의 목적이 「검색어를 정하게 돕는 것」이라 그 자리가 맞아 보였는데,
+ * <b>실제로 띄워 보니 검색 칸 넷 아래에 오늘의 이야기와 스무 권짜리 목록과 안내 문단이
+ * 겹쳐 첫 화면이 복잡했습니다.</b> 카드를 나눈 것으로는 길이가 줄지 않습니다. 검색하러
+ * 온 사람에게는 검색 칸만 보이는 편이 낫습니다.
+ *
+ * <p>다만 <b>카드 안의 생김새는 그때 정리한 것을 그대로 씁니다.</b> 둘러볼 도서관을
+ * 제목 옆의 알약에서 고르는 것이 그것입니다. 검색 입력 칸과 같은 모양이면 다섯째 검색
+ * 조건처럼 읽힙니다.
  */
 export function Browse({
   libraries,
@@ -74,30 +79,19 @@ export function Browse({
   const shown = groups.find((row) => row.key === group) ?? groups[0];
 
   return (
-    <section className="results">
-      <header className="picker__head">
-        <h2>둘러보기</h2>
-        {current && <span className="picker__count">{currentLibrary?.name ?? current}</span>}
-      </header>
-
-      {!current && (
-        <p className="muted browse__lead">
-          도서관을 고르면 그 도서관에서 요즘 많이 빌려 간 책과 오늘의 이야기를 보여 드립니다.
-        </p>
-      )}
-
+    <section className="browse">
       {/*
-        둘러볼 도서관은 맨 위 한 곳에서만 정합니다. 오늘의 이야기와 아래 목록이 같은
-        도서관을 가리켜야 하는데, 단추가 목록 쪽에만 있으면 범위가 서로 달라 보입니다.
+        **둘러볼 도서관은 제목 옆에서, 맨 위 한 곳에서만 정합니다.** 목록 머리마다 따로
+        두면 위의 「오늘의 이야기」와 아래 목록의 범위가 서로 달라 보입니다. 그리고 검색
+        입력 칸과 같은 모양이면 다섯째 검색 조건처럼 읽히므로 칩 모양의 알약으로 둡니다.
       */}
-      {codes.length > 1 && (
-        <div className="browse__scope">
-          <label className="muted" htmlFor="browse-lib">
-            둘러볼 도서관
-          </label>
+      <header className="browse__head">
+        <h2>둘러보기</h2>
+        {codes.length > 1 ? (
           <select
-            id="browse-lib"
-            className="text-input browse__pick"
+            className="browse__pick"
+            aria-label="둘러볼 도서관"
+            title="둘러볼 도서관"
             value={current ?? ''}
             onChange={(event) => setLibCode(event.target.value)}
           >
@@ -107,7 +101,16 @@ export function Browse({
               </option>
             ))}
           </select>
-        </div>
+        ) : (
+          /* 고를 것이 없으면 이름만 적습니다. 누를 것처럼 생긴 것은 눌려야 합니다. */
+          current && <span className="browse__lib muted">{currentLibrary?.name ?? current}</span>
+        )}
+      </header>
+
+      {!current && (
+        <p className="muted">
+          도서관을 고르면 그 도서관에서 요즘 많이 빌려 간 책과 오늘의 이야기를 보여 드립니다.
+        </p>
       )}
 
       {data === 'failed' && (
@@ -121,16 +124,14 @@ export function Browse({
       )}
 
       {groups.length > 0 && current && (
-        <section className="browse__popular">
-          <div className="browse__head">
-            <h3>요즘 많이 빌려 간 책</h3>
-          </div>
+        <>
+          <h3 className="browse__title">요즘 많이 빌려 간 책</h3>
           {/*
             연령 묶음은 서버가 한 번에 다 받아 두었으므로 눌러도 정보나루를 부르지
             않습니다. **비어 있는 묶음은 서버가 아예 담지 않습니다.**
           */}
           {groups.length > 1 && (
-            <div className="browse__ages">
+            <div className="chips">
               {groups.map((row) => (
                 <button
                   key={row.key}
@@ -160,11 +161,11 @@ export function Browse({
               대모험」으로 「전체」 1·2위와 같았습니다. 어른이 아이 책을 빌린 것으로 보이는데
               매뉴얼은 그저 「성인 인기대출목록」이라고만 적어 두어 어느 쪽인지 단정할 수
               없습니다. 그래서 **대출 기록의 구분이라는 사실만 말하고 누구의 나이인지는
-              말하지 않습니다.** 자세한 것은 `docs/가정과-검증상태.md` 2-12 에 있습니다.
+              말하지 않습니다.** 자세한 것은 `docs/가정과-검증상태.md` 2-13 에 있습니다.
             */}
             {groups.length > 1 && ' 연령대는 정보나루가 대출 기록을 나눠 놓은 것입니다.'}
           </p>
-        </section>
+        </>
       )}
 
       {data === 'loading' && current && <p className="muted">둘러볼 것을 받는 중입니다.</p>}
@@ -191,7 +192,7 @@ function Story({
   return (
     <section className="daily">
       <div className="daily__head">
-        <h3>오늘의 이야기</h3>
+        <h3 className="browse__title">오늘의 이야기</h3>
         <span className="daily__date muted">{formatDay(story.date)}</span>
       </div>
 
@@ -208,26 +209,32 @@ function Story({
           </div>
         </div>
 
-        <div className="browse__actions">
-          {story.detailUrl && (
+        {story.detailUrl && (
+          <p className="book__links">
             <a className="chip chip--sm chip--go" href={story.detailUrl} target="_blank" rel="noreferrer">
               정보나루 책 정보
             </a>
-          )}
-          <a
-            className="chip chip--sm chip--strong chip--go chip--wrap"
-            href={libraryLink(libCode, story.isbn13, story.title)}
-            target="_blank"
-            rel="noreferrer"
-            title={linkLabel(library?.linkKind)}
-          >
-            <span className="lib__name">{library?.name ?? libCode}</span>
-            {linkBadge(library?.linkKind) && (
-              <span className="lib__kind">{linkBadge(library?.linkKind)}</span>
-            )}
-          </a>
-          <LoanCheck libCode={libCode} isbn13List={[story.isbn13]} />
-        </div>
+          </p>
+        )}
+
+        {/* 한 권 검색의 소장 도서관 줄과 같은 구조입니다. 칩 둘이 `.lib` 바로 아래에 놓입니다. */}
+        <ul className="holding__list">
+          <li className="lib">
+            <a
+              className="chip chip--strong chip--go chip--wrap"
+              href={libraryLink(libCode, story.isbn13, story.title)}
+              target="_blank"
+              rel="noreferrer"
+              title={linkLabel(library?.linkKind)}
+            >
+              <span className="lib__name">{library?.name ?? libCode}</span>
+              {linkBadge(library?.linkKind) && (
+                <span className="lib__kind">{linkBadge(library?.linkKind)}</span>
+              )}
+            </a>
+            <LoanCheck libCode={libCode} isbn13List={[story.isbn13]} />
+          </li>
+        </ul>
       </div>
 
       <p className="muted daily__note">
