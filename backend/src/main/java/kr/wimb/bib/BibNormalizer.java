@@ -43,6 +43,19 @@ public final class BibNormalizer {
     private static final Pattern SUBTITLE_SPLIT = Pattern.compile("(?:\\s+:\\s*|\\s*:\\s+)");
 
     /**
+     * <b>꼬리에 매달린 구분 기호.</b> 위의 셋은 한쪽 공백을 요구하므로 <b>맨 끝에 붙어
+     * 뒤에 아무것도 없는 기호를 잡지 못합니다.</b> 실제로 정보나루가
+     * {@code "(The) Saddest king/"} 를 그대로 돌려주었고, 그 슬래시가 화면의 제목에까지
+     * 그대로 나갔습니다.
+     *
+     * <p>여기서는 공백을 요구하지 않아도 안전합니다. <b>뒤에 아무것도 없으면 그 기호가
+     * 무언가를 나누고 있을 수가 없기 때문입니다.</b> 「입/출력」이나 「10:30」이 쪼개질까
+     * 걱정하지 않아도 되는 것이 그래서입니다. 뒤쪽 글자가 남아 있으면 이 패턴은 아예
+     * 맞지 않습니다.
+     */
+    private static final Pattern TRAILING_DELIMITER = Pattern.compile("[\\s/=:;]+$");
+
+    /**
      * 표제 꼬리의 권차 패턴. 위에서부터 먼저 맞는 것을 씁니다.
      * 숫자만 있는 경우를 세 자리로 제한한 것은 「코스모스 2020」 같은 연도를 권차로 오인하지
      * 않기 위해서입니다. 「1984」처럼 공백 없이 숫자로만 된 표제는 애초에 걸리지 않습니다.
@@ -253,6 +266,14 @@ public final class BibNormalizer {
                     List.of(), List.of(), "", "", List.of(), null);
         }
         String work = Normalizer.normalize(rawTitle, Normalizer.Form.NFKC).trim();
+
+        // A0. 꼬리에 매달린 구분 기호를 먼저 떼어 냅니다. 아래 셋은 한쪽 공백을 요구해서
+        //     맨 끝의 기호를 잡지 못하고, 그대로 두면 화면의 제목에 슬래시가 남습니다.
+        work = TRAILING_DELIMITER.matcher(work).replaceFirst("");
+        if (work.isEmpty()) {
+            return new TitleParts("", null, null, null, null,
+                    List.of(), List.of(), "", "", List.of(), null);
+        }
 
         // A1. 책임표시부를 떼어 냅니다. 이걸 먼저 하지 않으면 저자 이름을 정규화하게 됩니다.
         String sor = null;

@@ -1,37 +1,29 @@
-import { useCallback, useEffect, useState } from 'react';
-import {
-  ApiUnavailable,
-  fetchBrowse,
-  fetchHoldings,
-  libraryLink,
-  searchBooks,
-} from '../api';
+import { useEffect, useState } from 'react';
+import { fetchBrowse, libraryLink } from '../api';
 import type { BrowsePopularBook, BrowseResponse, BrowseStory } from '../api';
-import type { HoldingsResponse } from '../api';
 import type { Library } from '../domain/types';
-import { holdingState } from '../domain/holdingState';
 import { linkBadge, linkLabel } from '../domain/opacLink';
 import { LoanCheck } from './LoanCheck';
 
 /**
- * 검색어를 넣기 전의 빈 화면을 채웁니다. **읽을 책을 아직 정하지 않은 사람의 입구입니다.**
+ * 읽을 책을 아직 정하지 않은 사람의 입구입니다. 그 도서관의 인기대출 목록과
+ * 오늘의 이야기 한 권을 보여 줍니다.
  *
- * <p>지금까지 이 도구는 「찾을 책을 이미 정한 사람」만 쓸 수 있었습니다. 도서관을 골라
- * 두어도 검색 칸 아래가 텅 비어 있었기 때문입니다.
+ * <h2>소장을 묻지 않습니다</h2>
  *
- * <h2>목록에 소장을 미리 붙이지 않습니다</h2>
+ * <p>처음에는 줄마다 「어디 있나」를 두고 눌러서 소장을 확인하게 했는데, <b>이 목록은
+ * 그 도서관에서 많이 빌려 간 책의 순위입니다.</b> 그 도서관에 있느냐고 되묻는 셈이라
+ * 물음 자체가 어긋나 있었습니다. 사용자가 실제로 알고 싶은 것은 <b>지금 빌릴 수
+ * 있는가</b>이고, 그것만 누를 때 물어봅니다.
  *
- * <p>스무 권 × 고른 도서관이 걸친 시도 수만큼 호출이 나갑니다. 「대출 상태를 목록에 미리
- * 달지 마세요」와 같은 규칙이고, 여기서도 <b>줄을 눌렀을 때만</b> 물어봅니다.
+ * <p>덕분에 줄을 펼칠 때 나가던 검색 한 번과 소장 조회 한 번이 통째로 사라졌습니다.
  *
- * <p>그래서 목록 아래에 「누르기 전에는 아직 물어보지 않았다」를 적습니다.
- * <b>표시가 없는 줄을 「없다」로 읽으면 안 됩니다.</b>
+ * <h2>탭 하나를 차지합니다</h2>
  *
- * <h2>줄을 눌러도 화면을 갈아 끼우지 않습니다</h2>
- *
- * <p>목록을 훑다가 한 권 확인하자고 읽던 자리를 잃으면 안 되므로 그 자리에서 펼칩니다.
- * {@code styles.css} 의 {@code .rank__head} 가 「도서관 줄의 머리 전체가 단추입니다」라고
- * 적어 둔 것과 같은 방식입니다.
+ * <p>처음에는 한 권 검색의 빈 화면에 얹었습니다. 랭킹의 목적이 「검색어를 정하게 돕는
+ * 것」이라 그 자리가 맞아 보였는데, <b>실제로 띄워 보니 검색 칸 넷 아래에 오늘의 이야기와
+ * 스무 권짜리 목록과 안내 문단이 겹쳐 첫 화면이 복잡해졌습니다.</b> 검색하러 온 사람에게는
+ * 검색 칸만 보이는 편이 낫습니다.
  */
 export function Browse({
   libraries,
@@ -43,11 +35,12 @@ export function Browse({
   /*
     **고른 순서가 아니라 목록 순서로 셉니다.** `Set` 의 순서는 사용자가 체크한 차례라,
     시도 하나를 통째로 고르면 첫 곳이 도서관 목록의 첫 곳과 달라집니다. 실제로 경기도를
-    한 번에 골랐더니 기본값이 「분당도서관」이었습니다. 목록은 시도 → 이름 순으로 정해져
-    있으므로 그것을 그대로 따르면 같은 선택에서 늘 같은 곳이 먼저입니다.
+    한 번에 골랐더니 기본값이 「분당도서관」이었습니다.
   */
-  const codes = libraries.filter((library) => selected.has(library.libCode))
+  const codes = libraries
+    .filter((library) => selected.has(library.libCode))
     .map((library) => library.libCode);
+
   const [libCode, setLibCode] = useState<string | null>(null);
   const [data, setData] = useState<BrowseResponse | 'loading' | 'failed'>('loading');
   const [group, setGroup] = useState<string | null>(null);
@@ -66,7 +59,7 @@ export function Browse({
       },
       () => {
         // **둘러보기는 곁들이 화면입니다.** 이것 때문에 검색까지 막히면 안 되므로
-        // 조용히 물러납니다. 화면에는 안내 한 줄만 남습니다.
+        // 조용히 물러납니다.
         if (!cancelled) setData('failed');
       },
     );
@@ -75,24 +68,27 @@ export function Browse({
     };
   }, [current]);
 
-  /*
-    **고른 도서관이 없으면 아무것도 그리지 않습니다.** 여기에 「도서관을 고르면 보여
-    드립니다」를 두면 바로 위의 「도서관 선택에서 자주 가는 곳을 먼저 골라 주세요」와
-    같은 말이 두 번 나옵니다. 실제로 그 상태에서 같은 뜻의 문단이 셋이었습니다.
-    화면이 자기가 한 일을 전부 설명하면 정작 사용자가 할 일이 묻힙니다.
-  */
-  if (!current) return null;
-
   const currentLibrary = libraries.find((library) => library.libCode === current);
   const response = typeof data === 'string' ? null : data;
   const groups = response?.popular ?? [];
   const shown = groups.find((row) => row.key === group) ?? groups[0];
 
   return (
-    <div className="browse">
+    <section className="results">
+      <header className="picker__head">
+        <h2>둘러보기</h2>
+        {current && <span className="picker__count">{currentLibrary?.name ?? current}</span>}
+      </header>
+
+      {!current && (
+        <p className="muted browse__lead">
+          도서관을 고르면 그 도서관에서 요즘 많이 빌려 간 책과 오늘의 이야기를 보여 드립니다.
+        </p>
+      )}
+
       {/*
-        **둘러볼 도서관은 맨 위 한 곳에서만 정합니다.** 예전 시안은 이 자리가 목록 머리에
-        있었는데, 그러면 위의 「오늘의 이야기」와 아래 목록의 범위가 서로 달라 보였습니다.
+        둘러볼 도서관은 맨 위 한 곳에서만 정합니다. 오늘의 이야기와 아래 목록이 같은
+        도서관을 가리켜야 하는데, 단추가 목록 쪽에만 있으면 범위가 서로 달라 보입니다.
       */}
       {codes.length > 1 && (
         <div className="browse__scope">
@@ -102,7 +98,7 @@ export function Browse({
           <select
             id="browse-lib"
             className="text-input browse__pick"
-            value={current}
+            value={current ?? ''}
             onChange={(event) => setLibCode(event.target.value)}
           >
             {codes.map((code) => (
@@ -120,22 +116,21 @@ export function Browse({
         </div>
       )}
 
-      {response?.story && (
+      {response?.story && current && (
         <Story story={response.story} libCode={current} library={currentLibrary} />
       )}
 
-      {groups.length > 0 && (
-        <>
+      {groups.length > 0 && current && (
+        <section className="browse__popular">
           <div className="browse__head">
-            <h2>요즘 많이 빌려 간 책</h2>
+            <h3>요즘 많이 빌려 간 책</h3>
           </div>
           {/*
             연령 묶음은 서버가 한 번에 다 받아 두었으므로 눌러도 정보나루를 부르지
-            않습니다. **비어 있는 묶음은 서버가 아예 담지 않습니다.** 그려 두고 눌렀는데
-            아무것도 안 나오면 고장으로 읽힙니다.
+            않습니다. **비어 있는 묶음은 서버가 아예 담지 않습니다.**
           */}
           {groups.length > 1 && (
-            <div className="chips">
+            <div className="browse__ages">
               {groups.map((row) => (
                 <button
                   key={row.key}
@@ -150,28 +145,30 @@ export function Browse({
             </div>
           )}
 
-          <ul className="picks__list">
+          <ul className="browse__list">
             {shown?.books.map((book) => (
-              <PopularRow
-                key={book.isbn13 + book.rank}
-                book={book}
-                libraries={libraries}
-                selected={selected}
-              />
+              <PopularRow key={book.isbn13 + book.rank} book={book} libCode={current} />
             ))}
           </ul>
 
           <p className="muted browse__note">
             최근 30일 동안 {currentLibrary?.name ?? '이 도서관'}에서 많이 빌려 간 순서입니다.
-            줄을 누르면 그때 고른 도서관에 있는지 확인합니다.{' '}
-            <strong>누르기 전에는 아직 물어보지 않은 것이라, 표시가 없는 줄은 없다는 뜻이
-            아닙니다.</strong>
+            대출건수가 같으면 같은 순위이고, 그만큼 다음 순위를 건너뜁니다.
+            {/*
+              **연령대를 「그 나이가 읽을 책」으로 읽히게 두지 마세요.** 실제로 받아 보니
+              어느 도서관의 「성인」 1·2위가 「흔한남매 과학 탐험대」와 「설민석의 한국사
+              대모험」으로 「전체」 1·2위와 같았습니다. 어른이 아이 책을 빌린 것으로 보이는데
+              매뉴얼은 그저 「성인 인기대출목록」이라고만 적어 두어 어느 쪽인지 단정할 수
+              없습니다. 그래서 **대출 기록의 구분이라는 사실만 말하고 누구의 나이인지는
+              말하지 않습니다.** 자세한 것은 `docs/가정과-검증상태.md` 2-12 에 있습니다.
+            */}
+            {groups.length > 1 && ' 연령대는 정보나루가 대출 기록을 나눠 놓은 것입니다.'}
           </p>
-        </>
+        </section>
       )}
 
-      {data === 'loading' && <p className="muted">둘러볼 것을 받는 중입니다.</p>}
-    </div>
+      {data === 'loading' && current && <p className="muted">둘러볼 것을 받는 중입니다.</p>}
+    </section>
   );
 }
 
@@ -181,8 +178,6 @@ export function Browse({
  * <p>서버가 (한국 날짜 + 도서관부호)로 정하므로 새로 고쳐도 같은 책입니다. 그래서
  * <b>날짜를 제목 옆에 답니다.</b> 아무 표시가 없으면 바뀌지 않는 것을 고장으로 읽고
  * 계속 새로 고칩니다.
- *
- * <p>소장을 따로 묻지 않습니다. 뽑은 통이 곧 그 도서관 장서 목록입니다.
  */
 function Story({
   story,
@@ -196,7 +191,7 @@ function Story({
   return (
     <section className="daily">
       <div className="daily__head">
-        <h2>오늘의 이야기</h2>
+        <h3>오늘의 이야기</h3>
         <span className="daily__date muted">{formatDay(story.date)}</span>
       </div>
 
@@ -205,39 +200,34 @@ function Story({
           <Cover src={story.imageUrl} className="book__cover" />
           <div className="daily__body">
             <span className="daily__title">{story.title}</span>
-            <span className="daily__meta">{describe(story.authors, story.publisher, story.publicationYear)}</span>
+            <span className="daily__meta">
+              {describe(story.authors, story.publisher, story.publicationYear)}
+            </span>
             {/* 서가에서 책을 찾을 때 실제로 쓰는 값입니다. 못 읽으면 아예 없습니다. */}
             {story.callNumber && <span className="daily__call">청구기호 {story.callNumber}</span>}
           </div>
         </div>
 
-        {story.detailUrl && (
-          <p className="book__editions">
+        <div className="browse__actions">
+          {story.detailUrl && (
             <a className="chip chip--sm chip--go" href={story.detailUrl} target="_blank" rel="noreferrer">
               정보나루 책 정보
             </a>
-          </p>
-        )}
-
-        <ul className="holding__list">
-          <li className="lib">
-            <span className="lib__head">
-              <a
-                className="chip chip--strong chip--go chip--wrap"
-                href={libraryLink(libCode, story.isbn13, story.title)}
-                target="_blank"
-                rel="noreferrer"
-                title={linkLabel(library?.linkKind)}
-              >
-                <span className="lib__name">{library?.name ?? libCode}</span>
-                {linkBadge(library?.linkKind) && (
-                  <span className="lib__kind">{linkBadge(library?.linkKind)}</span>
-                )}
-              </a>
-              <LoanCheck libCode={libCode} isbn13List={[story.isbn13]} />
-            </span>
-          </li>
-        </ul>
+          )}
+          <a
+            className="chip chip--sm chip--strong chip--go chip--wrap"
+            href={libraryLink(libCode, story.isbn13, story.title)}
+            target="_blank"
+            rel="noreferrer"
+            title={linkLabel(library?.linkKind)}
+          >
+            <span className="lib__name">{library?.name ?? libCode}</span>
+            {linkBadge(library?.linkKind) && (
+              <span className="lib__kind">{linkBadge(library?.linkKind)}</span>
+            )}
+          </a>
+          <LoanCheck libCode={libCode} isbn13List={[story.isbn13]} />
+        </div>
       </div>
 
       <p className="muted daily__note">
@@ -248,188 +238,36 @@ function Story({
   );
 }
 
-/** 인기 목록의 한 줄. 누르면 그 자리에서 소장이 펼쳐집니다. */
-function PopularRow({
-  book,
-  libraries,
-  selected,
-}: {
-  book: BrowsePopularBook;
-  libraries: readonly Library[];
-  selected: ReadonlySet<string>;
-}) {
-  const [open, setOpen] = useState(false);
-  const [held, setHeld] = useState<Held | null>(null);
-
-  const ask = useCallback(async () => {
-    if (held !== null) return;
-    setHeld({ kind: 'asking' });
-    try {
-      /*
-        **판본 하나만 물어보면 안 됩니다.** 도서관이 다른 판을 가지고 있어도 미소장으로
-        나옵니다. 인기 목록은 책마다 ISBN 을 하나만 주므로, 먼저 그 ISBN 으로 저작을
-        찾아 묶인 판본 전체를 받은 뒤에 소장을 물어봅니다.
-      */
-      const found = await searchBooks(
-        { title: '', author: '', publisher: '', isbn: book.isbn13 },
-        [],
-      );
-      const isbn13List = found.works[0]?.isbn13List ?? [book.isbn13];
-      const holdings = await fetchHoldings(isbn13List, [...selected]);
-      setHeld({ kind: 'done', holdings, isbn13List });
-    } catch (error) {
-      // **물어보지 못한 것과 없는 것을 섞지 않습니다.** 서버가 안 떠 있어도 마찬가지입니다.
-      setHeld({
-        kind: 'done',
-        holdings: { libCodes: [], complete: false, unreadable: true, asOf: null },
-        isbn13List: [book.isbn13],
-        offline: error instanceof ApiUnavailable,
-      });
-    }
-  }, [book.isbn13, held, selected]);
-
-  const toggle = () => {
-    const next = !open;
-    setOpen(next);
-    if (next) void ask();
-  };
-
-  const facts = held?.kind === 'done' ? held.holdings : null;
-  const state = held?.kind === 'asking' ? 'pending' : holdingState(facts, selected.size);
-
-  return (
-    <li className={open ? 'picks__item picks__item--open' : 'picks__item'}>
-      <button
-        type="button"
-        className={open ? 'pick pick--on' : 'pick'}
-        aria-expanded={open}
-        onClick={toggle}
-      >
-        <span className="browse__rank">{book.rank || ''}</span>
-        <Cover src={book.imageUrl} className="pick__cover" />
-        <span className="pick__body">
-          <span className="pick__title">{book.title}</span>
-          <span className="pick__meta">
-            {describe(book.authors, book.publisher, book.publicationYear)}
-          </span>
-        </span>
-        <span className="pick__where">{open ? '접기' : '어디 있나'}</span>
-      </button>
-
-      {open && (
-        <div className="drawer">
-          {book.detailUrl && (
-            <p className="book__editions">
-              <a
-                className="chip chip--sm chip--go"
-                href={book.detailUrl}
-                target="_blank"
-                rel="noreferrer"
-              >
-                정보나루 책 정보
-              </a>
-            </p>
-          )}
-          <Held
-            state={state}
-            facts={facts}
-            isbn13List={held?.kind === 'done' ? held.isbn13List : [book.isbn13]}
-            title={book.title}
-            libraries={libraries}
-            offline={held?.kind === 'done' ? held.offline === true : false}
-          />
-        </div>
-      )}
-    </li>
-  );
-}
-
-type Held =
-  | { kind: 'asking' }
-  | { kind: 'done'; holdings: HoldingsResponse; isbn13List: string[]; offline?: boolean };
-
 /**
- * 네 상태를 그립니다. **판정은 하지 않습니다.** `holdingState` 한 곳에서만 판정하고
- * 여기는 그 결과를 그대로 그립니다. 화면마다 따로 판정하면 언젠가 한쪽이 확인 불가를
- * 미소장으로 그리게 되고, 그때는 아무도 눈치채지 못합니다.
+ * 인기 목록의 한 줄.
+ *
+ * <p><b>소장을 묻지 않습니다.</b> 이 목록이 곧 그 도서관에서 빌려 간 기록이라 거기 있느냐고
+ * 되물을 이유가 없습니다. 물어볼 값어치가 있는 것은 지금 빌릴 수 있는지뿐입니다.
+ *
+ * <p>대출 조회에 ISBN 하나만 넘기는 것도 같은 이유입니다. 「저작에 묶인 판본을 전부
+ * 물어보라」는 규칙은 <b>어느 판을 가졌는지 모를 때</b>의 규칙인데, 여기서는 그 도서관이
+ * 실제로 빌려 준 바로 그 ISBN 을 정보나루가 알려 준 것입니다.
  */
-function Held({
-  state,
-  facts,
-  isbn13List,
-  title,
-  libraries,
-  offline,
-}: {
-  state: ReturnType<typeof holdingState>;
-  facts: HoldingsResponse | null;
-  isbn13List: string[];
-  title: string;
-  libraries: readonly Library[];
-  offline: boolean;
-}) {
-  if (state === 'pending') return <p className="muted holding">확인 중입니다.</p>;
-
-  if (state === 'unknown') {
-    return (
-      <>
-        <div className="holding holding--unknown">확인 불가</div>
-        <p className="muted holding__note">
-          {offline
-            ? '검색 서버에 연결하지 못해 확인하지 못했습니다.'
-            : '정보나루가 답하지 않아 고른 도서관에 있는지 확인하지 못했습니다.'}{' '}
-          잠시 뒤에 다시 눌러 주세요.
-        </p>
-      </>
-    );
-  }
-
-  if (state === 'none') {
-    return (
-      <p className="holding holding--none">
-        고른 도서관에는 없습니다{facts?.asOf ? ` (${facts.asOf} 조회)` : ''}
-      </p>
-    );
-  }
-
-  const held = facts?.libCodes ?? [];
+function PopularRow({ book, libCode }: { book: BrowsePopularBook; libCode: string }) {
   return (
-    <div className="holding">
-      <p className="holding__count">
-        <strong>{held.length}곳</strong>에 있습니다
-      </p>
-      <ul className="holding__list">
-        {held.map((code) => {
-          const library = libraries.find((row) => row.libCode === code);
-          return (
-            <li key={code} className="lib">
-              <span className="lib__head">
-                <a
-                  className="chip chip--strong chip--go chip--wrap"
-                  href={libraryLink(code, isbn13List[0], title)}
-                  target="_blank"
-                  rel="noreferrer"
-                  title={linkLabel(library?.linkKind)}
-                >
-                  <span className="lib__name">{library?.name ?? code}</span>
-                  {linkBadge(library?.linkKind) && (
-                    <span className="lib__kind">{linkBadge(library?.linkKind)}</span>
-                  )}
-                </a>
-                <LoanCheck libCode={code} isbn13List={isbn13List} />
-              </span>
-            </li>
-          );
-        })}
-      </ul>
-      {/* 빠짐없이 확인하지 못했으면 그 사실을 적습니다. 미소장이라고 말하지는 않습니다. */}
-      {facts && !facts.complete && (
-        <p className="muted holding__note">
-          일부 판본을 확인하지 못했습니다. 다른 도서관에도 있을 수 있습니다.
-        </p>
-      )}
-      {facts?.asOf && <p className="muted holding__note">{facts.asOf} 에 조회한 결과입니다.</p>}
-    </div>
+    <li className="pick pick--flat">
+      <span className="browse__rank">{book.rank || ''}</span>
+      <Cover src={book.imageUrl} className="pick__cover" />
+      <span className="pick__body">
+        <span className="pick__title">{book.title}</span>
+        <span className="pick__meta">
+          {describe(book.authors, book.publisher, book.publicationYear)}
+        </span>
+        <span className="browse__actions">
+          {book.detailUrl && (
+            <a className="chip chip--sm chip--go" href={book.detailUrl} target="_blank" rel="noreferrer">
+              정보나루 책 정보
+            </a>
+          )}
+          <LoanCheck libCode={libCode} isbn13List={[book.isbn13]} />
+        </span>
+      </span>
+    </li>
   );
 }
 
@@ -443,22 +281,10 @@ function Held({
 function Cover({ src, className }: { src: string | null; className: string }) {
   const [failed, setFailed] = useState(false);
   if (!src || failed) return <span className={`${className} ${className}--empty`} />;
-  return (
-    <img
-      className={className}
-      src={src}
-      alt=""
-      loading="lazy"
-      onError={() => setFailed(true)}
-    />
-  );
+  return <img className={className} src={src} alt="" loading="lazy" onError={() => setFailed(true)} />;
 }
 
-function describe(
-  authors: string | null,
-  publisher: string | null,
-  year: string | null,
-): string {
+function describe(authors: string | null, publisher: string | null, year: string | null): string {
   const tail = [publisher, year].filter(Boolean).join(' · ');
   if (authors && tail) return `${authors} / ${tail}`;
   return authors ?? tail;

@@ -53,6 +53,34 @@ class BrowseServiceTest {
           </docs>
         </response>""";
 
+    /**
+     * 인기대출 목록. <b>실제 응답에서 본 것들을 그대로 담았습니다.</b>
+     * 표제에 KORMARC 구분 기호가 붙어 오고, 저자에 역할어가 세미콜론으로 이어지며,
+     * 목록에 DVD 가 섞여 옵니다(어느 도서관의 청소년 1위가 실제로 영상물이었습니다).
+     */
+    private static final String POPULAR_XML = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <response>
+          <loanBooks>
+            <book><ranking>1</ranking>
+              <bookname><![CDATA[훌라걸스 감독판 (dts) (3disc) : 아웃케이스 없음]]></bookname>
+              <authors><![CDATA[이상일 감독]]></authors><publisher><![CDATA[아트서비스]]></publisher>
+              <isbn13>8809064907278</isbn13></book>
+            <book><ranking>2</ranking>
+              <bookname><![CDATA[페인트 :이희영 장편소설]]></bookname>
+              <authors><![CDATA[이희영 지음]]></authors><publisher><![CDATA[창비]]></publisher>
+              <isbn13>9788936456368</isbn13></book>
+            <book><ranking>2</ranking>
+              <bookname><![CDATA[천국에 눈물은 필요 없어]]></bookname>
+              <authors><![CDATA[사토 케이 저;사가노 아오이 일러스트;서범주 역]]></authors>
+              <publisher><![CDATA[대원씨아이]]></publisher><isbn13>9788952885005</isbn13></book>
+            <book><ranking>4</ranking>
+              <bookname><![CDATA[초한지]]></bookname><vol>3</vol>
+              <authors><![CDATA[이문열 평역]]></authors><publisher><![CDATA[민음사]]></publisher>
+              <isbn13>9788937482236</isbn13></book>
+          </loanBooks>
+        </response>""";
+
     private static final String COUNT_XML = """
         <?xml version="1.0" encoding="UTF-8"?>
         <response><numFound>250</numFound><resultNum>1</resultNum><docs></docs></response>""";
@@ -74,6 +102,7 @@ class BrowseServiceTest {
             requests.add(uri.toString());
             if (broken) throw new IllegalStateException("정보나루가 답하지 않습니다");
             String url = uri.toString();
+            if (url.contains("extends/loanItemSrchByLib")) return POPULAR_XML;
             if (url.contains("srchBooks")) return DETAIL_XML;
             if (url.contains("pageSize=1&")|| url.endsWith("pageSize=1")) return COUNT_XML;
             return PAGE_XML;
@@ -192,6 +221,49 @@ class BrowseServiceTest {
         // itemSrch 는 bookDtlUrl 을 주지 않으므로 ISBN 으로 한 번 더 물어봅니다.
         assertEquals("https://data4library.kr/bookV?seq=99", story.detailUrl());
         assertEquals(250, story.poolSize());
+    }
+
+    @Test
+    @DisplayName("인기 목록에서 영상물을 거른다")
+    void popularDropsNonBooks() {
+        var transport = new FakeTransport();
+        var now = new AtomicReference<>(Instant.parse("2026-09-10T03:00:00Z"));
+
+        var books = serviceAt(transport, now).popularOf("111001").get(0).books();
+
+        // 880x 로 시작하는 대한민국 EAN 이지 ISBN 이 아닙니다. 검색에서 걸러 두는 것과
+        // 같은 값인데 여기만 새어 나가면 「청소년 1위가 DVD」로 나갑니다.
+        assertTrue(books.stream().noneMatch(b -> b.title().contains("훌라걸스")));
+        assertEquals(3, books.size());
+    }
+
+    @Test
+    @DisplayName("표제에서 부제를 떼고 권차를 붙인다")
+    void popularCleansTitles() {
+        var transport = new FakeTransport();
+        var now = new AtomicReference<>(Instant.parse("2026-09-10T03:00:00Z"));
+
+        var titles = serviceAt(transport, now).popularOf("111001").get(0).books().stream()
+                .map(BrowseService.PopularBook::title).toList();
+
+        // 「페인트 :이희영 장편소설」이 그대로 나가면 같은 화면의 검색 결과와 표기가 다릅니다.
+        assertTrue(titles.contains("페인트"), titles.toString());
+        // 권차를 안 붙이면 같은 표제가 여러 번 나와 중복으로 읽힙니다.
+        assertTrue(titles.contains("초한지 3"), titles.toString());
+    }
+
+    @Test
+    @DisplayName("저자는 대표 한 명만 남긴다")
+    void popularCleansAuthors() {
+        var transport = new FakeTransport();
+        var now = new AtomicReference<>(Instant.parse("2026-09-10T03:00:00Z"));
+
+        var book = serviceAt(transport, now).popularOf("111001").get(0).books().stream()
+                .filter(b -> b.title().startsWith("천국에")).findFirst().orElseThrow();
+
+        // 「사토 케이 저;사가노 아오이 일러스트;서범주 역」이 한 줄에 그대로 들어가면
+        // 목록이 읽히지 않습니다.
+        assertEquals("사토 케이", book.authors());
     }
 
     @Test

@@ -1,5 +1,10 @@
 package kr.wimb.api;
 
+import kr.wimb.bib.BibNormalizer;
+import kr.wimb.bib.Contributor;
+import kr.wimb.bib.Isbn;
+import kr.wimb.bib.TitleParts;
+import kr.wimb.bib.Volume;
 import kr.wimb.data4library.BookInfo;
 import kr.wimb.data4library.Data4LibraryClient;
 import kr.wimb.ingest.ApiBudget;
@@ -165,7 +170,16 @@ public class BrowseService {
         try {
             built = client.popularByLibrary(libCode, ApiBudget.Priority.USER).entrySet().stream()
                     .map(e -> new PopularGroup(e.getKey().name(), e.getKey().label(),
-                            e.getValue().stream().map(BrowseService::toPopularBook).toList()))
+                            e.getValue().stream()
+                                    // **인기대출 목록에도 음반과 영상물이 섞여 옵니다.** 실제로
+                                    // 어느 도서관의 청소년 1위가 「훌라걸스 감독판 (dts) (3disc)」
+                                    // 이었습니다. 검색에서 걸러 두는 것과 같은 값이라 여기서도
+                                    // 같은 판정을 씁니다. 880 으로 시작하는 대한민국 EAN 이지
+                                    // ISBN 이 아닙니다.
+                                    .filter(b -> !Isbn.isNotABookNumber(b.isbn13()))
+                                    .map(BrowseService::toPopularBook).toList()))
+                    // 영상물을 걸러 낸 뒤 빈 묶음이 될 수 있습니다.
+                    .filter(g -> !g.books().isEmpty())
                     .toList();
         } catch (RuntimeException e) {
             return List.of();
@@ -177,9 +191,42 @@ public class BrowseService {
     private static PopularBook toPopularBook(BookInfo info) {
         return new PopularBook(
                 info.ranking() == null ? 0 : info.ranking(),
-                info.bookname(), info.authors(), info.publisher(), info.publicationYear(),
+                displayTitle(info), displayAuthor(info),
+                info.publisher(), info.publicationYear(),
                 info.canonicalIsbn13().orElse(info.isbn13()),
                 info.bookImageUrl(), info.bookDetailUrl());
+    }
+
+    /**
+     * 화면에 보여 줄 표제. <b>정보나루가 준 글자를 그대로 쓰면 안 됩니다.</b>
+     *
+     * <p>서명 필드에 KORMARC 245 의 구분 기호가 섞여 들어와 「페인트 :이희영 장편소설」이나
+     * 「주식하는 마음 :주식투자의 운과 실력…」처럼 부제가 콜론 뒤에 붙은 채 나옵니다. 검색
+     * 결과는 {@code BibNormalizer} 가 갈라 주는데 둘러보기만 그대로 두면 <b>같은 화면에서
+     * 두 목록의 표기가 다릅니다.</b>
+     *
+     * <p>권차는 붙여 줍니다. 안 붙이면 「초한지」가 4위와 6위에 두 번 나오는 것처럼 보여
+     * 같은 책이 중복된 줄 알게 됩니다. {@code SearchDocBuilder.displayTitle} 과 같은 규칙입니다.
+     */
+    private static String displayTitle(BookInfo info) {
+        TitleParts parts = BibNormalizer.parseTitle(info.bookname());
+        String proper = parts.titleProper() == null ? "" : parts.titleProper().trim();
+        if (proper.isEmpty()) return info.bookname();
+
+        Volume vol = info.volume().orElse(parts.volume());
+        if (vol == null || proper.endsWith(vol.mark())) return proper;
+        return proper + " " + vol.mark();
+    }
+
+    /**
+     * 저자 표시. 역할어와 세미콜론이 그대로 오면 「사토 케이 저;사가노 아오이 일러스트;서범주 역」
+     * 처럼 한 줄이 길어집니다. 대표 저자만 남기고, 못 고르면 받은 값을 그대로 둡니다.
+     * <b>모르면 지어내지 않고 원문을 보여 줍니다.</b>
+     */
+    private static String displayAuthor(BookInfo info) {
+        Contributor primary = BibNormalizer.primaryAuthor(
+                BibNormalizer.parseContributors(info.authors()));
+        return primary == null ? info.authors() : primary.name();
     }
 
     private Story pickStory(String libCode, LocalDate today) {
@@ -197,6 +244,7 @@ public class BrowseService {
                     client.catalogPage(libCode, KDC_LITERATURE, page, PAGE_SIZE,
                                     ApiBudget.Priority.USER).stream()
                             .filter(BookInfo::looksLikeNovel)
+                            .filter(b -> !Isbn.isNotABookNumber(b.isbn13()))
                             .filter(b -> b.canonicalIsbn13().isPresent())
                             .toList());
             if (novels.isEmpty()) continue;
@@ -209,7 +257,8 @@ public class BrowseService {
 
     private Story toStory(BookInfo info, int poolSize, LocalDate today) {
         String isbn = info.canonicalIsbn13().orElse(info.isbn13());
-        return new Story(info.bookname(), info.authors(), info.publisher(), info.publicationYear(),
+        return new Story(displayTitle(info), displayAuthor(info),
+                info.publisher(), info.publicationYear(),
                 isbn, info.bookImageUrl(), info.callNumber(), detailUrlOf(isbn), info.classNm(),
                 poolSize, today.toString());
     }

@@ -29,6 +29,25 @@ class BibNormalizerTest {
         }
 
         @Test
+        @DisplayName("꼬리에 매달린 구분 기호를 뗀다")
+        void stripsTrailingDelimiter() {
+            // 정보나루가 실제로 돌려준 값이다. 슬래시 뒤에 아무것도 없어서 한쪽 공백을
+            // 요구하는 SOR_SPLIT 이 잡지 못했고, 그 슬래시가 화면의 제목에까지 나갔다.
+            assertEquals("(The) Saddest king",
+                    BibNormalizer.parseTitle("(The) Saddest king/").titleProper());
+            assertEquals("코스모스", BibNormalizer.parseTitle("코스모스 :").titleProper());
+            assertEquals("토지", BibNormalizer.parseTitle("토지 ;").titleProper());
+        }
+
+        @Test
+        @DisplayName("가운데 있는 기호는 공백 규칙을 그대로 지킨다")
+        void keepsMidStringPunctuation() {
+            // 꼬리에서만 공백을 요구하지 않는다. 뒤에 글자가 남아 있으면 예전 규칙 그대로다.
+            assertEquals("입/출력", BibNormalizer.parseTitle("입/출력").titleProper());
+            assertEquals("10:30", BibNormalizer.parseTitle("10:30").titleProper());
+        }
+
+        @Test
         @DisplayName("부표제의 숫자를 권차로 오인하지 않는다")
         void doesNotTakeVolumeFromSubtitle() {
             // 부표제의 숫자는 시리즈 번호일 때가 많다. 권차로 삼으면 같은 책이 갈린다.

@@ -7,7 +7,6 @@ import { holdingState } from '../domain/holdingState';
 import type { HoldingFacts } from '../domain/holdingState';
 import { allChecked, checkedCount, orderByHolding } from '../domain/resultOrder';
 import type { Library } from '../domain/types';
-import { Browse } from './Browse';
 import { LoanCheck } from './LoanCheck';
 import { ProgressBar } from './ProgressBar';
 
@@ -281,8 +280,6 @@ export function BookSearch({
 
       <SearchState
         state={state}
-        libraries={libraries}
-        selected={selected}
         byCode={byCode}
         selectedCount={selected.size}
         facts={facts}
@@ -303,8 +300,6 @@ export function BookSearch({
 
 function SearchState({
   state,
-  libraries,
-  selected,
   byCode,
   selectedCount,
   facts,
@@ -316,8 +311,6 @@ function SearchState({
   asOf,
 }: {
   state: State;
-  libraries: readonly Library[];
-  selected: ReadonlySet<string>;
   byCode: Map<string, Library>;
   selectedCount: number;
   /** 지금 고른 도서관 기준으로 확인된 결과. 기준이 다르거나 아직 안 물어봤으면 null. */
@@ -329,20 +322,11 @@ function SearchState({
   onMore: () => void;
   asOf: string | null;
 }) {
-  /*
-    **검색어를 넣기 전의 빈 자리를 둘러보기가 채웁니다.** 지금까지 이 도구는 「찾을 책을
-    이미 정한 사람」만 쓸 수 있었습니다. 도서관을 골라 두어도 여기가 텅 비어 있었기
-    때문입니다. 랭킹의 목적이 「검색어를 정하게 돕는 것」이라 이 자리가 정확히 맞고,
-    검색하면 자연스럽게 결과로 바뀝니다. 탭을 늘리지 않는 이유이기도 합니다.
-  */
   if (state.kind === 'idle') {
     return (
-      <>
-        <p className="muted">
-          제목을 넣으면 도서관 정보나루에서 서지를 찾고, 고른 도서관에 그 책이 있는지 확인합니다.
-        </p>
-        <Browse libraries={libraries} selected={selected} />
-      </>
+      <p className="muted">
+        제목을 넣으면 도서관 정보나루에서 서지를 찾고, 고른 도서관에 그 책이 있는지 확인합니다.
+      </p>
     );
   }
 

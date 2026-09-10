@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ApiUnavailable, fetchLibraries } from './api';
 import { BookSearch } from './components/BookSearch';
+import { Browse } from './components/Browse';
 import { BrandMark } from './components/Brand';
 import { MultiCheck } from './components/MultiCheck';
 import { LibraryPicker } from './components/LibraryPicker';
@@ -34,7 +35,13 @@ export default function App() {
   const [catalog, setCatalog] = useState<Catalog>({ kind: 'loading' });
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [restored, setRestored] = useState(false);
-  const [mode, setMode] = useState<'single' | 'multi'>('single');
+  /*
+   * **둘러보기를 셋째 탭에 둡니다.** 처음에는 한 권 검색의 빈 화면에 얹었는데,
+   * 실제로 띄워 보니 검색 칸 넷 아래에 오늘의 이야기와 스무 권짜리 목록과 안내
+   * 문단이 겹쳐 첫 화면이 복잡해졌습니다. 검색하러 온 사람에게는 검색 칸만
+   * 보이는 편이 낫고, 둘러보기는 자기 자리에서 길어져도 됩니다.
+   */
+  const [mode, setMode] = useState<'single' | 'multi' | 'browse'>('single');
   /**
    * 「내 주변」에서 잡은 위치. 도서관 선택 칸이 잡고 여러 권 검색이 거리를 재는 데 씁니다.
    * 한쪽 컴포넌트 안에 두면 다른 쪽이 볼 수 없어 여기에 올려 둡니다.
@@ -148,6 +155,7 @@ export default function App() {
                 [
                   ['single', '한 권 검색'],
                   ['multi', '여러 권 검색'],
+                  ['browse', '둘러보기'],
                 ] as const
               ).map(([key, label]) => (
                 <button
@@ -162,11 +170,11 @@ export default function App() {
               ))}
             </nav>
 
-            {mode === 'single' ? (
-              <BookSearch libraries={libraries} selected={selected} />
-            ) : (
+            {mode === 'single' && <BookSearch libraries={libraries} selected={selected} />}
+            {mode === 'multi' && (
               <MultiCheck libraries={libraries} selected={selected} position={position} />
             )}
+            {mode === 'browse' && <Browse libraries={libraries} selected={selected} />}
 
           </div>
         </main>
