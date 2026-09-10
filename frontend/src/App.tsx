@@ -149,27 +149,33 @@ export default function App() {
             onPosition={setPosition}
           />
 
-          <div className="results-column">
-            <nav className="tabs tabs--mode" role="tablist">
-              {(
-                [
-                  ['single', '한 권 검색'],
-                  ['multi', '여러 권 검색'],
-                  ['browse', '둘러보기'],
-                ] as const
-              ).map(([key, label]) => (
-                <button
-                  key={key}
-                  role="tab"
-                  aria-selected={mode === key}
-                  className={mode === key ? 'tab tab--active' : 'tab'}
-                  onClick={() => setMode(key)}
-                >
-                  {label}
-                </button>
-              ))}
-            </nav>
+          {/*
+            **탭은 오른쪽 칸 안이 아니라 격자의 한 칸입니다.** 오른쪽 칸 안에 두면 넓은
+            화면에서 왼쪽 카드의 윗선이 탭과 나란해지고 오른쪽 카드는 탭 높이만큼 내려가,
+            두 카드의 윗선이 어긋났습니다. 격자의 첫 줄에 탭만 두고 둘째 줄에 카드 둘을 두면
+            윗선이 맞습니다. 좁은 화면에서는 DOM 순서 그대로 선택 → 탭 → 내용으로 쌓입니다.
+          */}
+          <nav className="tabs tabs--mode" role="tablist">
+            {(
+              [
+                ['single', '한 권 검색'],
+                ['multi', '여러 권 검색'],
+                ['browse', '둘러보기'],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                role="tab"
+                aria-selected={mode === key}
+                className={mode === key ? 'tab tab--active' : 'tab'}
+                onClick={() => setMode(key)}
+              >
+                {label}
+              </button>
+            ))}
+          </nav>
 
+          <div className="results-column">
             {mode === 'single' && <BookSearch libraries={libraries} selected={selected} />}
             {mode === 'multi' && (
               <MultiCheck libraries={libraries} selected={selected} position={position} />
