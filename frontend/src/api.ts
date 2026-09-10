@@ -195,6 +195,56 @@ export async function searchBooks(
 }
 
 /**
+ * 둘러보기 화면이 쓰는 것. **오늘의 이야기 한 권과 그 도서관의 인기대출 목록**입니다.
+ *
+ * <p>둘 다 서버가 도서관마다 하루에 한 번만 정보나루에 물어 두고 그날 내내 같은 답을
+ * 돌려줍니다. 그래서 화면이 자주 불러도 호출이 늘지 않습니다.
+ */
+export type BrowseStory = {
+  title: string;
+  authors: string | null;
+  publisher: string | null;
+  publicationYear: string | null;
+  isbn13: string;
+  imageUrl: string | null;
+  /**
+   * 청구기호. **없을 수 있습니다.** 정보나루 매뉴얼만으로는 이 값의 모양을 확정할 수
+   * 없어 서버가 확실히 읽히는 경우에만 채웁니다. 없는 것보다 틀린 청구기호가 나쁩니다.
+   */
+  callNumber: string | null;
+  /** 정보나루 책 정보. 못 받으면 null 이고, 그때는 링크를 그리지 않습니다. */
+  detailUrl: string | null;
+  classNm: string | null;
+  /** 그 도서관 문학 장서가 몇 건인지. 어디서 뽑았는지를 화면이 밝힙니다. */
+  poolSize: number;
+  /** 이 이야기가 어느 날 것인지(한국 날짜). **새로 고쳐도 바뀌지 않는다는 표시입니다.** */
+  date: string;
+};
+
+export type BrowsePopularBook = {
+  /** 그 도서관에서의 대출 순위. **15절은 대출건수를 주지 않아 순위만 옵니다.** */
+  rank: number;
+  title: string;
+  authors: string | null;
+  publisher: string | null;
+  publicationYear: string | null;
+  isbn13: string;
+  imageUrl: string | null;
+  detailUrl: string | null;
+};
+
+/** @param label 화면에 그대로 나가는 이름. **빈 묶음은 서버가 아예 담지 않습니다.** */
+export type BrowsePopularGroup = { key: string; label: string; books: BrowsePopularBook[] };
+
+/** @param story 없을 수 있습니다. **화면이 그것을 「없다」로 그리면 안 됩니다.** */
+export type BrowseResponse = { story: BrowseStory | null; popular: BrowsePopularGroup[] };
+
+export async function fetchBrowse(libCode: string): Promise<BrowseResponse> {
+  const response = await get<BrowseResponse>(`/api/browse?lib=${encodeURIComponent(libCode)}`);
+  return { story: response.story ?? null, popular: response.popular ?? [] };
+}
+
+/**
  * 도서관으로 넘기는 링크.
  *
  * <p>책을 함께 넘기면 서버가 그 도서관의 주소 규칙을 보고 **그 책의 페이지나 검색 결과**로

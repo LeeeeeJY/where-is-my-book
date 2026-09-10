@@ -37,6 +37,10 @@ public final class RateLimitInterceptor implements HandlerInterceptor {
         if (path.startsWith("/api/loan")) return 20;
         if (path.startsWith("/api/search")) return 8;
         if (path.startsWith("/api/holdings")) return 4;
+        // 둘러보기는 도서관마다 하루 한 번만 정보나루를 부르므로 대개 0회입니다. 다만
+        // 캐시가 빌 때는 장서 건수·장서 한 쪽·책 정보·인기 목록으로 여러 번 나가므로,
+        // 본문을 읽기 전에 정하는 값답게 상한에 가깝게 잡습니다.
+        if (path.startsWith("/api/browse")) return 6;
         // 진단은 열 때마다 정보나루를 한 번 씁니다. 자동으로 새로 고치면 안 되는 화면이라
         // 사람이 누르는 속도보다 빠르면 막습니다.
         if (path.startsWith("/api/diagnose")) return 5;

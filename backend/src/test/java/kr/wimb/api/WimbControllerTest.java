@@ -112,7 +112,7 @@ class WimbControllerTest {
                 kr.wimb.opac.OpacTemplates.load(),
                 new CachingHoldingsClient((isbn, region) -> List.of(), Duration.ofHours(6), 100,
                         Clock.systemUTC()),
-                unlimited(),
+                unlimited(), new BrowseService(client),
                 Clock.fixed(Instant.parse("2026-09-06T00:00:00Z"), ZoneId.of("UTC")));
     }
 
@@ -132,7 +132,7 @@ class WimbControllerTest {
                 kr.wimb.opac.OpacTemplates.load(),
                 new CachingHoldingsClient((isbn, region) -> List.of(), Duration.ofHours(6), 100,
                         Clock.systemUTC()),
-                unlimited(),
+                unlimited(), new BrowseService(client),
                 Clock.fixed(Instant.parse("2026-09-06T00:00:00Z"), ZoneId.of("UTC")));
     }
 
@@ -150,7 +150,7 @@ class WimbControllerTest {
         };
         return new WimbController(client, search, new MultiCheckService(search), budget,
                 kr.wimb.opac.OpacTemplates.load(), new CachingHoldingsClient((isbn, region) -> List.of(), Duration.ofHours(6), 100,
-                        Clock.systemUTC()), unlimited(), moving);
+                        Clock.systemUTC()), unlimited(), new BrowseService(client), moving);
     }
 
     @Test

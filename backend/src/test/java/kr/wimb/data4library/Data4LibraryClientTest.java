@@ -472,6 +472,99 @@ class Data4LibraryClientTest {
         assertEquals(3, transport.requests.size(), "매번 시도해야 합니다");
     }
 
+    /**
+     * 매뉴얼 15절의 응답은 <b>여섯 묶음이 전부 {@code book} 이라는 같은 이름</b>을 씁니다.
+     * 문서 전체를 훑어 읽으면 120권이 한 덩어리로 나오는데 <b>예외가 나지 않아</b>
+     * 눈으로는 알아채기 어렵습니다. 화면에는 「영유아 목록에 성인 책」으로 나갑니다.
+     */
+    private static final String POPULAR_XML = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <response>
+          <loanBooks>
+            <book><no>1</no><ranking>1</ranking><bookname><![CDATA[급류]]></bookname>
+              <authors><![CDATA[정대건 지음]]></authors><publisher><![CDATA[민음사]]></publisher>
+              <publication_year>2024</publication_year><isbn13>9788937473838</isbn13>
+              <class_no>813.7</class_no><class_nm><![CDATA[한국소설]]></class_nm>
+              <bookImageURL><![CDATA[https://example.test/1.jpg]]></bookImageURL>
+              <bookDtlUrl><![CDATA[https://data4library.kr/bookV?seq=1]]></bookDtlUrl></book>
+          </loanBooks>
+          <age0Books>
+            <book><no>1</no><ranking>1</ranking><bookname><![CDATA[사과가 쿵!]]></bookname>
+              <authors><![CDATA[다다 히로시]]></authors><publisher><![CDATA[보림]]></publisher>
+              <publication_year>1996</publication_year><isbn13>9788943302016</isbn13></book>
+          </age0Books>
+          <age6Books></age6Books>
+          <age8Books>
+            <book><no>1</no><ranking>1</ranking><bookname><![CDATA[흔한남매 14]]></bookname>
+              <authors><![CDATA[흔한남매]]></authors><publisher><![CDATA[아이스크림북스]]></publisher>
+              <publication_year>2023</publication_year><isbn13>9791165341114</isbn13></book>
+            <book><no>2</no><ranking>2</ranking><bookname><![CDATA[전천당 1]]></bookname>
+              <authors><![CDATA[히로시마 레이코]]></authors><publisher><![CDATA[길벗스쿨]]></publisher>
+              <publication_year>2018</publication_year><isbn13>9791164060207</isbn13></book>
+          </age8Books>
+          <age14Books>
+            <book><no>1</no><ranking>1</ranking><bookname><![CDATA[아몬드]]></bookname>
+              <authors><![CDATA[손원평 지음]]></authors><publisher><![CDATA[창비]]></publisher>
+              <publication_year>2017</publication_year><isbn13>9788936434267</isbn13></book>
+          </age14Books>
+          <age20Books>
+            <book><no>1</no><ranking>1</ranking><bookname><![CDATA[세이노의 가르침]]></bookname>
+              <authors><![CDATA[세이노 지음]]></authors><publisher><![CDATA[데이원]]></publisher>
+              <publication_year>2023</publication_year><isbn13>9788901270005</isbn13></book>
+          </age20Books>
+        </response>""";
+
+    @Test
+    @DisplayName("15절의 여섯 묶음이 같은 book 태그를 써도 섞이지 않는다")
+    void popularGroupsDoNotMix() {
+        var transport = new RecordingTransport();
+        transport.response = POPULAR_XML;
+
+        var groups = client(transport).popularByLibrary("111001", ApiBudget.Priority.USER);
+
+        // 문서 전체를 훑어 읽으면 여기가 6이 아니라 전부 같은 목록이 됩니다.
+        assertEquals(List.of("급류"), names(groups, Data4LibraryClient.AgeGroup.ALL));
+        assertEquals(List.of("사과가 쿵!"), names(groups, Data4LibraryClient.AgeGroup.INFANT));
+        assertEquals(List.of("흔한남매 14", "전천당 1"),
+                names(groups, Data4LibraryClient.AgeGroup.ELEMENTARY));
+        assertEquals(List.of("아몬드"), names(groups, Data4LibraryClient.AgeGroup.TEEN));
+        assertEquals(List.of("세이노의 가르침"), names(groups, Data4LibraryClient.AgeGroup.ADULT));
+    }
+
+    @Test
+    @DisplayName("빈 묶음은 아예 담기지 않는다")
+    void emptyGroupIsOmitted() {
+        var transport = new RecordingTransport();
+        transport.response = POPULAR_XML;
+
+        var groups = client(transport).popularByLibrary("111001", ApiBudget.Priority.USER);
+
+        // 작은 도서관은 유아 목록이 비어서 옵니다. 그대로 그리면 눌렀는데 아무것도
+        // 안 나와 고장으로 읽힙니다.
+        assertFalse(groups.containsKey(Data4LibraryClient.AgeGroup.TODDLER));
+        assertEquals(5, groups.size());
+    }
+
+    @Test
+    @DisplayName("15절은 대출건수를 주지 않으므로 순위를 들어야 한다")
+    void popularCarriesRankingNotLoanCount() {
+        var transport = new RecordingTransport();
+        transport.response = POPULAR_XML;
+
+        var elementary = client(transport)
+                .popularByLibrary("111001", ApiBudget.Priority.USER)
+                .get(Data4LibraryClient.AgeGroup.ELEMENTARY);
+
+        assertNull(elementary.get(0).loanCount(), "매뉴얼 15절 응답에 loan_count 가 없습니다");
+        assertEquals(1, elementary.get(0).ranking());
+        assertEquals(2, elementary.get(1).ranking());
+    }
+
+    private static List<String> names(Map<Data4LibraryClient.AgeGroup, List<BookInfo>> groups,
+                                      Data4LibraryClient.AgeGroup group) {
+        return groups.getOrDefault(group, List.of()).stream().map(BookInfo::bookname).toList();
+    }
+
     @Test
     @DisplayName("지역 코드는 매뉴얼의 17개 시도를 모두 담는다")
     void regionCodesCoverAllSido() {

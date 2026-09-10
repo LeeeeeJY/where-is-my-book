@@ -89,6 +89,81 @@ public final class Data4LibraryResponse {
         return out;
     }
 
+    /**
+     * <b>부모를 지정해</b> 그 아래의 항목만 읽습니다.
+     *
+     * <p>{@link #items(String, String)} 은 {@code getElementsByTagName} 이라 문서 전체를
+     * 훑습니다. 항목 이름이 문서에 한 종류만 있을 때는 그래도 되지만,
+     * {@code extends/loanItemSrchByLib}(매뉴얼 15절)는 <b>여섯 묶음이 전부 {@code book}
+     * 이라는 같은 이름</b>을 씁니다({@code loanBooks} 전체, {@code age0Books} 영유아,
+     * {@code age6Books} 유아, {@code age8Books} 초등, {@code age14Books} 청소년,
+     * {@code age20Books} 성인).
+     *
+     * <p>그래서 그것을 {@code items(xml, "book")} 으로 읽으면 <b>120권이 한 덩어리로
+     * 나오고 어느 것이 어느 연령대인지 알 방법이 없습니다.</b> 더 나쁜 것은
+     * <b>예외가 나지 않는다</b>는 점입니다. 그럴듯한 목록이 나오므로 눈으로는 알아채기
+     * 어렵고, 화면에는 「영유아 목록에 트렌드 코리아」처럼 조용히 섞여 나갑니다.
+     *
+     * <p>{@code itemSrch} 의 {@code callNumbers > callNumber} 처럼 한 겹 더 들어가는
+     * 항목을 읽을 때도 씁니다.
+     *
+     * @param parentTag 묶음의 이름. 이 요소 <b>바로 아래</b>의 자식만 봅니다.
+     * @param itemTag   반복되는 항목의 이름
+     * @return 부모가 없으면 빈 목록. 없는 묶음과 비어 있는 묶음을 구별하지 않습니다.
+     */
+    public static List<Map<String, String>> itemsUnder(String xml, String parentTag, String itemTag) {
+        NodeList parents = parse(xml).getElementsByTagName(parentTag);
+        if (parents.getLength() == 0) return List.of();
+
+        List<Map<String, String>> out = new ArrayList<>();
+        for (int p = 0; p < parents.getLength(); p++) {
+            if (!(parents.item(p) instanceof Element parent)) continue;
+            NodeList children = parent.getChildNodes();
+            for (int i = 0; i < children.getLength(); i++) {
+                if (children.item(i) instanceof Element child
+                        && child.getTagName().equals(itemTag)) {
+                    out.add(fieldsOf(child));
+                }
+            }
+        }
+        return out;
+    }
+
+    /**
+     * 항목마다 그 안에 들어 있는 하위 항목을 읽습니다. <b>바깥 항목과 순서가 같습니다.</b>
+     *
+     * <p>{@code itemSrch} 의 {@code doc > callNumbers > callNumber} 처럼 복본마다 여러 개일
+     * 수 있어서, 문서 전체를 훑어 자리로 맞추면 복본이 둘인 책 하나 때문에 그 뒤가 전부
+     * 밀립니다. 그래서 바깥 항목 안쪽만 봅니다.
+     *
+     * <p><b>매뉴얼만으로는 하위 항목이 잎인지 상자인지 알 수 없습니다.</b> 응답 명세가
+     * {@code callNumber} 아래에 별치기호·도서기호를 더 적어 두었는데, 그것이 자식인지
+     * 형제인지는 실제로 받아 봐야 압니다. 그래서 <b>자식 요소가 있으면 그 값들을, 없으면
+     * 그 요소 자체의 글자를 빈 문자열 키에</b> 담아 부르는 쪽이 둘 다 다룰 수 있게 합니다.
+     */
+    public static List<List<Map<String, String>>> nested(String xml, String itemTag, String nestedTag) {
+        NodeList items = parse(xml).getElementsByTagName(itemTag);
+
+        List<List<Map<String, String>>> out = new ArrayList<>(items.getLength());
+        for (int i = 0; i < items.getLength(); i++) {
+            if (!(items.item(i) instanceof Element item)) continue;
+
+            NodeList found = item.getElementsByTagName(nestedTag);
+            List<Map<String, String>> inner = new ArrayList<>(found.getLength());
+            for (int j = 0; j < found.getLength(); j++) {
+                if (!(found.item(j) instanceof Element element)) continue;
+                Map<String, String> fields = fieldsOf(element);
+                if (fields.isEmpty()) {
+                    String own = text(element);
+                    if (own != null && !own.isBlank()) fields = Map.of("", own);
+                }
+                inner.add(fields);
+            }
+            out.add(List.copyOf(inner));
+        }
+        return out;
+    }
+
     /** 목록 바깥의 단일 값을 읽습니다. {@code numFound} 같은 것입니다. */
     public static String scalar(String xml, String tag) {
         NodeList nodes = parse(xml).getElementsByTagName(tag);

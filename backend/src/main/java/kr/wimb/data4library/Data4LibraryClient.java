@@ -354,6 +354,122 @@ public final class Data4LibraryClient {
         }
     }
 
+    /**
+     * 이 도서관의 인기대출도서. 이용자 그룹별 상위 20권이 <b>한 번의 호출로</b> 옵니다
+     * (매뉴얼 15절 {@code extends/loanItemSrchByLib}). 파라미터가 도서관부호 하나뿐입니다.
+     *
+     * <p><b>여섯 묶음이 전부 {@code book} 이라는 같은 이름을 씁니다.</b> 그래서 부모를
+     * 지정해 읽지 않으면 120권이 한 덩어리로 섞이고, 그래도 예외가 나지 않습니다.
+     * {@link Data4LibraryResponse#itemsUnder} 의 주석에 자세히 적어 두었습니다.
+     *
+     * <p><b>이 응답에는 {@code loan_count} 가 없습니다.</b> 순위({@code ranking})만 옵니다.
+     * 대출건수로 순서를 맞추던 규칙을 여기서는 쓸 수 없습니다.
+     */
+    public Map<AgeGroup, List<BookInfo>> popularByLibrary(String libCode, ApiBudget.Priority priority) {
+        String xml = call("extends/loanItemSrchByLib", Map.of("libCode", libCode), priority);
+
+        Map<AgeGroup, List<BookInfo>> out = new LinkedHashMap<>();
+        for (AgeGroup group : AgeGroup.values()) {
+            List<BookInfo> books = Data4LibraryResponse.itemsUnder(xml, group.tag(), "book").stream()
+                    .map(BookInfo::from)
+                    .toList();
+            // **빈 묶음은 넣지 않습니다.** 작은 도서관은 영유아·유아가 비어서 옵니다.
+            // 화면이 그것을 그대로 그리면 눌렀는데 아무것도 안 나와 고장으로 읽힙니다.
+            if (!books.isEmpty()) out.put(group, books);
+        }
+        return out;
+    }
+
+    /** 15절이 한 번에 돌려주는 이용자 그룹. 묶음마다 XML 태그 이름이 다릅니다. */
+    public enum AgeGroup {
+        ALL("loanBooks", "전체"),
+        INFANT("age0Books", "0~5세"),
+        TODDLER("age6Books", "6~7세"),
+        ELEMENTARY("age8Books", "초등"),
+        TEEN("age14Books", "청소년"),
+        ADULT("age20Books", "성인");
+
+        private final String tag;
+        private final String label;
+
+        AgeGroup(String tag, String label) {
+            this.tag = tag;
+            this.label = label;
+        }
+
+        public String tag() { return tag; }
+
+        /** 화면에 그대로 나가는 이름입니다. */
+        public String label() { return label; }
+    }
+
+    /**
+     * 그 도서관 장서 가운데 이 주제가 몇 건인지({@code itemSrch}, 매뉴얼 2절).
+     *
+     * <p><b>{@code type=ALL} 이 장서 전체입니다.</b> 인기 대출이 아니라 그 도서관이 가진
+     * 책이고, 그래서 여기서 뽑은 책은 물어보지 않아도 그 도서관 목록에 있습니다.
+     * 건수만 필요하므로 {@code pageSize=1} 로 부릅니다.
+     */
+    public int catalogCount(String libCode, String kdc, ApiBudget.Priority priority) {
+        Map<String, String> params = new LinkedHashMap<>();
+        params.put("libCode", libCode);
+        params.put("type", "ALL");
+        if (kdc != null) params.put("kdc", kdc);
+        params.put("pageNo", "1");
+        params.put("pageSize", "1");
+
+        return intOrMinusOne(Data4LibraryResponse.scalar(call("itemSrch", params, priority), "numFound"));
+    }
+
+    /**
+     * 장서의 한 쪽. 청구기호까지 붙여 돌려줍니다.
+     *
+     * <p>청구기호는 {@code callNumbers > callNumber} 로 한 겹 더 들어가 있어
+     * {@link Data4LibraryResponse#items} 가 걸러 냅니다. 그래서 항목마다 따로 읽습니다.
+     * <b>서가에서 책을 찾을 때 실제로 쓰는 값</b>이라 버리면 안 됩니다.
+     */
+    public List<BookInfo> catalogPage(String libCode, String kdc, int pageNo, int pageSize,
+                                      ApiBudget.Priority priority) {
+        Map<String, String> params = new LinkedHashMap<>();
+        params.put("libCode", libCode);
+        params.put("type", "ALL");
+        if (kdc != null) params.put("kdc", kdc);
+        params.put("pageNo", String.valueOf(pageNo));
+        params.put("pageSize", String.valueOf(pageSize));
+
+        String xml = call("itemSrch", params, priority);
+        List<BookInfo> books = Data4LibraryResponse.items(xml, "doc").stream()
+                .map(BookInfo::from)
+                .toList();
+
+        // 청구기호는 doc 안에 한 겹 더 들어가 있습니다. **자리로 맞추지 않고 doc 안쪽만
+        // 봅니다.** 복본이 둘인 책 하나 때문에 그 뒤가 전부 밀리면 엉뚱한 책의 청구기호가
+        // 붙는데, 그건 서가에서 헛걸음하게 만드는 값입니다.
+        List<List<Map<String, String>>> perBook = Data4LibraryResponse.nested(xml, "doc", "callNumber");
+        if (perBook.size() != books.size()) return books;
+
+        List<BookInfo> out = new ArrayList<>(books.size());
+        for (int i = 0; i < books.size(); i++) {
+            out.add(books.get(i).withCallNumber(firstCallNumber(perBook.get(i))));
+        }
+        return out;
+    }
+
+    /**
+     * 복본 가운데 첫 청구기호. <b>읽을 수 있을 때만 돌려줍니다.</b>
+     *
+     * <p>매뉴얼로는 {@code callNumber} 가 잎인지 상자인지 알 수 없습니다. 잎이면 그
+     * 글자가 곧 청구기호입니다. 상자로 온다면 별치·배가·도서·복본 기호를 어떤 순서로
+     * 이어 붙여야 하는지 <b>우리가 정할 근거가 없으므로 지어내지 않고 비웁니다.</b>
+     * 화면은 청구기호가 없는 경우를 이미 다루고, 없는 것보다 틀린 청구기호가 나쁩니다.
+     * 실제 응답을 본 뒤에 여기를 다시 보세요.
+     */
+    private static String firstCallNumber(List<Map<String, String>> copies) {
+        if (copies.isEmpty()) return null;
+        String own = copies.get(0).get("");
+        return own == null || own.isBlank() ? null : own;
+    }
+
     /** {@link HoldingsLookup} 이 쓰는 형태로 감쌉니다. */
     public HoldingsLookup.HoldingsClient asHoldingsClient(ApiBudget.Priority priority) {
         return (isbn13, regionCode) ->

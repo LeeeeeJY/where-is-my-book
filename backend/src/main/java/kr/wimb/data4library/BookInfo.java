@@ -34,7 +34,20 @@ public record BookInfo(
         String classNm,
         String bookImageUrl,
         String bookDetailUrl,
-        Integer loanCount
+        Integer loanCount,
+        /**
+         * 인기대출 계열의 순위. <b>{@code loan_count} 가 오지 않는 자리가 있어서
+         * 따로 듭니다.</b> 매뉴얼이 「도서관별 인기대출도서는 대출순위만 제공」이라고
+         * 적어 두었고(9절), 15절 응답에는 {@code loan_count} 항목이 아예 없습니다.
+         * 그런 자리에서는 대출건수로 순서를 맞추던 규칙을 쓸 수 없습니다.
+         */
+        Integer ranking,
+        /**
+         * 청구기호. {@code itemSrch}(2절)의 {@code callNumbers > callNumber} 에서 옵니다.
+         * <b>서가에서 책을 찾을 때 실제로 쓰는 값입니다.</b> 한 겹 더 들어가 있어
+         * {@link Data4LibraryResponse#itemsUnder} 로 따로 읽어 넣습니다.
+         */
+        String callNumber
 ) {
     public static BookInfo from(Map<String, String> fields) {
         return new BookInfo(
@@ -50,7 +63,32 @@ public record BookInfo(
                 fields.get("class_nm"),
                 fields.get("bookImageURL"),
                 fields.get("bookDtlUrl"),
-                asInt(fields.get("loan_count")));
+                asInt(fields.get("loan_count")),
+                asInt(fields.get("ranking")),
+                null);
+    }
+
+    /** 청구기호를 붙인 사본. {@code itemSrch} 만 이 값을 줍니다. */
+    public BookInfo withCallNumber(String value) {
+        return new BookInfo(bookname, authors, publisher, publicationYear, isbn13, setIsbn13,
+                additionSymbol, vol, classNo, classNm, bookImageUrl, bookDetailUrl,
+                loanCount, ranking, value);
+    }
+
+    /**
+     * 이 자료가 소설인지. <b>매뉴얼에는 근거가 없습니다.</b> 세부주제({@code dtl_kdc})가
+     * 두 자리까지라 {@code 81} 한국문학·{@code 83} 일본문학까지만 가르고, 소설은 KDC
+     * 세 번째 자리({@code 813} 한국소설, {@code 843} 영미소설)이기 때문입니다.
+     *
+     * <p>그래서 {@code kdc=8} 로 문학을 받아 여기서 거릅니다. <b>도서관마다 분류 체계가
+     * 달라 {@code class_no} 가 KDC 가 아닌 자료가 섞일 수 있으므로, 이 규칙은 실제 값을
+     * 충분히 본 뒤에 다시 봐야 합니다.</b> 지금은 「8로 시작하고 세 번째 자리가 3」만
+     * 봅니다. 아니면 거르는 쪽이 아니라 남기지 않는 쪽입니다. 소설이 아닌 것을 소설이라고
+     * 내보내는 것보다 몇 권 놓치는 편이 낫습니다.
+     */
+    public boolean looksLikeNovel() {
+        if (classNo == null || classNo.length() < 3) return false;
+        return classNo.charAt(0) == '8' && classNo.charAt(2) == '3';
     }
 
     /** 체크디지트까지 검증한 ISBN13. 판별할 수 없으면 비어 있습니다. */
