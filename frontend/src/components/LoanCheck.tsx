@@ -28,22 +28,19 @@ export function LoanCheck({ libCode, isbn13List }: { libCode: string; isbn13List
   if (status) {
     const phrase = loanPhrase(status);
     return (
-      <span className={phrase.caution ? 'loan loan--caution' : 'loan'}>
-        {' · '}
-        {phrase.text}
-      </span>
+      <span className={phrase.caution ? 'loan loan--caution' : 'loan'}>{phrase.text}</span>
     );
   }
 
   if (state === 'failed') {
     // 못 물어본 것이지 「빌릴 수 없다」가 아닙니다. 둘을 섞으면 헛걸음이 됩니다.
-    return <span className="muted"> · 대출 상태를 확인하지 못했습니다</span>;
+    return <span className="muted">대출 상태를 확인하지 못했습니다</span>;
   }
 
   return (
     <button
       type="button"
-      className="link-button"
+      className="chip"
       disabled={state === 'asking'}
       title={LOAN_DISCLAIMER}
       onClick={() => {
@@ -191,7 +188,7 @@ export function LibraryLoanSweep({
   const button = todo > 0 && !running && (
     <button
       type="button"
-      className="link-button"
+      className="chip"
       title={disabled ? '소장 확인이 끝나면 물어볼 수 있습니다.' : LOAN_DISCLAIMER}
       disabled={disabled}
       onClick={onRun}

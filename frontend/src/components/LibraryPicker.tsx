@@ -85,7 +85,11 @@ export function LibraryPicker({
             선택은 이 브라우저에 저장되고 주소에도 담깁니다. 주소를 그대로 보내면 상대방
             화면에서도 같은 선택으로 열립니다.
           </p>
-          <button className="link-button" onClick={() => onChange(new Set())}>
+          {/*
+            문장 속이 아니라 혼자 서 있는 행동이라 칩으로 둡니다. 바로 아래 「내 위치 다시
+            잡기」는 문장 가운데에 있어 밑줄 버튼 그대로입니다.
+          */}
+          <button className="chip" onClick={() => onChange(new Set())}>
             선택 전체 해제
           </button>
         </>
