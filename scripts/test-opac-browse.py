@@ -13,6 +13,9 @@
     ignores   검색어를 무시하고 늘 전체 목록을 뿌립니다                 → 음성 대조가 잡아야 합니다
     flaky     첫 책만 아는 척하고 없는 ISBN 에는 조용합니다             → **재확인**이 잡아야 합니다
     postonly  검색이 POST 라 주소에 검색어가 남지 않습니다             → 버려야 합니다
+    detailisbn 상세 주소가 `/book/<ISBN>` 입니다                       → ISBN_DETAIL 까지 얻어야 합니다
+    detailkey  상세 주소가 내부 키 `?bookkey=...` 입니다(노원·김해·대구 모양)
+              → 검색 규칙만 얻고 **상세는 버려야 합니다.** 책마다 달라 자리표가 안 됩니다
 
 실행: ./scripts/test-opac-browse.py
 """
@@ -64,9 +67,20 @@ document.getElementById('searchKeyword').addEventListener('keydown', function (e
 </script></body></html>"""
 
 
-def results(hits: list[str]) -> str:
-    body = "".join(f"<li>{t}</li>" for t in hits) or "<p>검색결과가 없습니다</p>"
+# 내부 키. 책마다 다르고 ISBN 과 아무 관계가 없습니다. 실제 OPAC 이 이렇게 씁니다.
+INNER_KEY = {"9788937473135": "150671418", "9788996991342": "200000279016535",
+             "9788936433598": "DLN000064704"}
+
+
+def results(hits: list[str], link: str | None = None) -> str:
+    """`link` 를 주면 제목이 그 주소로 가는 링크가 됩니다. 상세 페이지가 있는 OPAC 흉내입니다."""
+    body = "".join(f"<li><a href='{link.format(t=t)}'>{t}</a></li>" if link else f"<li>{t}</li>"
+                   for t in hits) or "<p>검색결과가 없습니다</p>"
     return f"<html><head><meta charset='utf-8'></head><body><ul>{body}</ul></body></html>"
+
+
+def isbn_of(title: str) -> str:
+    return next(i for i, t in BOOKS.items() if t == title)
 
 
 def make_handler(flavor: str):
@@ -101,6 +115,16 @@ def make_handler(flavor: str):
                 term = urllib.parse.unquote(path.rsplit("/", 1)[-1])
                 self.send(results([t for i, t in BOOKS.items() if term == i]))
                 return
+            if path == "/book" or path.startswith("/book/"):
+                if flavor == "detailisbn":
+                    isbn = path.rsplit("/", 1)[-1]
+                    self.send(results([BOOKS[isbn]] if isbn in BOOKS else []))
+                    return
+                # 내부 키로만 찾습니다. ISBN 을 넣어도 아무것도 안 나옵니다.
+                key = (urllib.parse.parse_qs(query).get("bookkey") or [""])[0]
+                found = [t for i, t in BOOKS.items() if INNER_KEY[i] == key]
+                self.send(results(found))
+                return
             if path != "/search":
                 self.send_error(404)
                 return
@@ -118,7 +142,18 @@ def make_handler(flavor: str):
                 hits = [BOOKS["9788937473135"]] if term == "9788937473135" else []
             else:
                 hits = [t for i, t in BOOKS.items() if term == i]
-            self.send(results(hits))
+            if flavor == "detailisbn":
+                self.send("".join(
+                    f"<html><head><meta charset='utf-8'></head><body><ul>" +
+                    "".join(f"<li><a href='/book/{isbn_of(t)}'>{t}</a></li>" for t in hits) +
+                    "</ul></body></html>") if hits else results([]))
+            elif flavor == "detailkey":
+                self.send("".join(
+                    f"<html><head><meta charset='utf-8'></head><body><ul>" +
+                    "".join(f"<li><a href='/book?bookkey={INNER_KEY[isbn_of(t)]}'>{t}</a></li>"
+                            for t in hits) + "</ul></body></html>") if hits else results([]))
+            else:
+                self.send(results(hits))
 
         def do_POST(self):
             self.send(results([]))
@@ -143,7 +178,12 @@ CASES = [
     ("ignores", False, "음성 대조가 잡아야 합니다"),
     ("flaky", False, "재확인 단계가 잡아야 합니다"),
     ("postonly", False, "주소에 검색어가 남지 않습니다"),
+    ("detailisbn", True, "상세 주소에 ISBN 이 있으면 거기까지 갑니다"),
+    ("detailkey", True, "상세는 내부 키라 못 쓰지만 검색 규칙은 얻어야 합니다"),
 ]
+
+# 상세 규칙까지 나와야 하는 맛 (플래그: ISBN_DETAIL 을 얻어야 하는가)
+WANT_DETAIL = {"detailisbn": True, "detailkey": False}
 
 
 def main() -> int:
@@ -163,10 +203,13 @@ def main() -> int:
             for lib, (flavor, want, why) in zip(libs, CASES):
                 r = ob.investigate(browser, flavor, [lib], lib, list(BOOKS), pacer, 10.0)
                 got = bool(r["rules"])
+                kinds = {x["kind"] for x in r["rules"]}
                 ok = got == want
-                detail = r["rules"][0]["url"] if got else r["note"][:40]
-                print(f"  {'✓' if ok else '✗'} {flavor:9s} {'찾음' if got else '버림'}  "
-                      f"{detail}")
+                if flavor in WANT_DETAIL:
+                    ok = ok and (("ISBN_DETAIL" in kinds) == WANT_DETAIL[flavor])
+                shown = r["rules"][0]["url"] if got else r["note"][:40]
+                print(f"  {'✓' if ok else '✗'} {flavor:10s} {'찾음' if got else '버림'}  "
+                      f"{'+'.join(sorted(kinds)) or '-':24s} {shown}")
                 if not ok:
                     failures.append(f"조사:{flavor}({why})")
         finally:

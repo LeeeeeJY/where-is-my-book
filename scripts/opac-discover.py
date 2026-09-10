@@ -766,7 +766,7 @@ def import_findings(path: str, libs: list[dict]) -> int:
     kinds = {"ISBN_DETAIL", "ISBN_SEARCH", "TITLE_SEARCH"}
     writer = csv.writer(sys.stdout, lineterminator="\n")
     problems, taken, covered = [], 0, 0
-    seen: dict[str, str] = {}
+    seen: dict[tuple[str, str], str] = {}
     for lineno, raw in enumerate(open(path, encoding="utf-8"), 1):
         line = raw.strip()
         if not line or line.startswith("#"):
@@ -816,13 +816,17 @@ def import_findings(path: str, libs: list[dict]) -> int:
         for lib in targets:
             # 한 도서관이 두 줄에 걸리는 것은 `*` 를 붙이면 흔해집니다. 같은 주소면 조용히
             # 넘어가고, 다른 주소면 **어느 쪽이 맞는지 우리가 모르므로** 알립니다.
-            before = seen.get(lib["libCode"])
+            # 한 도서관에 종류가 다른 줄을 여럿 두는 것은 정상입니다(상세가 안 열릴 때
+            # 검색 결과로 내려갑니다). 막아야 하는 것은 **같은 자리를 두 주소가 다투는**
+            # 경우라, 열쇠를 (도서관, 종류)로 잡습니다.
+            slot = (lib["libCode"], kind)
+            before = seen.get(slot)
             if before is not None:
                 if before != url:
-                    problems.append(f"{where}: {lib['name']}({lib['libCode']}) 가 이미 다른 "
-                                    f"주소로 잡혀 있습니다 — {before[:60]}")
+                    problems.append(f"{where}: {lib['name']}({lib['libCode']}) 의 {kind} 가 "
+                                    f"이미 다른 주소로 잡혀 있습니다 — {before[:60]}")
                 continue
-            seen[lib["libCode"]] = url
+            seen[slot] = url
             writer.writerow([lib["libCode"], kind, encoding.upper(), url])
             covered += 1
 

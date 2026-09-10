@@ -275,8 +275,13 @@ def check_import(work: str) -> list[str]:
             "lib.example.go.kr/jungang | ISBN_SEARCH | UTF-8 | https://www.lib.example.go.kr/s?q={isbn13}\n")
     other = ("www.lib.example.go.kr* | ISBN_SEARCH | UTF-8 | https://www.lib.example.go.kr/s?q={isbn13}\n"
              "lib.example.go.kr/jungang | ISBN_SEARCH | UTF-8 | https://www.lib.example.go.kr/t?q={isbn13}\n")
+    # 한 도서관이 상세와 검색을 함께 갖는 것은 정상입니다. 상세가 안 열릴 때 내려갈
+    # 자리라, 종류가 다르면 두 줄이 그대로 나가야 합니다.
+    both = ("www.lib.example.go.kr | ISBN_DETAIL | UTF-8 | https://www.lib.example.go.kr/b/{isbn13}\n"
+            "www.lib.example.go.kr | ISBN_SEARCH | UTF-8 | https://www.lib.example.go.kr/s?q={isbn13}\n")
     for label, text, want_rows, want_warn in [("겹치는 줄 같은 주소", same, 4, False),
-                                              ("겹치는 줄 다른 주소", other, 4, True)]:
+                                              ("겹치는 줄 다른 주소", other, 4, True),
+                                              ("상세와 검색을 함께", both, 4, False)]:
         path = os.path.join(work, "findings.txt")
         open(path, "w").write(text)
         buf, err = io.StringIO(), io.StringIO()

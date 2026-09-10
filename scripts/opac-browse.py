@@ -174,6 +174,59 @@ def opens_fresh(browser, template: str, isbn: str, title: str, pacer, timeout: f
         context.close()
 
 
+def detail_rule(browser, template: str, books: list[str], pacer, timeout: float) -> str | None:
+    """검색 결과에서 책을 눌러 들어간 주소에 **ISBN 이 그대로 있으면** 상세 규칙이 됩니다.
+
+    **대부분은 안 됩니다.** 손으로 열어 본 세 곳이 전부 도서관 내부 키를 쓰고 있었습니다.
+    노원은 앞에 키 목록이 스무 개씩 붙고(`/bookDetail/MO/629661,530431,.../{isbn13}`),
+    김해는 `book_key=150671418`, 대구는 `regNo`·`bookkey` 입니다. 책마다 달라지는 값이라
+    우리가 미리 알 방법이 없으므로 **자리표를 만들 수 없습니다.**
+
+    그래도 확인은 기계가 합니다. 사람이 도서관마다 눌러 보는 것보다 싸고, 되는 곳이 하나라도
+    있으면 그 도서관은 검색 결과를 한 번 더 거치지 않습니다.
+
+    **찾았다고 그냥 쓰지 않습니다.** 다른 책의 ISBN 으로 바꿔 새 창에서 열어 그 책이 나오는지
+    봅니다. 그러지 않으면 첫 책에만 우연히 맞는 주소가 규칙이 됩니다.
+    """
+    context = browser.new_context()
+    try:
+        page = context.new_page()
+        url = template.replace("{isbn13}", books[0])
+        pacer.wait(urllib.parse.urlparse(url).netloc)
+        page.goto(url, timeout=timeout * 1000, wait_until="domcontentloaded")
+        try:
+            page.wait_for_load_state("networkidle", timeout=timeout * 1000)
+        except Exception:
+            pass
+
+        want = od.squash(od.PROBE_BOOKS[books[0]])
+        for link in page.locator("a").all()[:120]:
+            try:
+                if want not in od.squash(link.inner_text()):
+                    continue
+                link.click(timeout=timeout * 1000)
+            except Exception:
+                continue
+            try:
+                page.wait_for_load_state("networkidle", timeout=timeout * 1000)
+            except Exception:
+                pass
+            here = next((o.url for o in context.pages if books[0] in o.url and o is not page),
+                        page.url)
+            detail = templatize(here, books[0])
+            # 검색 결과 주소와 같으면 상세로 간 것이 아닙니다.
+            if not detail or detail == template:
+                return None
+            hit, _, _ = opens_fresh(browser, detail, books[1], od.PROBE_BOOKS[books[1]],
+                                    pacer, timeout)
+            return detail if hit else None
+        return None
+    except Exception:
+        return None
+    finally:
+        context.close()
+
+
 def investigate(browser, key: str, members: list[dict], rep: dict, books: list[str],
                 pacer, timeout: float) -> dict:
     """묶음 하나. 예외가 새어 나가면 수백 묶음짜리 조사가 통째로 죽습니다."""
@@ -240,6 +293,12 @@ def investigate(browser, key: str, members: list[dict], rep: dict, books: list[s
                 return out
 
             out["rules"] = [{"kind": "ISBN_SEARCH", "encoding": "UTF-8", "url": template}]
+
+            # ④ 상세 페이지까지 갈 수 있으면 더 좋습니다. 대부분은 내부 키라 안 됩니다.
+            detail = detail_rule(browser, template, books, pacer, timeout)
+            if detail:
+                out["rules"].insert(0, {"kind": "ISBN_DETAIL", "encoding": "UTF-8",
+                                        "url": detail})
             return out
 
         out["note"] = out["note"] or "주소에 검색어가 남지 않습니다"
