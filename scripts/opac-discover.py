@@ -430,7 +430,7 @@ def investigate(group: dict, probe: dict, pacer: Pacer) -> dict:
 
 def _investigate(group: dict, probe: dict, pacer: Pacer) -> dict:
     """대표 도서관의 홈페이지에서 폼을 읽고 검증합니다."""
-    rep = group["libraries"][0]
+    rep = pick_representative(group["libraries"], probe)
     result = {"group": group["key"], "libCodes": [l["libCode"] for l in group["libraries"]],
               "name": rep["name"], "homepage": rep["homepageUrl"], "rules": [], "note": ""}
 
@@ -629,6 +629,26 @@ WORKLIST_HEAD = """# OPAC 주소 규칙 조사 — 작업 목록 (묶음 {n}개,
 """
 
 
+def pick_representative(members: list[dict], probe: dict) -> dict:
+    """묶음을 대표할 도서관. **작은도서관을 앞에 세우지 않습니다.**
+
+    검증용 책을 많이 가진 곳으로만 고르면 대표가 죄다 작은도서관이 됩니다. 그런데 정보나루가
+    「그 작은도서관이 소장한다」고 답해도 **시립 통합 OPAC 에는 그 자료가 올라가 있지 않은
+    일이 있습니다.** 그러면 규칙이 맞아도 0건이 나와 실패로 읽힙니다. 실제로 2026-09-10 조사에서
+    「검색은 동작하나 시험 도서 두 권 모두 0건」인 10묶음(60곳)이 전부 이 경우였습니다
+    (`www.l4d.or.kr/small`, `mplib.mapo.go.kr/libsmall`, 유성·동작·관악…).
+
+    그래서 이름에 「작은도서관」이나 「문고」가 없는 곳을 먼저 세우고, 그 안에서 검증용 책을
+    많이 가진 곳을 고릅니다. 묶음이 작은도서관뿐이면 어쩔 수 없이 그중에서 고릅니다.
+    """
+    def rank(lib: dict) -> tuple:
+        name = lib.get("name", "")
+        small = 1 if ("작은도서관" in name or "문고" in name) else 0
+        return (small, -len(probe.get(lib["libCode"], [])), name)
+
+    return min(members, key=rank)
+
+
 def worklist(libs: list[dict], probe: dict, count: int) -> int:
     """조사할 묶음 목록을 사람이 읽을 수 있게 뽑습니다.
 
@@ -643,7 +663,7 @@ def worklist(libs: list[dict], probe: dict, count: int) -> int:
 
     rows = []
     for key, members in sorted(groups.items(), key=lambda kv: -len(kv[1])):
-        rep = max(members, key=lambda l: len(probe.get(l["libCode"], [])))
+        rep = pick_representative(members, probe)
         books = [i for i in probe.get(rep["libCode"], []) if i in PROBE_BOOKS][:3]
         if len(books) < 2:
             continue
