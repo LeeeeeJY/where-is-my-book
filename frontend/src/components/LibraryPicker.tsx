@@ -204,7 +204,7 @@ function SearchTab({
   onChange: (next: Set<string>) => void;
 }) {
   const [query, setQuery] = useState('');
-  // 1,604건뿐이라 전부 내려받아 클라이언트에서 거릅니다. 응답이 즉각적이라 사용감이 좋습니다.
+  // 1,619건뿐이라 전부 내려받아 클라이언트에서 거릅니다. 응답이 즉각적이라 사용감이 좋습니다.
   const hits = useMemo(() => {
     const needle = query.replace(/\s+/g, '');
     if (!needle) return [];
