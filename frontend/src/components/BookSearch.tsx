@@ -214,6 +214,7 @@ export function BookSearch({
   }
 
   return (
+    <>
     <section className="results">
       <header className="picker__head">
         <h2>책 검색</h2>
@@ -281,8 +282,6 @@ export function BookSearch({
 
       <SearchState
         state={state}
-        libraries={libraries}
-        selected={selected}
         byCode={byCode}
         selectedCount={selected.size}
         facts={facts}
@@ -298,13 +297,23 @@ export function BookSearch({
         asOf={asOf}
       />
     </section>
+
+    {/*
+      **검색어를 넣기 전의 빈 자리를 둘러보기가 채웁니다.** 지금까지 이 도구는 「찾을 책을
+      이미 정한 사람」만 쓸 수 있었습니다. 도서관을 골라 두어도 여기가 텅 비어 있었기
+      때문입니다. 랭킹의 목적이 「검색어를 정하게 돕는 것」이라 이 자리가 정확히 맞고,
+      검색하면 자연스럽게 결과로 바뀝니다. 탭을 늘리지 않는 이유이기도 합니다.
+
+      **다만 검색 카드 안이 아니라 그 아래의 다른 카드입니다.** 같은 카드 안에 두었더니
+      「둘러볼 도서관」 선택 칸이 검색 조건처럼 읽혀 실제로 헷갈린다는 말을 들었습니다.
+    */}
+    {state.kind === 'idle' && <Browse libraries={libraries} selected={selected} />}
+    </>
   );
 }
 
 function SearchState({
   state,
-  libraries,
-  selected,
   byCode,
   selectedCount,
   facts,
@@ -316,8 +325,6 @@ function SearchState({
   asOf,
 }: {
   state: State;
-  libraries: readonly Library[];
-  selected: ReadonlySet<string>;
   byCode: Map<string, Library>;
   selectedCount: number;
   /** 지금 고른 도서관 기준으로 확인된 결과. 기준이 다르거나 아직 안 물어봤으면 null. */
@@ -329,20 +336,12 @@ function SearchState({
   onMore: () => void;
   asOf: string | null;
 }) {
-  /*
-    **검색어를 넣기 전의 빈 자리를 둘러보기가 채웁니다.** 지금까지 이 도구는 「찾을 책을
-    이미 정한 사람」만 쓸 수 있었습니다. 도서관을 골라 두어도 여기가 텅 비어 있었기
-    때문입니다. 랭킹의 목적이 「검색어를 정하게 돕는 것」이라 이 자리가 정확히 맞고,
-    검색하면 자연스럽게 결과로 바뀝니다. 탭을 늘리지 않는 이유이기도 합니다.
-  */
+  // 검색어를 넣기 전. 둘러보기는 이 카드 밖에서 BookSearch 가 따로 그립니다.
   if (state.kind === 'idle') {
     return (
-      <>
-        <p className="muted">
-          제목을 넣으면 도서관 정보나루에서 서지를 찾고, 고른 도서관에 그 책이 있는지 확인합니다.
-        </p>
-        <Browse libraries={libraries} selected={selected} />
-      </>
+      <p className="muted">
+        제목을 넣으면 도서관 정보나루에서 서지를 찾고, 고른 도서관에 그 책이 있는지 확인합니다.
+      </p>
     );
   }
 
@@ -515,7 +514,7 @@ ISBN 을 알 수 없어 소장을 확인하지 못하는 자료가 {droppedNoIsb
         하지 않으면 사용자는 찾던 책이 없다고 결론짓습니다. 실제로는 스물한 번째에
         있을 수 있습니다.
       */}
-      <p className="more">
+      <div className="more">
         {/*
           「180개를 찾아 위에서 100개까지 봅니다 · 20개 보는 중」은 20개만 보이는데 왜 100개
           이야기가 나오는지 알 수 없었습니다. 지금 보는 수만 말하고, 상한(100)에 실제로
@@ -549,7 +548,7 @@ ISBN 을 알 수 없어 소장을 확인하지 못하는 자료가 {droppedNoIsb
             <DroppedList books={droppedBooks} total={droppedNoIsbn} />
           </>
         )}
-      </p>
+      </div>
     </>
   );
 }
@@ -623,7 +622,7 @@ function BookCard({
           반복됐습니다.
         */}
         {work.detailUrl && (
-          <p className="book__editions">
+          <p className="book__links">
             <a
               className="chip chip--sm chip--go"
               href={work.detailUrl}
@@ -634,7 +633,14 @@ function BookCard({
             </a>
           </p>
         )}
+      </div>
 
+      {/*
+        **소장 결과는 본문 칸이 아니라 격자의 셋째 칸입니다.** 좁은 화면에서 표지 아래 한 줄을
+        통째로 써야 도서관 이름과 대출 확인 단추가 한 줄에 들어갑니다. 넓은 화면에서 어느
+        칸에 놓일지는 styles.css 의 .book__holding 이 정합니다.
+      */}
+      <div className="book__holding">
         <Holdings
           work={work}
           byCode={byCode}
