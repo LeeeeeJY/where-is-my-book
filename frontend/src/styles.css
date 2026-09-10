@@ -87,6 +87,14 @@ body {
 .layout { display: grid; gap: 16px; }
 @media (min-width: 860px) {
   .layout { grid-template-columns: minmax(300px, 380px) 1fr; align-items: start; }
+  /*
+    **두 카드의 윗선을 맞춥니다.** 탭이 오른쪽 칸 안에 있을 때는 왼쪽 카드가 탭과 나란히
+    시작하고 오른쪽 카드는 탭 높이만큼 내려가 있었습니다. 첫 줄은 탭만(왼쪽 칸은 비워 둡니다),
+    둘째 줄에 카드 둘을 놓아 같은 높이에서 시작하게 합니다. 사이 간격은 격자의 gap 이 맡습니다.
+  */
+  .layout > .tabs--mode { grid-column: 2; grid-row: 1; margin: 0; }
+  .layout > .picker { grid-column: 1; grid-row: 2; }
+  .layout > .results-column { grid-column: 2; grid-row: 2; }
 
   /*
     **오른쪽 칸은 페이지와 함께 스크롤합니다. 왼쪽만 붙여 둡니다.**
@@ -466,7 +474,7 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
 
 /* ── 여러 권 검색 ───────────────────────────────────────────────────── */
 
-.tabs--mode { margin: 0 0 12px; }
+.tabs--mode { margin: 0; }
 
 /*
   입력 칸의 높이는 textarea 의 rows(여덟 줄)가 정합니다. 한때 결과가 없는 동안 남은 높이를
