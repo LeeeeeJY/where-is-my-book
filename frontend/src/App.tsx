@@ -179,18 +179,26 @@ export default function App() {
         그것을 붙이면 그때 출처를 하나 더 적습니다.
       */}
       <footer className="app__foot muted">
-        출처:{' '}
-        <a href="https://www.data4library.kr" target="_blank" rel="noreferrer noopener">
-          도서관 정보나루
-        </a>{' '}
-        (국립중앙도서관)
-        {' · '}
+        <div>
+          출처:{' '}
+          <a href="https://www.data4library.kr" target="_blank" rel="noreferrer noopener">
+            도서관 정보나루
+          </a>{' '}
+          (국립중앙도서관)
+        </div>
         {/*
-          **앱 밖의 정적 페이지라 리액트 라우팅을 타지 않습니다.** 자바스크립트가 돌지
-          않아도, API 서버가 죽어 있어도 열려야 하기 때문입니다. 그래서 `<a>` 로 그냥
-          넘깁니다. 주소 규칙은 `vercel.json` 에 있습니다.
+          **개인정보처리방침을 출처와 한 줄에 두지 마세요.** 가운뎃점으로 이어 붙였더니
+          출처가 두 곳인 것처럼, 「개인정보처리방침」까지 데이터를 받아 오는 곳 이름으로
+          읽혔습니다. 바로 위에서 정보나루와 국립중앙도서관을 가운뎃점으로 잇지 않는
+          것과 같은 이유입니다. 성격이 다른 것은 줄을 나눕니다.
+
+          **그리고 앱 밖의 정적 페이지라 리액트 라우팅을 타지 않습니다.** 자바스크립트가
+          돌지 않아도, API 서버가 죽어 있어도 열려야 하기 때문입니다. 그래서 `<a>` 로
+          그냥 넘깁니다. 주소 규칙은 `vercel.json` 에 있습니다.
         */}
-        <a href="/privacy">개인정보처리방침</a>
+        <div>
+          <a href="/privacy">개인정보처리방침</a>
+        </div>
       </footer>
     </div>
   );
