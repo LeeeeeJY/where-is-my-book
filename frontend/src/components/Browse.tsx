@@ -40,7 +40,14 @@ export function Browse({
   libraries: readonly Library[];
   selected: ReadonlySet<string>;
 }) {
-  const codes = [...selected];
+  /*
+    **고른 순서가 아니라 목록 순서로 셉니다.** `Set` 의 순서는 사용자가 체크한 차례라,
+    시도 하나를 통째로 고르면 첫 곳이 도서관 목록의 첫 곳과 달라집니다. 실제로 경기도를
+    한 번에 골랐더니 기본값이 「분당도서관」이었습니다. 목록은 시도 → 이름 순으로 정해져
+    있으므로 그것을 그대로 따르면 같은 선택에서 늘 같은 곳이 먼저입니다.
+  */
+  const codes = libraries.filter((library) => selected.has(library.libCode))
+    .map((library) => library.libCode);
   const [libCode, setLibCode] = useState<string | null>(null);
   const [data, setData] = useState<BrowseResponse | 'loading' | 'failed'>('loading');
   const [group, setGroup] = useState<string | null>(null);
@@ -68,13 +75,13 @@ export function Browse({
     };
   }, [current]);
 
-  if (!current) {
-    return (
-      <p className="muted">
-        도서관을 고르면 그 도서관에서 요즘 많이 빌려 간 책과 오늘의 이야기를 보여 드립니다.
-      </p>
-    );
-  }
+  /*
+    **고른 도서관이 없으면 아무것도 그리지 않습니다.** 여기에 「도서관을 고르면 보여
+    드립니다」를 두면 바로 위의 「도서관 선택에서 자주 가는 곳을 먼저 골라 주세요」와
+    같은 말이 두 번 나옵니다. 실제로 그 상태에서 같은 뜻의 문단이 셋이었습니다.
+    화면이 자기가 한 일을 전부 설명하면 정작 사용자가 할 일이 묻힙니다.
+  */
+  if (!current) return null;
 
   const currentLibrary = libraries.find((library) => library.libCode === current);
   const response = typeof data === 'string' ? null : data;
