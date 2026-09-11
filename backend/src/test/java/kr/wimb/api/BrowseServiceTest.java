@@ -275,4 +275,33 @@ class BrowseServiceTest {
         assertNotEquals(BrowseService.seedOf(day, "111001"),
                 BrowseService.seedOf(day.plusDays(1), "111001"));
     }
+
+    @Test
+    @DisplayName("실패를 로그에 남길 때 인증키를 가립니다")
+    void authKeyNeverReachesTheLog() {
+        // 정보나루가 준 오류에는 키가 없지만, 전송 계층이 던지는 예외는 주소를 통째로
+        // 메시지에 담을 수 있고 그 주소에는 authKey 가 붙어 있습니다. **로그는 남에게
+        // 넘어가기 쉬운 자리라** 한 번 거르고 적습니다.
+        String masked = BrowseService.withoutKey(new IllegalArgumentException(
+                "https://data4library.kr/api/extends/loanItemSrchByLib"
+                        + "?authKey=abc123SECRET&libCode=111039"));
+
+        assertFalse(masked.contains("abc123SECRET"), "인증키가 그대로 남았습니다: " + masked);
+        assertTrue(masked.contains("authKey=***"));
+        // **키만 가리고 나머지는 남깁니다.** 어느 도서관의 어느 호출이 실패했는지까지
+        // 지워 버리면 로그를 남기는 뜻이 없어집니다.
+        assertTrue(masked.contains("libCode=111039"));
+        assertTrue(masked.contains("loanItemSrchByLib"));
+    }
+
+    @Test
+    @DisplayName("대문자로 적힌 키도 가리고, 키가 없는 예외는 그대로 둡니다")
+    void maskingIsCaseInsensitiveAndOtherwiseUntouched() {
+        assertFalse(BrowseService.withoutKey(
+                new IllegalStateException("?AuthKey=SECRET&x=1")).contains("SECRET"));
+
+        // 타임아웃처럼 키가 섞일 일이 없는 것은 손대지 않아야 원문 그대로 읽힙니다.
+        String plain = BrowseService.withoutKey(new IllegalStateException("request timed out"));
+        assertTrue(plain.contains("request timed out"));
+    }
 }

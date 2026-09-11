@@ -8,6 +8,8 @@ import kr.wimb.bib.Volume;
 import kr.wimb.data4library.BookInfo;
 import kr.wimb.data4library.Data4LibraryClient;
 import kr.wimb.ingest.ApiBudget;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -87,6 +89,19 @@ public class BrowseService {
     /** 도서관부호 → 그날 받아 둔 인기대출 목록. */
     private final Map<String, Dated<List<PopularGroup>>> popular = new ConcurrentHashMap<>();
 
+    private static final Logger log = LoggerFactory.getLogger(BrowseService.class);
+
+    /**
+     * 예외를 로그에 적을 한 줄로 만들되 <b>인증키를 가립니다.</b>
+     *
+     * <p>정보나루가 준 오류({@code ApiErrorException})에는 키가 들어가지 않지만, 전송
+     * 계층이 던지는 예외는 주소를 통째로 메시지에 담을 수 있고 그 주소에는 {@code authKey}
+     * 가 붙어 있습니다. <b>로그는 남에게 넘어가기 쉬운 자리라</b> 여기서 한 번 거릅니다.
+     */
+    static String withoutKey(RuntimeException e) {
+        return e.toString().replaceAll("(?i)(authKey=)[^&\\s]*", "$1***");
+    }
+
     /**
      * <b>{@code @Autowired} 를 지우지 마세요.</b> Spring 이 생성자를 알아서 고르는 것은
      * 생성자가 하나일 때뿐입니다. 아래에 시계를 받는 생성자가 있으므로 둘이 되고, 표시가
@@ -154,6 +169,9 @@ public class BrowseService {
         } catch (RuntimeException e) {
             // 실패는 기억하지 않습니다. 정보나루가 잠깐 흔들린 뒤에도 하루 내내
             // 빈 화면이 이어지면 안 됩니다. 소장 캐시가 지키는 규칙과 같습니다.
+            // **다만 삼키더라도 남기기는 합니다.** 화면은 조용히 비는데 이유가 아무 데도
+            // 남지 않으면 다음에 같은 증상이 왔을 때 처음부터 다시 재야 합니다.
+            log.warn("오늘의 이야기를 받지 못했습니다(도서관 {}): {}", libCode, withoutKey(e));
             return Optional.empty();
         }
         stories.put(libCode, new Dated<>(today, built));
@@ -182,6 +200,11 @@ public class BrowseService {
                     .filter(g -> !g.books().isEmpty())
                     .toList();
         } catch (RuntimeException e) {
+            // 여기가 조용해서 실제로 한 번 헛짚었습니다. 화면에 목록이 통째로 비었는데
+            // 이유가 어디에도 없어, 도서관 스물두 곳을 부르고 응답 시간을 재어 가며
+            // 「2절은 되는데 15절만 안 된다」를 손으로 갈라내야 했습니다. 한 줄이면
+            // 끝날 일이었습니다.
+            log.warn("인기대출 목록을 받지 못했습니다(도서관 {}): {}", libCode, withoutKey(e));
             return List.of();
         }
         popular.put(libCode, new Dated<>(today, built));
@@ -282,6 +305,8 @@ public class BrowseService {
                     .findFirst()
                     .orElse(null);
         } catch (RuntimeException e) {
+            // 링크가 없는 것은 정상이기도 해서 debug 입니다. 화면이 없는 경우를 다룹니다.
+            log.debug("책 정보 주소를 받지 못했습니다(ISBN {}): {}", isbn13, withoutKey(e));
             return null;
         }
     }
