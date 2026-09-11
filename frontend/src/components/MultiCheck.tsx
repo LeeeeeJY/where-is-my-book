@@ -794,15 +794,15 @@ function LineWhere({
       「그래서 어디로 가면 되나」에 답하는 자리라 그것을 못 읽으면 아무 말도 하지 않은 셈입니다.
       이름표는 격자의 첫 칸이라 한 곳뿐일 때는 이름 옆에 그대로 섭니다.
     */
-    <div className="line__where namelist">
-      <span className="line__where-label namelist__label">있는 곳</span>
-      <ul className="namelist__items">
+    <div className="line__where labeled">
+      <span className="line__where-label labeled__label">있는 곳</span>
+      <ul className="namelist">
         {held.map((code) => (
           <li key={code}>{byCode.get(code)?.name ?? code}</li>
         ))}
       </ul>
       {row.holdings && !row.holdings.complete && (
-        <p className="namelist__note muted">확인하지 못한 판본이 있어 더 있을 수 있습니다.</p>
+        <p className="labeled__note muted">확인하지 못한 판본이 있어 더 있을 수 있습니다.</p>
       )}
     </div>
   );
@@ -1022,9 +1022,9 @@ function LibraryRow({
             그것을 못 읽으면 목록이 아무 말도 하지 않습니다. 제목이 링크일 때는 더 그렇습니다.
             누를 자리가 두 줄에 걸쳐 끊겨 있으면 어느 것을 누르는지 알 수 없습니다.
           */}
-          <div className="rank__books namelist">
-            <span className="rank__books-label namelist__label">있음</span>
-            <ul className="namelist__items">
+          <div className="rank__books labeled">
+            <span className="rank__books-label labeled__label">있음</span>
+            <ul className="namelist">
               {books.map((book) => (
                 <li key={book.key}>
                   {bookLinks ? (
@@ -1044,9 +1044,9 @@ function LibraryRow({
             </ul>
           </div>
           {rank.missing.length > 0 && (
-            <div className="rank__books muted namelist">
-              <span className="rank__books-label namelist__label">없음</span>
-              <ul className="namelist__items">
+            <div className="rank__books muted labeled">
+              <span className="rank__books-label labeled__label">없음</span>
+              <ul className="namelist">
                 {/* 제목만 오므로 같은 제목이 두 줄에서 나올 수 있습니다. 자리까지 열쇠에 넣습니다. */}
                 {rank.missing.map((title, i) => (
                   <li key={`${i}-${title}`}>{title}</li>
@@ -1104,17 +1104,29 @@ function Leftovers({ rows }: { rows: BookRow[] }) {
 
   return (
     <div className="leftovers">
+      {/*
+        여기도 **책 하나가 한 줄입니다**(`.namelist`). 위의 목록들과 같은 이유인데, 이름표가
+        짧은 말이 아니라 제목 줄이라 `.labeled` 는 쓰지 않습니다. 목록만 그 아래에 둡니다.
+      */}
       {nowhere.length > 0 && (
         <div className="leftover">
           <h4 className="section-title">고른 도서관에 없는 책 {nowhere.length}권</h4>
-          <p className="muted">{nowhere.map((row) => row.title).join(' · ')}</p>
+          <ul className="namelist muted">
+            {nowhere.map((row) => (
+              <li key={row.key}>{row.title}</li>
+            ))}
+          </ul>
         </div>
       )}
       {unknown.length > 0 && (
         <div className="leftover leftover--unknown">
           <h4 className="section-title">확인하지 못한 책 {unknown.length}권</h4>
-          <p>{unknown.map((row) => row.title).join(' · ')}</p>
-          <p className="muted">없다는 뜻이 아닙니다. 잠시 후 다시 확인해 주세요.</p>
+          <ul className="namelist">
+            {unknown.map((row) => (
+              <li key={row.key}>{row.title}</li>
+            ))}
+          </ul>
+          <p className="leftover__note muted">없다는 뜻이 아닙니다. 잠시 후 다시 확인해 주세요.</p>
         </div>
       )}
     </div>
