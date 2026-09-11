@@ -204,6 +204,16 @@ body {
   border: 1px solid var(--accent); font-weight: 600;
 }
 .button--quiet:hover { background: var(--accent-soft); }
+/*
+  **못 누르는 동안에도 조용한 단추여야 합니다.** `.button:disabled` 가 바탕을 짙은 녹색으로
+  되돌리는데, 그 선택자가 `.button--quiet` 보다 명시도가 높아서 **바탕만 초록으로 덮이고
+  글자색은 `.button--quiet` 의 초록으로 남습니다.** 초록 바탕에 초록 글자라 글자가 통째로
+  사라집니다. 실제로 「더 보기」가 확인 중일 때 아무 글자도 없는 흐린 초록 사각형이었고,
+  사용자는 그것을 눌러야 하는 것인지 아닌지조차 알 수 없었습니다. 못 누른다는 것은
+  `opacity` 가 이미 말하고 있으므로 바탕까지 바꿀 이유가 없습니다.
+*/
+.button--quiet:disabled,
+.button--quiet:disabled:hover { background: var(--surface); color: var(--accent); }
 
 /*
   **누르는 자리를 한 모양으로 모읍니다.**

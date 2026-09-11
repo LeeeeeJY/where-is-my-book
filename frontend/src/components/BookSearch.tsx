@@ -522,7 +522,19 @@ ISBN 을 알 수 없어 소장을 확인하지 못하는 자료가 {droppedNoIsb
               onClick={onMore}
               disabled={checking}
             >
-              {checking ? '확인 중' : `${Math.min(PAGE, works.length - shown)}개 더 보기`}
+              {/*
+                **누르는 동안 폭이 변하면 안 됩니다.** 「20개 더 보기」가 「확인 중」으로
+                짧아지면 단추가 그만큼 줄어드는데, `.more` 가 flex 라 옆에 있던 글이 따라
+                움직입니다. 누른 자리가 눈앞에서 옮겨 가는 것이라 사용자는 자기가 무엇을
+                눌렀는지 놓칩니다. 대출 상태 확인에서 겪은 것과 같은 문제라 같은 장치를
+                씁니다. 자세한 이유는 `.chip__swap` 에 적어 두었습니다.
+              */}
+              <span className="chip__swap">
+                <span className={checking ? 'chip__swap--off' : undefined}>
+                  {Math.min(PAGE, works.length - shown)}개 더 보기
+                </span>
+                <span className={checking ? undefined : 'chip__swap--off'}>확인 중</span>
+              </span>
             </button>
           </>
         )}
