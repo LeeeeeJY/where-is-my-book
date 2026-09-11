@@ -127,6 +127,43 @@ class LineParserTest {
         assertNull(line.attempts().get(1).publisher());
     }
 
+    /**
+     * <b>「제목 / 저자 / 출판사」는 표에서 복사하면 나오는 흔한 모양입니다.</b> 그런데
+     * 마지막 구분자에서만 나누면 저자가 제목 안으로 딸려 들어가(「마의 산 / 토마스 만」)
+     * 한 건도 나오지 않고, 사용자에게는 그것이 <b>「그런 책이 없다」로 보입니다.</b>
+     * 세 칸을 제대로 받지는 않고, 앞부분만 제목으로 보는 해석 하나를 안전망으로 둡니다.
+     */
+    @Test
+    @DisplayName("조각이 셋 이상이면 앞부분만 제목으로 보는 해석을 더한다")
+    void addsFirstSegmentAsTitleForThreePartLines() {
+        var line = one("마의 산 / 토마스 만 / 을유문화사");
+        assertEquals(4, line.attempts().size());
+
+        var safetyNet = line.attempts().get(3);
+        assertEquals(LineParser.Kind.TITLE, safetyNet.kind());
+        assertEquals("마의 산", safetyNet.title(), "첫 조각만 제목으로 봅니다");
+        assertTrue(safetyNet.explanation().contains("앞부분"), safetyNet.explanation());
+
+        // **맨 뒤여야 합니다.** 저자나 출판사까지 맞은 해석이 점수로 이겨야 합니다.
+        assertEquals(LineParser.Kind.TITLE_AUTHOR, line.attempts().get(1).kind());
+    }
+
+    /**
+     * <b>쉼표로는 조각을 세지 않습니다.</b> 쉼표는 제목 안에 흔히 들어갑니다. 이것으로
+     * 세면 「총, 균, 쇠 - 재레드 다이아몬드」가 네 조각이 되어 <b>앞부분만 제목으로 보는
+     * 해석이 「총」을 찾습니다.</b> 한 글자로 아무것이나 데려오는 셈입니다. 쉼표로 나눈
+     * 목록을 읽지 못하는 대가를 치르더라도 제목을 잘라 먹지 않는 쪽을 고릅니다.
+     */
+    @Test
+    @DisplayName("쉼표가 여럿인 제목을 앞부분만 잘라 내지 않는다")
+    void doesNotCutTitlesThatContainCommas() {
+        var line = one("총, 균, 쇠 - 재레드 다이아몬드");
+
+        assertEquals(3, line.attempts().size(), "안전망이 붙으면 안 됩니다");
+        assertTrue(line.attempts().stream().noneMatch(a -> "총".equals(a.title())),
+                "「총」으로 찾으면 아무 책이나 걸립니다");
+    }
+
     @Test
     @DisplayName("구분자가 없는 줄은 해석을 늘리지 않는다")
     void plainTitleGetsOnlyOneAttempt() {

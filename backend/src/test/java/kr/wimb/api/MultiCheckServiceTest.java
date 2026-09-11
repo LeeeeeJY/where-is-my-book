@@ -190,6 +190,48 @@ class MultiCheckServiceTest {
         assertEquals("문학과지성사", line.candidates().get(0).publisher());
     }
 
+    /**
+     * <b>세 조각 줄이 통째로 0건이던 자리입니다.</b> 게다가 화면에는 「제목: 마의 산 /
+     * 토마스 만」이라고 <b>잘못 읽은 것이 그대로</b> 보였습니다.
+     */
+    @Test
+    @DisplayName("제목·저자·출판사를 한 줄에 적어도 찾는다")
+    void findsBooksFromThreePartLines() {
+        var transport = new FakeD4L();
+        // 제목이 그대로 맞을 때만 줍니다. 저자가 딸려 들어간 제목으로는 한 건도 없습니다.
+        transport.answer = q -> q.contains("title=마의 산&") || q.endsWith("title=마의 산")
+                ? docs(bib("마의 산", "을유문화사", "9788932403311", "", 30))
+                : docs();
+
+        for (String line : List.of("마의 산 - 토마스 만 - 을유문화사",
+                                   "마의 산 / 토마스 만 / 을유문화사",
+                                   "마의 산 / 을유문화사 / 토마스 만")) {
+            var result = service(transport).resolve(List.of(line)).lines().get(0);
+            assertFalse(result.candidates().isEmpty(), "찾아야 합니다: " + line);
+            assertTrue(result.explanation().contains("앞부분"), result.explanation());
+        }
+    }
+
+    /**
+     * <b>못 찾은 줄의 문구로 출판사 해석을 고르지 마세요.</b> 출판사 해석은 저자 해석과
+     * 짝으로 만든 것이고, 맨 뒤에 있다는 이유로 그것을 쓰면 「총, 균, 쇠 - 재레드
+     * 다이아몬드」가 <b>「출판사: 재레드 다이아몬드」</b>로 나갑니다. 사람 이름을 출판사라고
+     * 말하는 셈이라, 사용자는 고칠 수 있는 줄을 어떻게 고칠지 알 수 없습니다.
+     */
+    @Test
+    @DisplayName("못 찾은 줄은 저자로 읽은 쪽을 보여 준다")
+    void notFoundLineExplainsTheAuthorReading() {
+        var transport = new FakeD4L();
+        transport.answer = q -> docs();
+
+        var line = service(transport).resolve(List.of("총, 균, 쇠 - 재레드 다이아몬드"))
+                .lines().get(0);
+
+        assertEquals(MultiCheckService.LineStatus.NOT_FOUND, line.status());
+        assertTrue(line.explanation().contains("저자"), line.explanation());
+        assertFalse(line.explanation().contains("출판사"), line.explanation());
+    }
+
     @Test
     @DisplayName("줄 전체가 제목으로 그대로 맞으면 나눠 묻지 않는다")
     void doesNotSplitWhenWholeLineMatchesExactly() {

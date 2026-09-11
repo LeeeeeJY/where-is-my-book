@@ -190,11 +190,31 @@ public class MultiCheckService {
 
         if (best != null) return resultOf(line, best.attempt(), best.ranked());
 
-        LineParser.Attempt last = attempts.get(attempts.size() - 1);
         // 한 번이라도 조회에 실패했다면 "그런 책이 없다"고 말할 수 없습니다.
         return new LineResult(line.lineNo(), line.raw(),
                 lookupFailed ? LineStatus.LOOKUP_FAILED : LineStatus.NOT_FOUND,
-                last.explanation(), line.mergedFrom(), List.of());
+                explanationWhenNotFound(attempts), line.mergedFrom(), List.of());
+    }
+
+    /**
+     * 못 찾았을 때 화면에 보여 줄 해석. <b>가장 그럴듯하게 읽은 것을 고릅니다.</b>
+     *
+     * <p>사용자가 줄을 고칠 수 있으려면 우리가 어떻게 읽었는지를 알아야 하는데, 해석이
+     * 여럿이므로 하나를 골라야 합니다. <b>출판사 해석은 고르지 않습니다.</b> 그것은 저자
+     * 해석과 짝으로 만든 것이고, 둘 중 하나만 보여 준다면 흔한 쪽이 저자입니다. 맨 뒤의
+     * 해석을 그냥 쓰면 「총, 균, 쇠 - 재레드 다이아몬드」가 못 찾았을 때 <b>「출판사:
+     * 재레드 다이아몬드」</b>로 나갑니다. 사람 이름을 출판사라고 말하는 셈입니다.
+     *
+     * <p>조각이 셋 이상인 줄에서는 맨 뒤에 붙은 안전망(앞부분만 제목)이 골라집니다.
+     * 우리가 마지막으로 시도한 읽기이자 사용자에게 가장 설명이 되는 읽기입니다.
+     */
+    private static String explanationWhenNotFound(List<LineParser.Attempt> attempts) {
+        for (int i = attempts.size() - 1; i >= 0; i--) {
+            if (attempts.get(i).kind() != LineParser.Kind.TITLE_PUBLISHER) {
+                return attempts.get(i).explanation();
+            }
+        }
+        return attempts.get(attempts.size() - 1).explanation();
     }
 
     /**

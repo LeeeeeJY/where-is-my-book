@@ -98,6 +98,17 @@ public final class LineParser {
     /** 제목과 그 뒤엣말을 나누는 자리. 마지막 것에서 나눕니다. */
     private static final List<String> SPLITTERS = List.of(" - ", " / ", " — ", ", ");
 
+    /**
+     * 조각이 셋 이상인지 셀 때 보는 구분자. <b>쉼표를 넣지 않았습니다.</b>
+     *
+     * <p>쉼표는 제목 안에 흔히 들어갑니다. 이것으로 조각을 세면 「총, 균, 쇠 - 재레드
+     * 다이아몬드」가 네 조각이 되어 <b>앞부분만 제목으로 보는 해석이 「총」을 찾습니다.</b>
+     * 한 글자로 검색해 아무것이나 데려오는 셈입니다. 쉼표로 나눈 목록(「마의 산, 토마스 만,
+     * 을유문화사」)은 그래서 지금도 읽지 못합니다. <b>제목을 잘라 먹는 쪽보다 못 읽는 쪽이
+     * 낫습니다.</b> 쉼표가 제목의 일부인지 칸 구분인지 가를 근거가 줄 안에 없습니다.
+     */
+    private static final List<String> STRONG_SPLITTERS = List.of(" - ", " / ", " — ");
+
     public static Parsed parse(List<String> rawLines) {
         List<ParsedLine> parsed = new ArrayList<>();
         int lineNo = 0;
@@ -157,6 +168,12 @@ public final class LineParser {
                     "제목: %s, 출판사: %s (제목과 출판사로 나눠 다시 찾음)".formatted(split[0], split[1])));
         });
 
+        // P6. 조각이 셋 이상이면 앞부분만 제목으로 보는 해석을 하나 더합니다. **맨 뒤에
+        // 둡니다.** 저자나 출판사까지 맞은 해석이 있으면 그쪽이 점수로 이겨야 합니다.
+        titleOfThreeOrMore(body).ifPresent(title -> attempts.add(new Attempt(
+                Kind.TITLE, null, title, null, null,
+                "제목: %s (앞부분만 제목으로 보고 다시 찾음)".formatted(title))));
+
         return new ParsedLine(lineNo, raw, List.copyOf(attempts), null, List.of());
     }
 
@@ -186,6 +203,40 @@ public final class LineParser {
             }
         }
         return Optional.empty();
+    }
+
+    /**
+     * 조각이 <b>셋 이상</b>일 때의 첫 조각. 둘이면 비어 있습니다.
+     *
+     * <p>「마의 산 / 토마스 만 / 을유문화사」처럼 제목·저자·출판사를 한 줄에 적은 목록이
+     * 실제로 흔합니다. 표에서 복사하면 그 모양이 됩니다. 그런데 {@link #splitTitleAndRest}
+     * 는 <b>마지막</b> 구분자에서만 나누므로 저자가 제목 안으로 딸려 들어가고, 그 제목으로는
+     * 한 건도 나오지 않습니다. 사용자에게는 그것이 <b>「그런 책이 없다」로 보입니다.</b>
+     * 화면이 「제목: 마의 산 / 토마스 만」이라고 잘못 읽은 것까지 함께 보여 주었습니다.
+     *
+     * <p><b>세 칸을 제대로 받는 것은 일부러 하지 않았습니다.</b> 저자든 출판사든 하나만
+     * 있으면 판을 가르는 데 충분하고, 둘을 다 좁혀 봐야 후보가 한두 개 줄 뿐입니다. 대신
+     * 제목만이라도 제대로 읽어 <b>0건으로 나가지 않게</b> 합니다.
+     */
+    private static Optional<String> titleOfThreeOrMore(String body) {
+        int first = Integer.MAX_VALUE;
+        for (String splitter : STRONG_SPLITTERS) {
+            int at = body.indexOf(splitter);
+            if (at > 0) first = Math.min(first, at);
+        }
+        if (first == Integer.MAX_VALUE) return Optional.empty();
+
+        boolean more = false;
+        for (String splitter : STRONG_SPLITTERS) {
+            if (body.indexOf(splitter, first + 1) > 0) {
+                more = true;
+                break;
+            }
+        }
+        if (!more) return Optional.empty();
+
+        String title = body.substring(0, first).trim();
+        return title.isEmpty() ? Optional.empty() : Optional.of(title);
     }
 
     private static ParsedLine isbnLine(int lineNo, String raw, String isbn13, String how) {
