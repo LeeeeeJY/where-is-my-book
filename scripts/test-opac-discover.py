@@ -170,12 +170,32 @@ def main() -> int:
     failures += check_import(work)
     failures += check_import_patterns(work)
     failures += check_gaps(work)
+    failures += check_unescape()
 
     if failures:
         print(f"\n실패: {', '.join(failures)}")
         return 1
     print("\n전부 통과했습니다.")
     return 0
+
+
+def check_unescape() -> list[str]:
+    """속성값의 엔티티는 서버와 똑같이 여섯 가지만 되돌립니다. `html.unescape` 는 `&regNo=` 를
+    `®No=` 로 바꿔 순천의 상세 링크를 망가뜨렸고, 그래서 맞는 패턴이 버려졌습니다."""
+    print("\n  속성값 엔티티 되돌리기")
+    cases = [
+        ("/v.do?menuCd=L1&regNo=SS1&workno=E1", "/v.do?menuCd=L1&regNo=SS1&workno=E1"),
+        ("/v.do?a=1&amp;param=2&copy=3&notice=4", "/v.do?a=1&param=2&copy=3&notice=4"),
+        ("/b?k=1&amp;s=main&quot;&#39;&lt;&gt;", "/b?k=1&s=main\"'<>"),
+    ]
+    failures = []
+    for raw, want in cases:
+        got = od.attr_unescape(raw)
+        ok = got == want
+        print(f"  {'✓' if ok else '✗'} {raw:44s} → {got}")
+        if not ok:
+            failures.append(f"엔티티:{raw}")
+    return failures
 
 
 def check_bad_homepages(probe: dict, pacer) -> list[str]:

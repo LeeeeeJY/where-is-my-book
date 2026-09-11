@@ -76,7 +76,6 @@ import os
 import sys
 import urllib.parse
 from collections import defaultdict
-from html import unescape as html_unescape
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 _spec = importlib.util.spec_from_file_location("opac_discover", os.path.join(HERE, "opac-discover.py"))
@@ -266,7 +265,13 @@ def detail_pattern(browser, template: str, books: list[str], pacer, timeout: flo
     for isbn in books[:2]:
         title = od.PROBE_BOOKS[isbn]
         status, page_html, final = od.fetch(template.replace("{isbn13}", isbn), pacer, timeout)
-        if status != 200 or not od.page_has(page_html, title):
+        if status != 200:
+            # 못 받은 것과 받았는데 링크가 없는 것은 다른 사유입니다. 앞은 다시 돌리면 될 수
+            # 있고(느린 서버, 순간 장애), 뒤는 자바스크립트가 그리는 시스템이라 다시 돌려도
+            # 같습니다. 한 문구로 뭉뚱그리면 다시 돌려 볼 곳을 못 고릅니다.
+            why = page_html[:60] if status == 0 else f"HTTP {status}"
+            return None, f"검색 결과를 서버 방식으로 받지 못했습니다 ({why})"
+        if not od.page_has(page_html, title):
             return None, "자바스크립트 없이 받으면 그 책이 보이지 않습니다 (서버도 못 봅니다)"
         href = od.title_link(page_html, title)
         if not href:
@@ -295,7 +300,8 @@ def detail_pattern(browser, template: str, books: list[str], pacer, timeout: flo
 
     # ③ 재확인 — 뽑은 링크를 새 창에서 열어 그 책이 나와야 합니다
     page_html, final = pages[books[1]]
-    detail_url = urllib.parse.urljoin(final, html_unescape(od.first_href(regex, page_html)))
+    # html.unescape 가 아닙니다. &regNo= 를 ®No= 로 바꿔 순천의 상세 링크를 망가뜨렸습니다.
+    detail_url = urllib.parse.urljoin(final, od.attr_unescape(od.first_href(regex, page_html)))
     if detail_url == template.replace("{isbn13}", books[1]):
         return None, "뽑은 링크가 검색 결과 자기 주소입니다"
     # 자리표가 없는 주소라 opens_fresh 는 그것을 그대로 엽니다.
@@ -329,7 +335,29 @@ def investigate(browser, key: str, members: list[dict], rep: dict, books: list[s
         page = context.new_page()
         pacer.wait(host)
         page.goto(home, timeout=timeout * 1000, wait_until="domcontentloaded")
+        # 자바스크립트 앱(강서·시흥)은 첫 HTML 에 검색창이 없고 그린 뒤에야 생깁니다. 조용해질
+        # 때까지 기다린 뒤에 봅니다. 기다리다 넘겨도 그때까지 그린 것으로 봅니다.
+        try:
+            page.wait_for_load_state("networkidle", timeout=timeout * 1000)
+        except Exception:
+            pass
         boxes = search_boxes(page)
+        if not boxes:
+            # 첫 화면에 검색창이 없는 홈페이지가 있습니다(김해는 「자료검색」 메뉴 뒤에 있습니다).
+            # 폼을 읽는 조사(opac-discover.py)가 하듯 검색 페이지로 보이는 링크를 몇 개 따라가
+            # 봅니다. 그래도 없으면 그때 포기합니다.
+            for link in od.search_page_links(page.content(), page.url, 3):
+                if od.blocked(link, disallows):
+                    continue
+                pacer.wait(host)
+                try:
+                    page.goto(link, timeout=timeout * 1000, wait_until="domcontentloaded")
+                except Exception:
+                    continue
+                boxes = search_boxes(page)
+                if boxes:
+                    home = page.url
+                    break
         if not boxes:
             out["note"] = "검색창을 찾지 못했습니다"
             return out
@@ -412,7 +440,33 @@ def groups_of(libs: list[dict], probe: dict) -> list[tuple]:
     return rows
 
 
-def run(work: str, limit: int, host_delay: float, timeout: float) -> int:
+def ruled_codes(csv_path: str) -> set[str]:
+    """templates.csv 에 이미 규칙이 있는 도서관부호."""
+    out: set[str] = set()
+    if not os.path.exists(csv_path):
+        return out
+    for row in csv.reader(open(csv_path, encoding="utf-8")):
+        if row and not row[0].lstrip().startswith("#") and len(row) >= 4:
+            out.add(row[0].strip())
+    return out
+
+
+def without_rules(rows: list[tuple], ruled: set[str]) -> list[tuple]:
+    """**구성원 전부에 이미 규칙이 있는 묶음은 조사하지 않습니다.**
+
+    큰 묶음부터 도는데 가장 큰 묶음들이 바로 사람이 채운 열세 개 시스템이라, 거르지 않으면
+    `--limit 30` 의 셋에 하나가 이미 규칙이 있는 곳을 다시 두드리는 데 쓰입니다. 남의 서버에
+    같은 요청을 다시 보내는 것이고, `--emit` 이 낸 줄은 이미 있는 줄과 겹칩니다. 일부만
+    규칙이 있는 묶음은 그대로 조사합니다. 빠진 쪽이 규칙을 받아야 하기 때문입니다.
+    """
+    return [r for r in rows if not all(m["libCode"] in ruled for m in r[1])]
+
+
+def run(work: str, limit: int, host_delay: float, timeout: float,
+        csv_path: str = od.DEFAULT_CSV, only: list[str] | None = None) -> int:
+    """`only` 에 묶음키를 주면 그 묶음만 봅니다. 큰 묶음부터 도는 순서로는 닿지 않는 자리가
+    있습니다. 고양시립·안산시립처럼 분관마다 홈페이지 경로가 달라 **한 곳짜리 묶음으로 갈린
+    큰 도서관들**인데, `--gaps` 가 「따로 받아야 한다」고 답한 곳이 바로 그 자리입니다."""
     sync_playwright = playwright()
 
     libs = od.load_libraries(work)
@@ -425,7 +479,17 @@ def run(work: str, limit: int, host_delay: float, timeout: float) -> int:
     results_path = os.path.join(work, "browse.jsonl")
     done = {json.loads(l)["key"] for l in open(results_path)} if os.path.exists(results_path) else set()
 
-    rows = [r for r in groups_of(libs, probe) if r[0] not in done]
+    rows = without_rules([r for r in groups_of(libs, probe) if r[0] not in done],
+                         ruled_codes(csv_path))
+    if only:
+        # 묶음키의 경로 조각은 대소문자를 살립니다(`www.goyanglib.or.kr/MU`). 견줄 때만 낮춥니다.
+        def plain(key: str) -> str:
+            return key.strip().lower().removeprefix("www.")
+        wanted = {plain(k) for k in only if k.strip()}
+        rows = [r for r in rows if plain(r[0]) in wanted]
+        missing = wanted - {plain(r[0]) for r in rows}
+        if missing:
+            print(f"모르거나 이미 조사한 묶음입니다: {', '.join(sorted(missing))}", file=sys.stderr)
     if limit:
         rows = rows[:limit]
     pacer = od.Pacer(host_delay)
@@ -634,6 +698,8 @@ def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--work", default=".opac-work")
     ap.add_argument("--limit", type=int, default=0, help="큰 묶음부터 이만큼만. 0 이면 전부")
+    ap.add_argument("--only", metavar="KEY[,KEY...]",
+                    help="이 묶음키들만 조사합니다. --gaps 가 「따로 받아야 한다」고 한 도서관의 묶음키")
     ap.add_argument("--emit", action="store_true", help="찾은 규칙을 import 형식으로 출력")
     ap.add_argument("--gaps", metavar="CSV", nargs="?", const=od.DEFAULT_CSV,
                     help="규칙 있는 기관에서 빠진 도서관이 그 검색 화면에 나오는지 확인")
@@ -653,7 +719,8 @@ def main() -> int:
     if args.patterns:
         return find_patterns(args.work, args.templates_csv, args.patterns_csv,
                              args.host_delay, args.timeout, args.limit)
-    return run(args.work, args.limit, args.host_delay, args.timeout)
+    return run(args.work, args.limit, args.host_delay, args.timeout, args.templates_csv,
+               args.only.split(",") if args.only else None)
 
 
 if __name__ == "__main__":

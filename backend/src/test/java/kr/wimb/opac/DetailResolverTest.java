@@ -78,6 +78,25 @@ class DetailResolverTest {
     }
 
     @Test
+    @DisplayName("「?query」만 있는 상대 링크는 브라우저처럼 마지막 경로 조각을 지키며 푼다")
+    void resolvesQueryOnlyHrefLikeABrowser() {
+        // 자바의 URI.resolve 는 RFC 2396 이라 search00.do?a=1 에 ?b=2 를 풀면 /site/search/?b=2 가
+        // 됩니다. 브라우저와 조사 스크립트(urljoin)는 search00.do?b=2 로 풉니다. 실제로 도봉의 상세
+        // 링크가 ?manage_code=... 로 시작해서, 그대로 두면 확인한 주소와 다른 주소로 보냅니다.
+        var site = new FakeSite();
+        site.page("https://lib.example.kr/site/search/search00.do?search_txt=9788983711892",
+                "<a href='?manage_code=MD&amp;reckey=105065008'>코스모스</a>");
+
+        var outcome = resolver(site).resolve(
+                "https://lib.example.kr/site/search/search00.do?search_txt=9788983711892",
+                Pattern.compile("href=[\"'](\\?manage_code=[^\"']*)[\"']"));
+
+        assertEquals(DetailResolver.Status.RESOLVED, outcome.status(), outcome.note());
+        assertEquals("https://lib.example.kr/site/search/search00.do?manage_code=MD&reckey=105065008",
+                outcome.detailUrl());
+    }
+
+    @Test
     @DisplayName("리다이렉트를 따라간 뒤의 주소를 기준으로 상대 링크를 푼다")
     void resolvesAgainstTheFinalUri() throws IOException {
         DetailResolver.Fetcher redirected = url -> new DetailResolver.Page(200,

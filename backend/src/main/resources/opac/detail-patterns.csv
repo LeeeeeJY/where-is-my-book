@@ -21,3 +21,7 @@
 # 잡히지 않고 검색 결과로 내려갑니다(조사 스크립트가 서버와 같은 방식으로 받아 확인합니다).
 #
 # 예) www.example-lib.kr,href=["'](/bookDetail/[^"']+)["']
+www.unilib.dobong.kr,href=["'](\?manage_code=[^"']*)["']
+www.uilib.go.kr/english,href=["'](detail\.do\?menu_idx=89&isbn=[^"']*)["']
+www.uilib.go.kr/main,href=["'](detail\.do\?menu_idx=9&isbn=[^"']*)["']
+library.suncheon.go.kr,href=["'](/lib/book/search/searchView\.do\?menuCd=L001001001&regNo=[^"']*)["']

@@ -230,6 +230,21 @@ def blocked(url: str, disallows: list[str]) -> bool:
 
 # ── 검색 폼 찾기 ─────────────────────────────────────────────────────────────
 
+def attr_unescape(s: str) -> str:
+    """속성값의 HTML 엔티티를 **서버(DetailResolver.unescape)와 똑같이** 여섯 가지만 되돌립니다.
+
+    `html.unescape` 를 쓰면 안 됩니다. HTML5 는 `&reg` `&copy` `&para` `&not` `&sect` `&times`
+    처럼 세미콜론 없는 옛 이름도 글자로 바꾸는데, 그 규칙을 질의 문자열에 적용하면
+    `&regNo=SS1` 이 `®No=SS1` 이 되고 `&param=2` 가 `¶m=2` 가 됩니다. 실제로 순천의 상세
+    링크가 `&regNo=` 를 써서, 되돌린 주소를 새 창에서 열면 그 책이 나오지 않아 「세션에 묶인
+    키」로 잘못 버려졌습니다(2026-09-11). 브라우저는 속성값 안에서 뒤에 글자나 `=` 가 오는 옛
+    이름을 바꾸지 않습니다. 서버와 같은 여섯 가지만 되돌려야 확인한 주소와 서버가 만드는
+    주소가 같습니다.
+    """
+    return (s.replace("&amp;", "&").replace("&quot;", '"').replace("&#39;", "'")
+             .replace("&#x27;", "'").replace("&lt;", "<").replace("&gt;", ">"))
+
+
 def attr_of(attrs: str, key: str) -> str | None:
     m = re.search(rf'\b{key}\s*=\s*"([^"]*)"', attrs, re.I) or \
         re.search(rf"\b{key}\s*=\s*'([^']*)'", attrs, re.I) or \
@@ -251,7 +266,7 @@ def search_forms(page: str, base: str) -> list[tuple[str, str, dict[str, str]]]:
         method = attr_of(attrs, "method") or "get"
         if method.lower() != "get":
             continue
-        action = html.unescape(attr_of(attrs, "action") or "")
+        action = attr_unescape(attr_of(attrs, "action") or "")
         url = urllib.parse.urljoin(base, action) if action else base
         if not url.startswith(("http://", "https://")):
             continue
@@ -264,7 +279,7 @@ def search_forms(page: str, base: str) -> list[tuple[str, str, dict[str, str]]]:
                 continue
             kind = (attr_of(a, "type") or "text").lower()
             if kind == "hidden":
-                hidden[name] = html.unescape(attr_of(a, "value") or "")
+                hidden[name] = attr_unescape(attr_of(a, "value") or "")
             elif kind in ("text", "search"):
                 text_names.append(name)
         if not text_names:
@@ -297,11 +312,15 @@ def search_page_links(page: str, base: str, limit: int = 3) -> list[str]:
         haystack = (label + " " + href).lower()
         if not any(h in haystack for h in SEARCH_LINK_HINTS):
             continue
-        url = urllib.parse.urljoin(base, html.unescape(href))
+        url = urllib.parse.urljoin(base, attr_unescape(href))
         if not url.startswith(("http://", "https://")) or url in seen:
             continue
-        # 홈페이지와 다른 호스트로 나가는 링크는 그 도서관 것이 아닐 수 있습니다.
-        if urllib.parse.urlparse(url).netloc != urllib.parse.urlparse(base).netloc:
+        # 다른 기관으로 나가는 링크는 그 도서관 것이 아닐 수 있습니다. 같은 기관의 다른
+        # 서브도메인은 따라갑니다. 검색이 별도 호스트에 있는 도서관이 실제로 있고(당진은
+        # `www.dangjin.go.kr` 의 「자료검색」이 `lib.dangjin.go.kr` 로 갑니다), 규칙을 받는
+        # 쪽(--import-file)도 기관 단위로 견줍니다.
+        if registrable_domain(urllib.parse.urlparse(url).netloc) != \
+                registrable_domain(urllib.parse.urlparse(base).netloc):
             continue
         seen.add(url)
         out.append(url)

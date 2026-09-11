@@ -219,7 +219,7 @@ public final class DetailResolver {
         URI base = page.finalUri() != null ? page.finalUri() : search;
         URI target;
         try {
-            target = base.resolve(href.replace(" ", "%20"));
+            target = resolve(base, href.replace(" ", "%20"));
         } catch (IllegalArgumentException e) {
             missed.incrementAndGet();
             return Outcome.of(Status.NO_MATCH, "링크를 주소로 만들지 못했습니다: " + href);
@@ -240,6 +240,22 @@ public final class DetailResolver {
         }
         resolved.incrementAndGet();
         return new Outcome(Status.RESOLVED, target.toString(), "찾았습니다", false);
+    }
+
+    /**
+     * 상대 링크를 브라우저와 같은 규칙(RFC 3986)으로 풉니다.
+     *
+     * <p>자바의 {@link URI#resolve(String)} 는 RFC 2396 이라 <b>{@code ?query} 만 있는 상대 링크에서
+     * 마지막 경로 조각을 버립니다.</b> {@code search00.do?a=1} 에 대고 {@code ?b=2} 를 풀면
+     * {@code /site/search/?b=2} 가 되는데, 브라우저와 조사 스크립트의 {@code urljoin} 은
+     * {@code search00.do?b=2} 로 풉니다. 실제로 도봉의 상세 링크가 {@code ?manage_code=...} 로
+     * 시작해서, 스크립트가 확인한 주소와 서버가 만드는 주소가 여기서 갈렸습니다. 다른 모양의
+     * 링크는 두 규칙이 같으므로 그대로 자바에 맡깁니다.
+     */
+    static URI resolve(URI base, String href) {
+        if (!href.startsWith("?")) return base.resolve(href);
+        String path = base.getRawPath() == null || base.getRawPath().isEmpty() ? "/" : base.getRawPath();
+        return URI.create(base.getScheme() + "://" + base.getRawAuthority() + path + href);
     }
 
     private void remember(String searchUrl, Outcome outcome) {

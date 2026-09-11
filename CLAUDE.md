@@ -916,6 +916,19 @@ VM 이 `latest` 하나만 물어 가므로, 이것이 없으면 화면이 예전
   페이지를 주는 OPAC 이 있습니다. 그래서 조사 스크립트는 패턴을 **브라우저가 아니라 서버와
   같은 방식**(자바스크립트 없는 `fetch`, 같은 `UA`)으로 받은 HTML 에 대고 검증합니다.
   **UA 를 바꾸면 양쪽을 같이 바꾸세요.** `DetailResolverTest` 가 둘이 같은지 봅니다.
+- **상대 링크는 브라우저 규칙(RFC 3986)으로 풀어야 합니다.** 자바의 `URI.resolve` 는 RFC 2396
+  이라 `?query` 만 있는 상대 링크에서 **마지막 경로 조각을 버립니다.** `search00.do?a=1` 에
+  `?b=2` 를 풀면 `/site/search/?b=2` 가 되는데 브라우저와 조사 스크립트의 `urljoin` 은
+  `search00.do?b=2` 로 풉니다. 실제로 도봉의 상세 링크가 `?manage_code=...` 로 시작해서,
+  스크립트가 확인한 주소와 서버가 만드는 주소가 갈렸습니다. `DetailResolver.resolve` 가
+  그 경우를 따로 풀고 `DetailResolverTest` 가 고정합니다. **`base.resolve(href)` 로 되돌리지
+  마세요.**
+- **속성값의 HTML 엔티티는 서버와 똑같이 여섯 가지만 되돌립니다**(`attr_unescape`,
+  `DetailResolver.unescape`). 파이썬의 `html.unescape` 는 HTML5 규칙대로 `&reg` `&copy`
+  `&para` `&not` `&sect` `&times` 처럼 **세미콜론 없는 옛 이름도 글자로 바꿔서**
+  `&regNo=SS1` 이 `®No=SS1` 이 됩니다. 실제로 순천의 상세 링크가 `&regNo=` 를 써서, 맞는
+  패턴이 「세션에 묶인 키」로 잘못 버려졌습니다. 조사 스크립트에서 `html.unescape` 를 다시
+  쓰지 마세요. `test-opac-discover.py` 가 이것을 고정합니다.
 - **서버가 그 OPAC 에 닿는지는 배포된 곳의 나가는 IP 에 달렸습니다.** 국내 공공도서관
   상당수가 해외 IP 를 막고 우리 VM 은 미국 리전입니다. 패턴이 맞아도 그 OPAC 이 우리 IP 를
   막으면 `FETCH_FAILED` 로 검색 결과에 내려앉는데, **화면에서는 「패턴이 안 맞는다」와

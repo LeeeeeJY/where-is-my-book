@@ -331,6 +331,21 @@ def main() -> int:
         failures.append("--patterns")
         print(err.getvalue()[-600:])
 
+    # 이미 규칙이 있는 묶음은 다시 두드리지 않습니다. 큰 묶음부터 도는데 가장 큰 묶음들이
+    # 사람이 채운 시스템이라, 거르지 않으면 --limit 의 셋에 하나가 거기에 쓰입니다.
+    print("\n  규칙이 있는 묶음 거르기")
+    ruled_csv = os.path.join(work, "ruled.csv")
+    open(ruled_csv, "w").write("# 머리말\n900001,ISBN_SEARCH,UTF-8,http://x/{isbn13}\n"
+                               "900002,ISBN_SEARCH,UTF-8,http://x/{isbn13}\n")
+    rows = [("all", [{"libCode": "900001"}, {"libCode": "900002"}], None, []),
+            ("some", [{"libCode": "900002"}, {"libCode": "900003"}], None, []),
+            ("none", [{"libCode": "900004"}], None, [])]
+    kept = [r[0] for r in ob.without_rules(rows, ob.ruled_codes(ruled_csv))]
+    ok = kept == ["some", "none"]
+    print(f"  {'✓' if ok else '✗'} 전부 규칙이 있는 묶음만 빠집니다  {kept}")
+    if not ok:
+        failures.append("규칙 있는 묶음 거르기")
+
     if failures:
         print(f"\n실패: {', '.join(failures)}")
         return 1
