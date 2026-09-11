@@ -2,7 +2,7 @@
 """opac-browse.py 가 **브라우저라서 되는 것**을 실제로 하는지, 그리고 여전히 걸러야 하는
 것을 거르는지 확인합니다.
 
-가짜 OPAC 을 여섯 종류 세웁니다. 앞의 둘이 이 스크립트가 존재하는 이유입니다.
+가짜 OPAC 을 여러 종류 세웁니다. 앞의 둘이 이 스크립트가 존재하는 이유입니다.
 
     pathjs    자바스크립트가 `/KeywordSearchResult/<ISBN>` 을 만듭니다(노원 모양)
               → **HTML 에는 그 경로가 없습니다.** 폼을 읽는 방식으로는 원리적으로 못 찾고,
@@ -12,7 +12,11 @@
     normal    평범한 GET 검색 폼                                     → 찾아야 합니다
     ignores   검색어를 무시하고 늘 전체 목록을 뿌립니다                 → 음성 대조가 잡아야 합니다
     flaky     첫 책만 아는 척하고 없는 ISBN 에는 조용합니다             → **재확인**이 잡아야 합니다
-    postonly  검색이 POST 라 주소에 검색어가 남지 않습니다             → 버려야 합니다
+    postonly  POST 만 받고 같은 파라미터의 GET 으로는 안 열립니다      → 버려야 합니다
+    postget   POST 폼이지만 같은 파라미터를 GET 으로도 받습니다        → GET 주소로 규칙을 얻어야 합니다
+    posttoken POST 는 `_csrf` 를 검사하고 GET 은 토큰 없이 받습니다    → 토큰 칸을 뺀 주소를 얻어야 합니다
+    isbnselect 전체 검색은 ISBN 을 못 찾고 ISBN 항목을 골라야 찾습니다 → 그 항목을 골라 규칙을 얻어야 합니다
+    nobook    어떤 검색에도 그 책이 안 나옵니다                        → 버리되 「같은 창에서도」로 적어야 합니다
     detailisbn 상세 주소가 `/book/<ISBN>` 입니다                       → ISBN_DETAIL 까지 얻어야 합니다
     detailkey  상세 주소가 내부 키 `?bookkey=...` 입니다(노원·김해·대구 모양)
               → 자리표는 못 만들지만 **검색 결과에서 링크를 뽑는 패턴**(DETAIL_PATTERN)을
@@ -23,6 +27,10 @@
               → 패턴을 버려야 합니다. 사용자에게는 죽은 링크입니다
     detailfirst 그 책보다 앞에 같은 모양의 다른 링크(「최근 본 책」)가 있습니다
               → 패턴을 버려야 합니다. 서버는 첫 번째 링크를 쓰므로 엉뚱한 책으로 갑니다
+    robotsall robots.txt 가 사이트 전체를 막았습니다                  → 홈페이지도 열지 않고 버려야 합니다
+    detailignores 상세 주소가 ISBN 을 무시하고 늘 전부 뿌립니다
+              → 상세 규칙도 패턴도 버려야 합니다. 새 창에서도 그 책은 보이므로 음성 대조와
+                섞임 확인만이 잡습니다
 
 실행: ./scripts/test-opac-browse.py
 """
@@ -60,6 +68,7 @@ BOOKS = {
 
 FORM = """<html><head><meta charset="utf-8"></head><body>
 <form method="{method}" action="/search">
+  {extra}
   <input type="hidden" name="site" value="main">
   <input type="text" name="searchKeyword">
 </form></body></html>"""
@@ -90,6 +99,10 @@ def isbn_of(title: str) -> str:
     return next(i for i, t in BOOKS.items() if t == title)
 
 
+# 유형마다 받은 경로. robots.txt 가 막은 곳의 홈페이지를 열지 않았는지 봅니다.
+VISITS: dict[str, list[str]] = {}
+
+
 def make_handler(flavor: str):
     class Handler(http.server.BaseHTTPRequestHandler):
         def log_message(self, *a):
@@ -107,22 +120,37 @@ def make_handler(flavor: str):
 
         def do_GET(self):
             path, _, query = self.path.partition("?")
+            VISITS.setdefault(flavor, []).append(path)
             if path == "/robots.txt":
-                self.send("User-agent: *\nDisallow: /admin\n")
+                self.send("User-agent: *\nDisallow: /\n" if flavor == "robotsall"
+                          else "User-agent: *\nDisallow: /admin\n")
                 return
             if path == "/":
                 if flavor == "pathjs":
                     self.send(PATHJS)
                     return
-                # session 은 홈페이지를 열 때 검색 세션을 발급합니다.
-                self.send(FORM.format(method="post" if flavor == "postonly" else "get"),
-                          "opacsid=1; Path=/" if flavor == "session" else None)
+                # session 은 홈페이지를 열 때 검색 세션을 발급합니다. posttoken 은 세션에 묶인
+                # 토큰을 폼에 심습니다(POST 만 검사합니다).
+                method = "post" if flavor in ("postonly", "postget", "posttoken") else "get"
+                extra, cookie = "", ("opacsid=1; Path=/" if flavor == "session" else None)
+                if flavor == "posttoken":
+                    extra = "<input type='hidden' name='_csrf' value='tok-7f3a'>"
+                    cookie = "csrftok=tok-7f3a; Path=/"
+                if flavor == "isbnselect":
+                    extra = ("<select name='searchType'><option value='ALL'>전체</option>"
+                             "<option value='ISBN'>ISBN</option></select>")
+                self.send(FORM.format(method=method, extra=extra), cookie)
                 return
             if flavor == "pathjs" and path.startswith("/KeywordSearchResult/"):
                 term = urllib.parse.unquote(path.rsplit("/", 1)[-1])
                 self.send(results([t for i, t in BOOKS.items() if term == i]))
                 return
             if path == "/book" or path.startswith("/book/"):
+                if flavor == "detailignores":
+                    # 주소의 ISBN 을 무시하고 늘 전부 뿌리는 상세. 새 창에서도 그 책은 보이므로
+                    # 음성 대조와 섞임 확인만이 잡습니다.
+                    self.send(results(list(BOOKS.values())))
+                    return
                 if flavor == "detailisbn":
                     isbn = path.rsplit("/", 1)[-1]
                     self.send(results([BOOKS[isbn]] if isbn in BOOKS else []))
@@ -151,6 +179,14 @@ def make_handler(flavor: str):
                 return
 
             term = (urllib.parse.parse_qs(query).get("searchKeyword") or [""])[0]
+            if flavor in ("postonly", "nobook"):
+                # postonly 는 POST 만 받습니다. nobook 은 어떤 검색에도 그 책이 나오지 않습니다.
+                self.send(results([]))
+                return
+            if flavor == "isbnselect" and (urllib.parse.parse_qs(query).get("searchType") or [""])[0] != "ISBN":
+                # 전체 검색은 ISBN 을 색인하지 않습니다(당진·구미 모양). ISBN 항목을 골라야 찾습니다.
+                self.send(results([]))
+                return
             if flavor == "session" and "opacsid=" not in (self.headers.get("Cookie") or ""):
                 # **주소창에는 검색어가 남았는데 세션이 없으면 무시합니다.** 사용자에게는
                 # 죽은 링크입니다. 같은 창에서 확인하면 이것을 놓칩니다.
@@ -163,7 +199,7 @@ def make_handler(flavor: str):
                 hits = [BOOKS["9788937473135"]] if term == "9788937473135" else []
             else:
                 hits = [t for i, t in BOOKS.items() if term == i]
-            if flavor == "detailisbn":
+            if flavor in ("detailisbn", "detailignores"):
                 self.send("".join(
                     f"<html><head><meta charset='utf-8'></head><body><ul>" +
                     "".join(f"<li><a href='/book/{isbn_of(t)}'>{t}</a></li>" for t in hits) +
@@ -192,7 +228,19 @@ def make_handler(flavor: str):
                 self.send(results(hits))
 
         def do_POST(self):
-            self.send(results([]))
+            length = int(self.headers.get("Content-Length") or 0)
+            form = urllib.parse.parse_qs(self.rfile.read(length).decode("utf-8", "replace"))
+            term = (form.get("searchKeyword") or [""])[0]
+            if self.path.partition("?")[0] != "/search" or flavor not in ("postonly", "postget", "posttoken"):
+                self.send(results([]))
+                return
+            if flavor == "posttoken":
+                token = (form.get("_csrf") or [""])[0]
+                if not token or f"csrftok={token}" not in (self.headers.get("Cookie") or ""):
+                    # 세션과 맞지 않는 토큰. 실제 OPAC 은 403 을 줍니다(은평).
+                    self.send(results([]))
+                    return
+            self.send(results([t for i, t in BOOKS.items() if term == i]))
     return Handler
 
 
@@ -206,28 +254,34 @@ def serve(flavor: str) -> int:
     return port
 
 
-# (맛, 얻어야 하는 규칙 종류. 비어 있으면 반드시 버려야 합니다, 왜)
+# (맛, 얻어야 하는 규칙 종류. 비어 있으면 반드시 버려야 합니다, 왜[, 버릴 때 사유에 들어가야 하는 말])
 CASES = [
     ("pathjs", {"ISBN_SEARCH"}, "자바스크립트가 만든 경로를 주소창에서 읽어야 합니다"),
     ("normal", {"ISBN_SEARCH"}, "평범한 GET 폼"),
-    ("session", set(), "새 창에서 열면 검색어를 무시합니다"),
+    ("session", set(), "새 창에서 열면 검색어를 무시합니다", "세션에 묶임"),
     ("ignores", set(), "음성 대조가 잡아야 합니다"),
     ("flaky", set(), "재확인 단계가 잡아야 합니다"),
-    ("postonly", set(), "주소에 검색어가 남지 않습니다"),
+    ("postonly", set(), "POST 만 받고 GET 으로는 안 열립니다", "GET 으로 보내면"),
+    ("postget", {"ISBN_SEARCH"}, "POST 폼이지만 같은 파라미터의 GET 으로 열립니다"),
+    ("posttoken", {"ISBN_SEARCH"}, "POST 는 토큰을 검사하지만 GET 은 토큰 없이 열립니다"),
+    ("isbnselect", {"ISBN_SEARCH"}, "ISBN 항목을 골라야 찾습니다"),
+    ("nobook", set(), "같은 창에서도 안 나오는 곳을 세션 문제로 적으면 안 됩니다", "같은 창에서도"),
     ("detailisbn", {"ISBN_DETAIL", "ISBN_SEARCH"}, "상세 주소에 ISBN 이 있으면 거기까지 갑니다"),
     ("detailkey", {"ISBN_SEARCH", "DETAIL_PATTERN"}, "내부 키면 검색 결과에서 뽑는 패턴을 얻어야 합니다"),
     ("detailspa", {"ISBN_SEARCH"}, "자바스크립트가 그린 링크는 서버에 없으니 패턴을 버려야 합니다"),
     ("detailsession", {"ISBN_SEARCH"}, "세션에 묶인 상세 링크는 패턴을 버려야 합니다"),
     ("detailfirst", {"ISBN_SEARCH"}, "그 책보다 앞에 잡히는 링크가 있으면 패턴을 버려야 합니다"),
+    ("detailignores", {"ISBN_SEARCH"}, "ISBN 을 무시하는 상세는 규칙도 패턴도 버려야 합니다"),
+    ("robotsall", set(), "사이트 전체를 막은 robots.txt 는 홈페이지부터 지켜야 합니다", "robots.txt"),
 ]
 
 
 def main() -> int:
     from playwright.sync_api import sync_playwright
 
-    ports = {f: serve(f) for f, _, _ in CASES}
+    ports = {c[0]: serve(c[0]) for c in CASES}
     libs = [{"libCode": f"90000{i}", "name": f, "homepageUrl": f"http://127.0.0.1:{ports[f]}/"}
-            for i, (f, _, _) in enumerate(CASES)]
+            for i, (f, *_) in enumerate(CASES)]
     probe = {l["libCode"]: list(BOOKS) for l in libs}
     pacer = od.Pacer(0.0)
     failures = []
@@ -236,12 +290,15 @@ def main() -> int:
     with sync_playwright() as p:
         browser = ob.chromium(p)
         try:
-            found_patterns = {}
-            for lib, (flavor, want, why) in zip(libs, CASES):
+            found_patterns, by_flavor = {}, {}
+            for lib, (flavor, want, why, *note) in zip(libs, CASES):
                 r = ob.investigate(browser, flavor, [lib], lib, list(BOOKS), pacer, 10.0)
                 got = bool(r["rules"])
                 kinds = {x["kind"] for x in r["rules"]}
-                ok = kinds == want
+                # 버릴 때는 사유도 맞아야 합니다. 같은 창에서도 안 나오는 곳을 세션 문제로 적으면
+                # 엉뚱한 곳을 고치게 됩니다.
+                ok = kinds == want and (not note or note[0] in (r["note"] or ""))
+                by_flavor[flavor] = r
                 shown = (r["rules"][0].get("url") or "") if got else r["note"][:40]
                 for rule in r["rules"]:
                     if rule["kind"] == "DETAIL_PATTERN":
@@ -253,6 +310,24 @@ def main() -> int:
                       f"{'+'.join(sorted(kinds)) or '-':28s} {shown}")
                 if not ok:
                     failures.append(f"조사:{flavor}({why})")
+
+            # robots.txt 가 사이트 전체를 막았으면 robots.txt 말고는 아무것도 받지 않아야 합니다.
+            touched = [x for x in VISITS.get("robotsall", []) if x != "/robots.txt"]
+            ok = not touched
+            print(f"  {'✓' if ok else '✗'} robotsall 은 robots.txt 말고 받은 것이 없습니다  {touched}")
+            if not ok:
+                failures.append("robots:홈페이지를 열었습니다")
+
+            # 얻은 주소가 서버가 쓸 모양인지. 토큰 칸이 남으면 오늘만 되는 규칙이고, ISBN 항목을
+            # 고른 값이 빠지면 전체 검색으로 돌아가 0건이 됩니다.
+            for flavor, must, must_not in (("posttoken", "searchKeyword={isbn13}", "_csrf"),
+                                           ("postget", "searchKeyword={isbn13}", None),
+                                           ("isbnselect", "searchType=ISBN", None)):
+                url = (((by_flavor.get(flavor) or {}).get("rules") or [{}])[0]).get("url", "")
+                ok = must in url and not (must_not and must_not in url)
+                print(f"  {'✓' if ok else '✗'} {flavor} 의 주소  {url}")
+                if not ok:
+                    failures.append(f"주소:{flavor}")
 
             # 찾은 패턴이 실제로 서버가 할 일을 하는지. 첫 번째로 잡히는 링크가 그 책이어야 하고,
             # 그 링크가 새 창에서 열려야 합니다. 조사 단계가 확인했지만 한 번 더 눈으로 봅니다.
@@ -297,7 +372,7 @@ def main() -> int:
     print("\n  찾은 패턴이 import 를 통과하는지")
     rule = found_patterns.get("detailkey")
     key = f"127.0.0.1:{ports['detailkey']}"
-    lib = libs[[f for f, _, _ in CASES].index("detailkey")]
+    lib = libs[[c[0] for c in CASES].index("detailkey")]
     open(findings, "w").write(f"{key} | DETAIL_PATTERN | {key} | {rule['pattern'] if rule else ''}\n")
     buf, err = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(err):
@@ -312,7 +387,7 @@ def main() -> int:
     # 이미 검색 규칙이 있는 도서관의 상세 단계만 돌리는 길. 사람이 채운 217줄이 여기로 갑니다.
     print("\n  규칙이 있는 도서관의 상세 패턴만 찾기 (--patterns)")
     pwork = tempfile.mkdtemp(prefix="opac-browse-patterns-")
-    plibs = [libs[[f for f, _, _ in CASES].index(fl)] for fl in ("detailkey", "detailisbn", "detailspa")]
+    plibs = [libs[[c[0] for c in CASES].index(fl)] for fl in ("detailkey", "detailisbn", "detailspa")]
     json.dump(plibs, open(os.path.join(pwork, "libraries.json"), "w"))
     json.dump({l["libCode"]: list(BOOKS) for l in plibs}, open(os.path.join(pwork, "probe.json"), "w"))
     templates = os.path.join(pwork, "templates.csv")
