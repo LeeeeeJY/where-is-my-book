@@ -789,21 +789,20 @@ function LineWhere({
   const held = row.holdings?.libCodes ?? [];
   return (
     /*
-      **도서관 하나가 한 줄입니다.** 예전에는 이름을 가운뎃점으로 이어 한 문단으로 적었는데,
-      한국어는 음절마다 줄이 바뀔 수 있어 이름이 가운데서 끊기고 가운뎃점만 줄 끝에 남아
-      **어디까지가 한 도서관인지 읽히지 않았습니다.** 고른 곳이 많을수록 심해지는데, 이 줄은
+      **도서관 하나가 한 줄입니다**(`.namelist`). 가운뎃점으로 이으면 한국어는 음절마다 줄이
+      바뀔 수 있어 이름이 가운데서 끊기고, 어디까지가 한 도서관인지 읽히지 않습니다. 이 줄은
       「그래서 어디로 가면 되나」에 답하는 자리라 그것을 못 읽으면 아무 말도 하지 않은 셈입니다.
-      이름표는 격자의 첫 칸이라 한 곳뿐일 때는 지금처럼 이름 옆에 그대로 섭니다.
+      이름표는 격자의 첫 칸이라 한 곳뿐일 때는 이름 옆에 그대로 섭니다.
     */
-    <div className="line__where line__where--held">
-      <span className="line__where-label">있는 곳</span>
-      <ul className="line__where-list">
+    <div className="line__where namelist">
+      <span className="line__where-label namelist__label">있는 곳</span>
+      <ul className="namelist__items">
         {held.map((code) => (
           <li key={code}>{byCode.get(code)?.name ?? code}</li>
         ))}
       </ul>
       {row.holdings && !row.holdings.complete && (
-        <p className="line__where-note muted">확인하지 못한 판본이 있어 더 있을 수 있습니다.</p>
+        <p className="namelist__note muted">확인하지 못한 판본이 있어 더 있을 수 있습니다.</p>
       )}
     </div>
   );
@@ -1016,30 +1015,44 @@ function LibraryRow({
       )}
       {open && (
         <div className="rank__detail">
-          <p className="rank__books">
-            <span className="rank__books-label">있음</span>{' '}
-            {books.map((book, i) => (
-              <span key={book.key}>
-                {i > 0 && ' · '}
-                {bookLinks ? (
-                  <a
-                    href={libraryLink(rank.libCode, book.isbn13List[0], book.title)}
-                    target="_blank"
-                    rel="noreferrer"
-                    title={linkLabel(library?.linkKind)}
-                  >
-                    {book.title}
-                  </a>
-                ) : (
-                  book.title
-                )}
-              </span>
-            ))}
-          </p>
+          {/*
+            **책 하나가 한 줄입니다**(`.namelist`, ② 의 「있는 곳」과 같은 규칙). 제목을
+            가운뎃점으로 이으면 한국어는 음절마다 줄이 바뀔 수 있어 제목이 가운데서 끊기고,
+            어디까지가 한 권인지 읽히지 않습니다. 「거기 가면 무엇을 빌리나」에 답하는 자리라
+            그것을 못 읽으면 목록이 아무 말도 하지 않습니다. 제목이 링크일 때는 더 그렇습니다.
+            누를 자리가 두 줄에 걸쳐 끊겨 있으면 어느 것을 누르는지 알 수 없습니다.
+          */}
+          <div className="rank__books namelist">
+            <span className="rank__books-label namelist__label">있음</span>
+            <ul className="namelist__items">
+              {books.map((book) => (
+                <li key={book.key}>
+                  {bookLinks ? (
+                    <a
+                      href={libraryLink(rank.libCode, book.isbn13List[0], book.title)}
+                      target="_blank"
+                      rel="noreferrer"
+                      title={linkLabel(library?.linkKind)}
+                    >
+                      {book.title}
+                    </a>
+                  ) : (
+                    book.title
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
           {rank.missing.length > 0 && (
-            <p className="rank__books muted">
-              <span className="rank__books-label">없음</span> {rank.missing.join(' · ')}
-            </p>
+            <div className="rank__books muted namelist">
+              <span className="rank__books-label namelist__label">없음</span>
+              <ul className="namelist__items">
+                {/* 제목만 오므로 같은 제목이 두 줄에서 나올 수 있습니다. 자리까지 열쇠에 넣습니다. */}
+                {rank.missing.map((title, i) => (
+                  <li key={`${i}-${title}`}>{title}</li>
+                ))}
+              </ul>
+            </div>
           )}
           <div className="rank__actions">
             {/*
