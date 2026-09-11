@@ -167,9 +167,28 @@ export function Browse({
         </>
       )}
 
-      {data === 'loading' && current && <p className="muted">둘러볼 것을 받는 중입니다.</p>}
+      {data === 'loading' && current && (
+        <p className="muted">{withObjectParticle(currentLibrary?.name ?? '이 도서관')} 둘러보는 중입니다.</p>
+      )}
     </section>
   );
+}
+
+/**
+ * 「○○도서관을」처럼 **앞말의 받침에 맞는 목적격 조사를 붙입니다.**
+ *
+ * <p>「을」로 고정하면 안 됩니다. 도서관 이름이 대부분 「관」으로 끝나 대개 맞아 보이지만,
+ * 목록 1,619곳 가운데 385곳이 작은도서관이고 그 이름은 자유롭습니다. 「○○누리」처럼 받침
+ * 없이 끝나는 이름에서 「누리을 둘러보는 중입니다」가 나가는데, **틀린 조사는 그 도서관을
+ * 고른 사람에게만 보이므로** 우리 눈에는 좀처럼 띄지 않습니다.
+ */
+function withObjectParticle(name: string): string {
+  const last = name.trim().slice(-1);
+  const code = last.charCodeAt(0);
+  // 한글 음절이 아니면 받침을 알 방법이 없습니다. 읽는 법에 따라 갈리므로 지어내지 않고
+  // 덜 어색한 쪽을 씁니다.
+  const hangul = code >= 0xac00 && code <= 0xd7a3;
+  return name + (hangul && (code - 0xac00) % 28 !== 0 ? '을' : '를');
 }
 
 /**
