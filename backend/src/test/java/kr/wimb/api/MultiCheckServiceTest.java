@@ -137,8 +137,115 @@ class MultiCheckServiceTest {
         var line = response.lines().get(0);
 
         assertEquals(MultiCheckService.LineStatus.CONFIRMED, line.status());
-        assertTrue(line.explanation().contains("나눠"), line.explanation());
+        // 저자 해석과 출판사 해석이 함께 나가지만, 저자가 맞았으므로 저자 쪽을 씁니다.
+        assertTrue(line.explanation().contains("저자"), line.explanation());
         assertTrue(transport.queries.size() >= 2, "줄 전체를 먼저 시도했어야 합니다: " + transport.queries);
+    }
+
+    /**
+     * <b>고전 번역서에서 판을 가르는 것은 저자가 아니라 출판사입니다.</b> 저작을 출판사별로
+     * 갈라 놓았으므로 「마의 산 - 토마스 만」은 범우사·을유문화사·열린책들·동서문화사·
+     * 지식을만드는지식이 저마다 다른 후보로 나오고, 저자를 붙여도 후보가 하나도 줄지
+     * 않습니다. 구분자 뒤의 말이 저자인지 출판사인지는 줄만 보고 알 수 없으므로 둘 다
+     * 물어보고 점수로 고릅니다.
+     */
+    @Test
+    @DisplayName("구분자 뒤가 출판사면 출판사로 읽은 해석을 쓴다")
+    void picksPublisherReadingWhenTrailingWordIsAPublisher() {
+        var transport = new FakeD4L();
+        // 「을유문화사」를 저자로 물으면 한 건도 나오지 않고, 출판사로 물어야 그 판이
+        // 나옵니다. 저자 해석밖에 없던 시절에는 이 줄이 결과 없음으로 떨어졌습니다.
+        transport.answer = q -> q.contains("publisher=을유문화사")
+                ? docs(bib("마의 산", "을유문화사", "9788932403311", "", 40))
+                : docs();
+
+        var line = service(transport).resolve(List.of("마의 산 - 을유문화사")).lines().get(0);
+
+        assertFalse(line.candidates().isEmpty(), "출판사로 읽으면 찾을 수 있는 책입니다");
+        assertEquals("을유문화사", line.candidates().get(0).publisher());
+        assertTrue(line.explanation().contains("출판사"), line.explanation());
+    }
+
+    /**
+     * <b>출판사도 띄어쓰기가 다르면 다른 검색입니다.</b> 정보나루는 넣은 글자를 그대로
+     * 찾으므로 「문학과 지성사」와 「문학과지성사」가 서로 다른 검색인데, 실제 서지의
+     * 출판사 표기는 대체로 붙여 쓴 쪽입니다. 사용자가 공백을 넣어 적었을 때 0건이 오면
+     * 출판사 해석이 통째로 건너뛰어지고, 저자 해석도 첫 해석도 못 찾으므로 그 줄은
+     * <b>「그런 책이 없다」로 나갑니다.</b> 제목과 저자에만 회전을 넣고 출판사를 빠뜨린
+     * 상태가 실제로 그랬습니다.
+     */
+    @Test
+    @DisplayName("출판사도 띄어쓰기를 뺀 표기로 함께 찾는다")
+    void alsoSearchesPublisherWithoutSpaces() {
+        var transport = new FakeD4L();
+        // 정보나루에는 붙여 쓴 표기로만 등록되어 있습니다.
+        transport.answer = q -> q.contains("publisher=문학과지성사")
+                ? docs(bib("마의 산", "문학과지성사", "9788932011752", "", 30))
+                : docs();
+
+        var line = service(transport).resolve(List.of("마의 산 - 문학과 지성사")).lines().get(0);
+
+        assertFalse(line.candidates().isEmpty(),
+                "공백을 뺀 표기로도 찾아야 합니다: " + transport.queries);
+        assertEquals("문학과지성사", line.candidates().get(0).publisher());
+    }
+
+    /**
+     * <b>세 조각 줄이 통째로 0건이던 자리입니다.</b> 게다가 화면에는 「제목: 마의 산 /
+     * 토마스 만」이라고 <b>잘못 읽은 것이 그대로</b> 보였습니다.
+     */
+    @Test
+    @DisplayName("제목·저자·출판사를 한 줄에 적어도 찾는다")
+    void findsBooksFromThreePartLines() {
+        var transport = new FakeD4L();
+        // 제목이 그대로 맞을 때만 줍니다. 저자가 딸려 들어간 제목으로는 한 건도 없습니다.
+        transport.answer = q -> q.contains("title=마의 산&") || q.endsWith("title=마의 산")
+                ? docs(bib("마의 산", "을유문화사", "9788932403311", "", 30))
+                : docs();
+
+        for (String line : List.of("마의 산 - 토마스 만 - 을유문화사",
+                                   "마의 산 / 토마스 만 / 을유문화사",
+                                   "마의 산 / 을유문화사 / 토마스 만")) {
+            var result = service(transport).resolve(List.of(line)).lines().get(0);
+            assertFalse(result.candidates().isEmpty(), "찾아야 합니다: " + line);
+            assertTrue(result.explanation().contains("앞부분"), result.explanation());
+        }
+    }
+
+    /**
+     * <b>못 찾은 줄의 문구로 출판사 해석을 고르지 마세요.</b> 출판사 해석은 저자 해석과
+     * 짝으로 만든 것이고, 맨 뒤에 있다는 이유로 그것을 쓰면 「총, 균, 쇠 - 재레드
+     * 다이아몬드」가 <b>「출판사: 재레드 다이아몬드」</b>로 나갑니다. 사람 이름을 출판사라고
+     * 말하는 셈이라, 사용자는 고칠 수 있는 줄을 어떻게 고칠지 알 수 없습니다.
+     */
+    @Test
+    @DisplayName("못 찾은 줄은 저자로 읽은 쪽을 보여 준다")
+    void notFoundLineExplainsTheAuthorReading() {
+        var transport = new FakeD4L();
+        transport.answer = q -> docs();
+
+        var line = service(transport).resolve(List.of("총, 균, 쇠 - 재레드 다이아몬드"))
+                .lines().get(0);
+
+        assertEquals(MultiCheckService.LineStatus.NOT_FOUND, line.status());
+        assertTrue(line.explanation().contains("저자"), line.explanation());
+        assertFalse(line.explanation().contains("출판사"), line.explanation());
+    }
+
+    @Test
+    @DisplayName("줄 전체가 제목으로 그대로 맞으면 나눠 묻지 않는다")
+    void doesNotSplitWhenWholeLineMatchesExactly() {
+        // <b>해석을 늘려도 호출이 늘지 않게 하는 장치입니다.</b> 「총, 균, 쇠」는 쉼표가
+        // 있어 나눌 수는 있지만, 줄 전체가 제목으로 그대로 맞으므로 나눠 물어볼 이유가
+        // 없습니다. 이 조건이 없으면 구분자가 든 제목마다 호출이 세 배가 됩니다.
+        var transport = new FakeD4L();
+        transport.answer = q -> docs(doc("총, 균, 쇠", "재레드 다이아몬드 지음", "2005", "9788970127248"));
+
+        var line = service(transport).resolve(List.of("총, 균, 쇠")).lines().get(0);
+
+        assertEquals(MultiCheckService.LineStatus.CONFIRMED, line.status());
+        assertTrue(transport.queries.stream().noneMatch(q -> q.contains("publisher=")),
+                "나눠 물어보면 안 됩니다: " + transport.queries);
     }
 
     @Test

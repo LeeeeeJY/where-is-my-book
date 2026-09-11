@@ -150,6 +150,11 @@ public class BookSearchService {
      * <p>덤으로 하는 검색은 실패해도 입력 그대로의 결과를 그대로 내보냅니다. 입력 그대로가
      * 실패하면 검색 전체가 실패한 것이고, 화면은 그것을 「확인 불가」로 그립니다.
      *
+     * <p><b>출판사도 붙여 쓴 표기로 함께 찾습니다.</b> 제목과 저자에만 넣고 출판사를
+     * 빠뜨리면 「마의 산 - 문학과 지성사」가 0건이 되어 <b>사용자에게는 「그런 책이
+     * 없다」로 보입니다.</b> 다만 <b>자리를 옮겨 보는 것은 하지 않습니다.</b> 실제 서지의
+     * 출판사 표기가 대체로 붙여 쓴 쪽이라, 위험한 방향은 사용자가 공백을 넣는 쪽 하나입니다.
+     *
      * <p><b>서로 기다릴 필요가 없는 호출은 동시에 내보냅니다.</b> 정보나루의 서지 검색은 한 번에
      * 3~4초가 걸려서, 넷을 차례로 부르면 그것만으로 15초입니다. 입력 그대로, 붙여 쓴 표기,
      * 제목만으로 되찾기, 저자의 띄어쓰기 자리 바꾸기는 서로 무관하므로 1회전에 함께, 둘째 쪽과
@@ -173,7 +178,15 @@ public class BookSearchService {
         if (compactAuthor != null) searchedAuthors.add(compactAuthor);
         // 제목만으로 되찾거나 띄어쓰기 자리를 옮겨 찾은 것은 정보나루가 아니라 **우리가
         // 저자를 거릅니다.** 공백과 구두점을 지운 표기로 견줍니다.
+        // **출판사도 같은 병을 앓습니다.** 정보나루는 넣은 글자를 그대로 찾으므로
+        // 「문학과 지성사」와 「문학과지성사」가 서로 다른 검색입니다. 우리가 받은 값을
+        // 견줄 때는 `normalizePublisher` 가 공백을 지워 주지만, **질의는 사용자가 적은
+        // 표기 그대로 나갑니다.** 실제 서지의 출판사 표기는 대체로 붙여 쓴 쪽이라
+        // (범우사·을유문화사·열린책들·동서문화사·민음사·사이언스북스·문학동네),
+        // 사용자가 공백을 넣어 적으면 0건이 오고 그 해석이 통째로 건너뛰어집니다.
+        String compactPublisher = withoutSpaces(query.publisher());
         String authorKey = BibNormalizer.spellingKey(query.author());
+        String publisherKey = BibNormalizer.normalizePublisher(query.publisher());
         List<String> guesses = hasTitle ? List.of() : spacedAuthorGuesses(query.author());
         searchedAuthors.addAll(guesses);
 
@@ -186,11 +199,25 @@ public class BookSearchService {
                     : executor.submit(() -> searchQuietly(query.withTitle(compact)));
             Future<Optional<List<BookInfo>>> compactAuthorBooks = compactAuthor == null ? null
                     : executor.submit(() -> searchQuietly(query.withAuthor(compactAuthor)));
-            Future<Optional<List<BookInfo>>> byTitleOnly = hasTitle && !authorKey.isEmpty()
-                    ? executor.submit(() -> searchQuietly(query.withAuthor(null))) : null;
+            Future<Optional<List<BookInfo>>> compactPublisherBooks = compactPublisher == null ? null
+                    : executor.submit(() -> searchQuietly(query.withPublisher(compactPublisher)));
+            // **제목만으로 찾아 저자와 출판사를 우리가 거릅니다.** 정보나루가 어느 쪽으로
+            // 띄어 썼는지 알 수 없어도, 우리 키는 공백을 지우므로 <b>양쪽 방향이 한 번에</b>
+            // 풀립니다. 저자와 출판사를 **둘 다 떼고** 묻는 것이 중요합니다. 둘 중 하나라도
+            // 질의에 남겨 두면 그 표기가 틀렸을 때 여기서도 0건이 옵니다.
+            Future<Optional<List<BookInfo>>> byTitleOnly =
+                    hasTitle && (!authorKey.isEmpty() || !publisherKey.isEmpty())
+                            ? executor.submit(() ->
+                                    searchQuietly(query.withAuthor(null).withPublisher(null)))
+                            : null;
+            // **자리를 옮겨 물을 때는 다른 조건을 떼고 묻습니다.** 저자와 출판사를 둘 다
+            // 붙여 쓴 검색에서, 저자만 옮기고 출판사를 질의에 남겨 두면 그 출판사 표기가
+            // 여전히 틀려 0건이 옵니다. 떼고 물어 우리가 거르면 한쪽씩 풀립니다.
+            // 호출은 늘지 않습니다. 같은 질의의 조건이 줄어들 뿐입니다.
             List<Future<Optional<List<BookInfo>>>> byGuess = new ArrayList<>();
             for (String guess : guesses) {
-                byGuess.add(executor.submit(() -> searchQuietly(query.withAuthor(guess))));
+                byGuess.add(executor.submit(() ->
+                        searchQuietly(query.withAuthor(guess).withPublisher(null))));
             }
 
             List<BookInfo> first = await(firstPage);
@@ -206,13 +233,19 @@ public class BookSearchService {
                     if (found.addAll(books)) alsoSearchedAuthors.add(compactAuthor);
                 });
             }
+            // 출판사 표기는 화면에 밝히지 않습니다. 출판사는 사용자가 직접 적어 넣은
+            // 조건이라 목록의 출판사 열에 그대로 보이고, 제목처럼 우리가 표기를 바꿔
+            // 데려온 것이 무엇인지 따로 말해 줄 것이 없습니다.
+            if (compactPublisherBooks != null) await(compactPublisherBooks).ifPresent(found::addAll);
             if (byTitleOnly != null) {
-                await(byTitleOnly).ifPresent(books -> addMatchingAuthor(authorKey, found, books));
+                await(byTitleOnly).ifPresent(books -> addMatching(authorKey, publisherKey, found, books));
             }
             for (int i = 0; i < guesses.size(); i++) {
                 String guess = guesses.get(i);
                 await(byGuess.get(i)).ifPresent(books -> {
-                    if (addMatchingAuthor(authorKey, found, books)) alsoSearchedAuthors.add(guess);
+                    if (addMatching(authorKey, publisherKey, found, books)) {
+                        alsoSearchedAuthors.add(guess);
+                    }
                 });
             }
 
@@ -228,7 +261,35 @@ public class BookSearchService {
             boolean recovered = byAuthor != null
                     && await(byAuthor).map(books -> addRecovered(query, found, books)).orElse(false);
 
-            // 3회전: 결과에서 본 다른 띄어쓰기 표기. 제목과 저자 모두입니다.
+            /*
+             * 3회전: 결과에서 본 다른 띄어쓰기 표기(제목과 저자), 그리고 **한 건도 못 찾았을
+             * 때의 자리 옮기기**(제목과 출판사).
+             *
+             * 자리 옮기기를 **결과가 빈 때에만** 거는 것이 중요합니다. 한 건이라도 받았으면
+             * 저자를 알게 되므로 되찾기(`recoverByAuthor`)와 다른 표기 찾기
+             * (`alternateSpellings`)가 이미 그 자리를 맡고 있고, 그쪽이 훨씬 정확합니다.
+             * 한 건도 없으면 저자를 알 길이 없어 그 둘이 **구조적으로 발동할 수 없습니다.**
+             * 겹치지 않으므로 「조건을 결과의 많고 적음에 걸지 마세요」와 부딪치지 않습니다.
+             * 그 규칙이 막는 것은 이미 도는 장치를 결과 수로 꺼 버리는 일입니다.
+             *
+             * 그리고 이 회전은 <b>0건인 검색에서만</b> 돕니다. 책을 찾은 검색에는 호출이
+             * 한 건도 붙지 않고, 0건이면 사용자는 어차피 빈 화면을 받으므로 한 회전을 더
+             * 기다릴 값이 있습니다.
+             */
+            List<String> titleGuesses = hasTitle && compact == null && found.isEmpty()
+                    ? spacedGuesses(query.title(), MIN_TITLE_SYLLABLES_TO_RESPACE) : List.of();
+            List<String> publisherGuesses = !hasTitle && !publisherKey.isEmpty() && found.isEmpty()
+                    ? spacedGuesses(query.publisher(), MIN_SYLLABLES_TO_RESPACE) : List.of();
+            List<Future<Optional<List<BookInfo>>>> byTitleGuess = new ArrayList<>();
+            for (String guess : titleGuesses) {
+                byTitleGuess.add(executor.submit(() -> searchQuietly(query.withTitle(guess))));
+            }
+            List<Future<Optional<List<BookInfo>>>> byPublisherGuess = new ArrayList<>();
+            for (String guess : publisherGuesses) {
+                byPublisherGuess.add(executor.submit(() ->
+                        searchQuietly(query.withPublisher(guess).withAuthor(null))));
+            }
+
             List<String> spellings = alternateSpellings(query.title(), found.books(), searchedSpellings);
             List<String> authorSpellings =
                     alternateAuthorSpellings(query.author(), found.books(), searchedAuthors);
@@ -252,6 +313,18 @@ public class BookSearchService {
                 await(byAuthorSpelling.get(i)).ifPresent(books -> {
                     if (found.addAll(books)) alsoSearchedAuthors.add(spelling);
                 });
+            }
+            // **자리를 옮겨 데려온 것은 우리가 거릅니다.** 「마 의산」처럼 뜻 없는 자리로도
+            // 물어보므로, 표제 정규화 키가 맞는 것만 남기지 않으면 남의 책이 들어옵니다.
+            for (int i = 0; i < titleGuesses.size(); i++) {
+                String guess = titleGuesses.get(i);
+                await(byTitleGuess.get(i)).ifPresent(books -> {
+                    if (addRecovered(query, found, books)) alsoSearched.add(guess);
+                });
+            }
+            for (int i = 0; i < publisherGuesses.size(); i++) {
+                await(byPublisherGuess.get(i))
+                        .ifPresent(books -> addMatching(authorKey, publisherKey, found, books));
             }
 
             return new Fetched(found.books(), List.copyOf(alsoSearched),
@@ -469,9 +542,21 @@ public class BookSearchService {
      * 옮길 자리가 없습니다. 두 어절로만 나눕니다.
      */
     static List<String> spacedAuthorGuesses(String author) {
-        if (author == null) return List.of();
-        String s = author.trim();
-        if (s.length() < MIN_SYLLABLES_TO_RESPACE || s.length() > MAX_SYLLABLES_TO_RESPACE) {
+        return spacedGuesses(author, MIN_SYLLABLES_TO_RESPACE);
+    }
+
+    /**
+     * 제목에 띄어쓰기 자리를 옮겨 볼 최소 길이. <b>저자보다 짧게 잡습니다.</b>
+     * 「마의산」은 세 음절이라 저자 기준(4)으로는 걸리지 않는데, 실제로 사용자가 붙여 쓰는
+     * 제목입니다. 두 음절은 옮길 자리가 하나뿐이고 그렇게 띄어 쓴 표제가 없어 뺍니다.
+     */
+    static final int MIN_TITLE_SYLLABLES_TO_RESPACE = 3;
+
+    /** {@link #spacedAuthorGuesses} 의 일반형. 저자·제목·출판사가 함께 씁니다. */
+    static List<String> spacedGuesses(String value, int minSyllables) {
+        if (value == null) return List.of();
+        String s = value.trim();
+        if (s.length() < minSyllables || s.length() > MAX_SYLLABLES_TO_RESPACE) {
             return List.of();
         }
         if (!s.chars().allMatch(c -> c >= '가' && c <= '힣')) return List.of();
@@ -491,10 +576,27 @@ public class BookSearchService {
      * @return 실제로 더한 것이 있는지
      */
     private static boolean addMatchingAuthor(String authorKey, Collected found, List<BookInfo> books) {
-        if (authorKey.isEmpty()) return false;
+        return addMatching(authorKey, "", found, books);
+    }
+
+    /**
+     * 제목만으로 받아 온 책 가운데 <b>저자와 출판사가 맞는 것만</b> 더합니다.
+     *
+     * <p>비어 있는 키는 보지 않습니다. 둘 다 비면 아무것도 더하지 않습니다. 조건을 하나도
+     * 걸지 않은 채 더하면 <b>제목만 비슷한 남의 책이 통째로 들어옵니다.</b>
+     *
+     * <p>견주는 키가 공백과 구두점을 지우므로 <b>정보나루가 어느 쪽으로 띄어 썼든 맞습니다.</b>
+     * 사용자가 붙여 썼는데 등록이 공백인 경우와 그 반대가 여기서 함께 풀립니다.
+     */
+    private static boolean addMatching(String authorKey, String publisherKey,
+                                       Collected found, List<BookInfo> books) {
+        if (authorKey.isEmpty() && publisherKey.isEmpty()) return false;
         boolean added = false;
         for (BookInfo book : books) {
-            if (!BibNormalizer.spellingKey(book.authors()).contains(authorKey)) continue;
+            if (!authorKey.isEmpty()
+                    && !BibNormalizer.spellingKey(book.authors()).contains(authorKey)) continue;
+            if (!publisherKey.isEmpty()
+                    && !publisherKey.equals(BibNormalizer.normalizePublisher(book.publisher()))) continue;
             // 소장을 물어볼 수 없는 자료는 되찾아도 쓸 곳이 없습니다.
             if (book.canonicalIsbn13().isEmpty()) continue;
             if (found.add(book)) added = true;
