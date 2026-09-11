@@ -829,6 +829,27 @@ def worklist(libs: list[dict], probe: dict, count: int) -> int:
     return 0
 
 
+def group_index(groups: dict) -> dict:
+    """묶음키를 대소문자와 `www.` 를 가리지 않고 찾기 위한 색인. 둘 이상에 걸리면 None 입니다."""
+    index: dict[str, str | None] = {}
+    for key in groups:
+        for form in {key.lower(), key.lower().removeprefix("www.")}:
+            index[form] = key if index.get(form, key) == key else None
+    return index
+
+
+def resolve_group_key(raw: str, index: dict) -> str | None:
+    """조사 결과에 적힌 묶음키를 실제 묶음키로 바꿉니다. 못 찾거나 모호하면 None 입니다.
+
+    **대소문자를 가리지 않고 견줍니다.** 묶음키의 경로 조각은 홈페이지 주소의 대소문자를 그대로
+    살리는데(`www.goyanglib.or.kr/MF`), 예전에는 받은 키만 소문자로 바꿔 견줘서 그런 묶음이 전부
+    「모르는 묶음」으로 버려졌습니다. 고양시립 분관이 실제로 그 자리에 걸렸습니다. 옮겨 적을 때
+    `www.` 가 붙고 빠지는 것도 여기서 흡수합니다.
+    """
+    want = raw.strip().strip("`").strip().lower()
+    return index.get(want) or index.get(want.removeprefix("www."))
+
+
 def import_findings(path: str, libs: list[dict]) -> int:
     """사람이나 다른 도구가 조사해 온 결과를 읽어 CSV 로 바꿉니다.
 
@@ -860,8 +881,7 @@ def import_findings(path: str, libs: list[dict]) -> int:
             continue
         groups[group_key(l["homepageUrl"])].append(l)
         by_org[registrable_domain(urllib.parse.urlparse(home).netloc)].append(l)
-    # 묶음키를 옮겨 적을 때 `www.` 가 붙고 빠지는 것으로 전부 버려지면 안 됩니다.
-    aliases = {k.removeprefix("www."): k for k in groups}
+    index = group_index(groups)
 
     kinds = {"ISBN_DETAIL", "ISBN_SEARCH", "TITLE_SEARCH"}
     writer = csv.writer(sys.stdout, lineterminator="\n")
@@ -881,11 +901,10 @@ def import_findings(path: str, libs: list[dict]) -> int:
             patterns += 1                               # 다른 파일로 갑니다. --import-patterns
             continue
         where = f"{lineno}행 {key}"
-        key = key.strip("`").lower()
+        key = key.strip("`").strip()
         whole_org = key.endswith("*")
-        key = key.removesuffix("*").strip()
-        key = key if key in groups else aliases.get(key.removeprefix("www."), key)
-        if key not in groups:
+        key = resolve_group_key(key.removesuffix("*"), index)
+        if key is None:
             problems.append(f"{where}: 모르는 묶음입니다")
             continue
         if kind not in kinds:
@@ -972,7 +991,7 @@ def import_patterns(path: str, libs: list[dict], csv_path: str = DEFAULT_PATTERN
     for l in libs:
         if normalize_home(l.get("homepageUrl")):
             groups[group_key(l["homepageUrl"])].append(l)
-    aliases = {k.removeprefix("www."): k for k in groups}
+    index = group_index(groups)
     already = existing_patterns(csv_path)
 
     # csv.writer 를 쓰지 않습니다. 정규식에 따옴표가 있으면 CSV 규칙대로 감싸는데, 서버는
@@ -987,9 +1006,8 @@ def import_patterns(path: str, libs: list[dict], csv_path: str = DEFAULT_PATTERN
         if len(parts) < 4 or parts[1] != "DETAIL_PATTERN":
             continue
         where = f"{lineno}행 {parts[0]}"
-        key = parts[0].strip("`").lower().removesuffix("*").strip()
-        key = key if key in groups else aliases.get(key.removeprefix("www."), key)
-        if key not in groups:
+        key = resolve_group_key(parts[0].strip("`").strip().removesuffix("*"), index)
+        if key is None:
             problems.append(f"{where}: 모르는 묶음입니다")
             continue
         host_key = parts[2].lower().rstrip("/")

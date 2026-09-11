@@ -290,6 +290,34 @@ def check_import(work: str) -> list[str]:
         if not ok:
             failures.append(f"받기:{label}")
 
+    # 묶음키의 경로 조각은 홈페이지의 대소문자를 그대로 살립니다(`www.goyanglib.or.kr/MF`). 받은
+    # 키만 소문자로 바꿔 견주던 때에는 이런 묶음이 규칙도 패턴도 전부 「모르는 묶음」으로 버려졌습니다.
+    mixed = [{"libCode": "800009", "name": "대소문자도서관",
+              "homepageUrl": "https://www.lib.example.go.kr/MU/index.do"}]
+    mixed_path = os.path.join(work, "mixed.txt")
+    regex = 'href=["\'](/b\\?k=[^"\']*)["\']'
+    for label, line, fn in [
+        ("대소문자 섞인 키", "www.lib.example.go.kr/MU | ISBN_SEARCH | UTF-8 | "
+                         "https://www.lib.example.go.kr/MU/s?q={isbn13}", "findings"),
+        ("소문자로 옮겨 적은 키", "lib.example.go.kr/mu | ISBN_SEARCH | UTF-8 | "
+                           "https://www.lib.example.go.kr/MU/s?q={isbn13}", "findings"),
+        ("대소문자 섞인 패턴 키", f"www.lib.example.go.kr/MU | DETAIL_PATTERN | www.lib.example.go.kr | {regex}",
+         "patterns"),
+    ]:
+        open(mixed_path, "w").write(line + "\n")
+        buf, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(err):
+            if fn == "findings":
+                od.import_findings(mixed_path, mixed)
+            else:
+                od.import_patterns(mixed_path, mixed, os.path.join(work, "no-patterns.csv"))
+        got = len([l for l in buf.getvalue().splitlines() if l.strip()])
+        ok = got == 1
+        print(f"  {'✓' if ok else '✗'} {label:22s} 줄 {got}개 (기대 1개)")
+        if not ok:
+            failures.append(f"받기:{label}")
+            print(err.getvalue()[-300:])
+
     # 한 도서관이 두 줄에 걸리는 것은 `*` 를 쓰면 흔합니다. 같은 주소면 한 줄만 나가고,
     # 다른 주소면 **어느 쪽이 맞는지 우리가 모르므로** 사유가 남아야 합니다.
     same = ("www.lib.example.go.kr* | ISBN_SEARCH | UTF-8 | https://www.lib.example.go.kr/s?q={isbn13}\n"
