@@ -325,3 +325,14 @@
 142041,ISBN_DETAIL,UTF-8,https://library.chuncheon.go.kr/search/detail-book/?isbn={isbn13}
 142043,ISBN_DETAIL,UTF-8,https://library.chuncheon.go.kr/search/detail-book/?isbn={isbn13}
 142110,ISBN_DETAIL,UTF-8,https://library.chuncheon.go.kr/search/detail-book/?isbn={isbn13}
+141657,ISBN_SEARCH,UTF-8,https://www.goyanglib.or.kr/MV/program/searchResultList.do?searchType=SIMPLE&searchManageCodeArr=MV&searchTab=ALL&mainSearchCondition=book&searchKeyword={isbn13}
+141139,ISBN_SEARCH,UTF-8,https://www.goyanglib.or.kr/MJ/program/searchResultList.do?searchType=SIMPLE&searchManageCodeArr=MJ&searchTab=ALL&mainSearchCondition=book&searchKeyword={isbn13}
+141398,ISBN_SEARCH,UTF-8,https://www.goyanglib.or.kr/MN/program/searchResultList.do?searchType=SIMPLE&searchManageCodeArr=MN&searchTab=ALL&mainSearchCondition=book&searchKeyword={isbn13}
+141055,ISBN_SEARCH,UTF-8,https://www.goyanglib.or.kr/MA/program/searchResultList.do?searchType=SIMPLE&searchManageCodeArr=MA&searchTab=ALL&mainSearchCondition=book&searchKeyword={isbn13}
+141555,ISBN_SEARCH,UTF-8,https://www.goyanglib.or.kr/MP/program/searchResultList.do?searchType=SIMPLE&searchManageCodeArr=MP&searchTab=ALL&mainSearchCondition=book&searchKeyword={isbn13}
+141546,ISBN_SEARCH,UTF-8,https://www.goyanglib.or.kr/MO/program/searchResultList.do?searchType=SIMPLE&searchManageCodeArr=MO&searchTab=ALL&mainSearchCondition=book&searchKeyword={isbn13}
+141059,ISBN_SEARCH,UTF-8,https://www.goyanglib.or.kr/center/program/searchResultList.do?searchType=SIMPLE&searchManageCode=ALL&searchTab=ALL&mainSearchCondition=book&searchKeyword={isbn13}
+141124,ISBN_SEARCH,UTF-8,https://www.goyanglib.or.kr/MG/program/searchResultList.do?searchType=SIMPLE&searchManageCodeArr=MG&searchTab=ALL&mainSearchCondition=book&searchKeyword={isbn13}
+141018,ISBN_SEARCH,UTF-8,https://www.goyanglib.or.kr/MB/program/searchResultList.do?searchType=SIMPLE&searchManageCodeArr=MB&searchTab=ALL&mainSearchCondition=book&searchKeyword={isbn13}
+141126,ISBN_SEARCH,UTF-8,https://www.goyanglib.or.kr/MH/program/searchResultList.do?searchType=SIMPLE&searchManageCodeArr=MH&searchTab=ALL&mainSearchCondition=book&searchKeyword={isbn13}
+141072,ISBN_SEARCH,UTF-8,https://www.goyanglib.or.kr/ME/program/searchResultList.do?searchType=SIMPLE&searchManageCodeArr=ME&searchTab=ALL&mainSearchCondition=book&searchKeyword={isbn13}
