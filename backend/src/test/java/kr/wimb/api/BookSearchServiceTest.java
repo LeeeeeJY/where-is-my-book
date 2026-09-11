@@ -388,6 +388,9 @@ class BookSearchServiceTest {
         var holdings = service.holdingsOf(editions, List.of("11"), List.of("111001"));
         assertTrue(asked.containsAll(editions), "묶인 ISBN 을 모두 물었어야 합니다: " + asked);
         assertEquals(List.of("111001"), holdings.libCodes());
+        // 링크는 그 도서관이 실제로 가진 판으로 나가야 합니다. 첫 ISBN 으로 보내면 특별판만
+        // 가진 이 도서관의 OPAC 검색이 0건이 되어 「소장한다더니 그 책이 없네」로 보입니다.
+        assertEquals(List.of("9791158510015"), holdings.heldIsbns().get("111001"));
     }
 
     @Test

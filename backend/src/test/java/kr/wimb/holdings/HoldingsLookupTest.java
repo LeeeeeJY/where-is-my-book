@@ -253,4 +253,40 @@ class HoldingsLookupTest {
 
         assertEquals(java.util.Set.of("011001", "141053"), result.libCodes());
     }
+
+    @Test
+    @DisplayName("도서관마다 어느 판을 가졌는지를 잃지 않고 내보낸다")
+    void keepsWhichEditionEachLibraryHolds() {
+        // libCodes 는 판본 전체의 합집합이라 어느 판을 가졌는지를 잃습니다. 그러면 도서관
+        // 링크가 저작의 첫 ISBN 으로 나가고, 그 판이 없는 도서관의 OPAC 검색은 규칙이 맞아도
+        // 0건이 됩니다. 「소장한다더니 그 책이 없네」로 보이는 자리라 여기서 고정합니다.
+        var store = HoldingsLookup.RegionModeStore.documented();
+        HoldingsLookup.HoldingsClient perIsbn = (isbn13, regionCode) -> switch (isbn13) {
+            case "초판" -> List.of("011001");
+            case "개정판" -> List.of("141053", "011001");
+            default -> List.of();
+        };
+
+        var result = new HoldingsLookup(perIsbn, store)
+                .lookup(List.of("초판", "개정판", "전자책"), List.of("11"));
+
+        assertEquals(List.of("초판", "개정판"), result.isbnsByLib().get("011001"),
+                "두 판을 다 가진 곳은 둘 다, 판본 목록의 순서대로");
+        assertEquals(List.of("개정판"), result.isbnsByLib().get("141053"),
+                "개정판만 가진 곳에 초판 ISBN 을 붙이면 그 도서관 OPAC 에서 0건이 됩니다");
+        assertFalse(result.isbnsByLib().containsKey("아무데도없음"));
+    }
+
+    @Test
+    @DisplayName("방식을 탐색하는 동안 받은 답도 어느 판인지를 잃지 않는다")
+    void keepsEditionWhileProbingMode() {
+        var server = new FakeServer();
+        server.nationwideResult = List.of("011001");
+        var store = HoldingsLookup.RegionModeStore.inMemory();
+
+        var result = lookupWith(server, store).lookup(List.of("A"), SEOUL_GYEONGGI);
+
+        assertEquals(NATIONWIDE, result.modeUsed());
+        assertEquals(List.of("A"), result.isbnsByLib().get("011001"));
+    }
 }

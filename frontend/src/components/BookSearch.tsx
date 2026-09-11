@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiUnavailable, fetchHoldings, hasCriteria, libraryLink, searchBooks } from '../api';
-import { anyHomepageOnly, linkBadge, linkLabel } from '../domain/opacLink';
+import { anyHomepageOnly, isbnsForLink, linkBadge, linkLabel } from '../domain/opacLink';
 import { olderAsOf } from '../domain/asOf';
 import type { DroppedBook, SearchCriteria, SearchResponse, WorkResult } from '../api';
 import { holdingState } from '../domain/holdingState';
@@ -717,7 +717,7 @@ function Holdings({
               */}
               <a
                 className="chip chip--strong chip--go chip--wrap"
-                href={libraryLink(code, work.isbn13List[0], work.title)}
+                href={libraryLink(code, isbnsForLink(facts?.heldIsbns?.[code], work.isbn13List), work.title)}
                 target="_blank"
                 rel="noreferrer"
                 title={linkLabel(library?.linkKind)}

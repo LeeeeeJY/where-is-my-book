@@ -3,7 +3,7 @@ import { ApiUnavailable, fetchHoldings, libraryLink, resolveLines } from '../api
 import type { LineResult, WorkResult } from '../api';
 import { olderAsOf } from '../domain/asOf';
 import { holdingState } from '../domain/holdingState';
-import { linkBadge, linkLabel } from '../domain/opacLink';
+import { isbnsForLink, linkBadge, linkLabel } from '../domain/opacLink';
 import { haversineKm } from '../domain/selection';
 import { countByState, planTrip, rankLibraries } from '../domain/tripPlan';
 import type { BookRow, BookState, LibraryRank, TripStep } from '../domain/tripPlan';
@@ -45,7 +45,12 @@ type Row = LineResult & {
    * 누른 것이 먹히지 않았다고 읽습니다.
    */
   picked: boolean;
-  holdings: { libCodes: string[]; complete: boolean; unreadable: boolean } | null;
+  holdings: {
+    libCodes: string[];
+    heldIsbns?: Record<string, string[]>;
+    complete: boolean;
+    unreadable: boolean;
+  } | null;
   /** 조회를 시도했지만 답을 받지 못했는지 */
   failed: boolean;
   /**
@@ -324,7 +329,14 @@ export function MultiCheck({
     const map = new Map<string, SweepBook>();
     for (const row of shown) {
       const work = row.candidates[row.chosen] ?? row.candidates[0];
-      if (work) map.set(String(row.lineNo), { key: String(row.lineNo), title: work.title, isbn13List: work.isbn13List });
+      if (work) {
+        map.set(String(row.lineNo), {
+          key: String(row.lineNo),
+          title: work.title,
+          isbn13List: work.isbn13List,
+          heldIsbns: row.holdings?.heldIsbns,
+        });
+      }
     }
     return map;
   }, [shown]);
@@ -1039,7 +1051,11 @@ function LibraryRow({
                 <li key={book.key}>
                   {bookLinks ? (
                     <a
-                      href={libraryLink(rank.libCode, book.isbn13List[0], book.title)}
+                      href={libraryLink(
+                        rank.libCode,
+                        isbnsForLink(book.heldIsbns?.[rank.libCode], book.isbn13List),
+                        book.title,
+                      )}
                       target="_blank"
                       rel="noreferrer"
                       title={linkLabel(library?.linkKind)}

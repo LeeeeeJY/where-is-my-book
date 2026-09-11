@@ -25,8 +25,14 @@ export type Library = {
   linkKind?: LinkKind;
 };
 
-/** 위에 있을수록 좋은 링크입니다. 백엔드 `OpacLink.Kind` 와 같은 값입니다. */
-export type LinkKind = 'ISBN_DETAIL' | 'ISBN_SEARCH' | 'TITLE_SEARCH' | 'HOMEPAGE';
+/**
+ * 위에 있을수록 좋은 링크입니다. 백엔드 `OpacLink.Kind` 와 같은 값입니다.
+ *
+ * `DETAIL_LOOKUP` 은 누를 때 서버가 검색 결과에서 상세 링크를 찾아 보내는 것입니다. 상세 주소가
+ * 도서관 내부 키라 미리 만들 수 없는 OPAC 이 대부분이라 이 단계가 사실상의 「이 책 페이지」인데,
+ * **못 찾으면 검색 결과로 내려가므로** 문구가 그 가능성을 함께 말합니다.
+ */
+export type LinkKind = 'ISBN_DETAIL' | 'DETAIL_LOOKUP' | 'ISBN_SEARCH' | 'TITLE_SEARCH' | 'HOMEPAGE';
 
 export type CheckState = 'all' | 'some' | 'none';
 

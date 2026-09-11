@@ -981,10 +981,15 @@ public class BookSearchService {
             boolean complete = result.isComplete() && unaskableLibs == 0 && !truncated;
             LocalDate asOf = result.oldestFetchedAt() == null
                     ? null : LocalDate.ofInstant(result.oldestFetchedAt(), SEOUL);
-            return new HoldingResult(matched, complete, nothingChecked, asOf);
+            // 도서관마다 어느 판을 가졌는지를 함께 내보냅니다. 링크가 이 값을 써야 합니다.
+            Map<String, List<String>> held = new LinkedHashMap<>();
+            for (String code : matched) {
+                held.put(code, result.isbnsByLib().getOrDefault(code, List.of()));
+            }
+            return new HoldingResult(matched, Map.copyOf(held), complete, nothingChecked, asOf);
         } catch (RuntimeException e) {
             // 조회 실패는 미소장이 아닙니다. 화면에 "확인 불가"로 표시해야 합니다.
-            return new HoldingResult(List.of(), false, true, null);
+            return new HoldingResult(List.of(), Map.of(), false, true, null);
         }
     }
 
@@ -1005,22 +1010,27 @@ public class BookSearchService {
     }
 
     /**
+     * @param heldIsbns  도서관마다 <b>그 도서관이 가진 것으로 확인된</b> 판본의 ISBN.
+     *                   {@code libCodes} 의 도서관마다 한 항목씩 있습니다. <b>도서관 링크는
+     *                   반드시 이 값을 먼저 씁니다.</b> 저작의 첫 ISBN 으로 보내면 그 판이 없는
+     *                   도서관의 OPAC 검색이 규칙이 맞아도 0건이 되어 「소장한다더니 그 책이
+     *                   없네」로 보입니다.
      * @param complete   모든 판본을 빠짐없이 확인했는지
      * @param unreadable 조회 자체가 실패했는지. 미소장과 반드시 구분해야 합니다.
      * @param asOf       이 답이 <b>언제 받은 것인지</b>(한국 날짜). 캐시에서 나온 답이면 캐시된
      *                   날짜이고, 여러 답이 섞였으면 가장 오래된 날짜입니다. 아무 답도 받지
      *                   못했으면 null 입니다. 화면이 「n월 n일 조회 기준」으로 보여 줍니다.
      */
-    public record HoldingResult(List<String> libCodes, boolean complete, boolean unreadable,
-                                LocalDate asOf) {
+    public record HoldingResult(List<String> libCodes, Map<String, List<String>> heldIsbns,
+                                boolean complete, boolean unreadable, LocalDate asOf) {
         /** 고른 도서관이 없어 물어볼 필요가 없었던 경우. 미소장이 아닙니다. */
         public static HoldingResult notRequested() {
-            return new HoldingResult(List.of(), true, false, null);
+            return new HoldingResult(List.of(), Map.of(), true, false, null);
         }
 
         /** 물어보고 싶었지만 조회를 시작할 수조차 없었던 경우. 반드시 확인 불가입니다. */
         public static HoldingResult cannotAsk() {
-            return new HoldingResult(List.of(), false, true, null);
+            return new HoldingResult(List.of(), Map.of(), false, true, null);
         }
     }
 

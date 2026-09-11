@@ -113,6 +113,9 @@ public final class HoldingsLookup {
 
     /**
      * @param libCodes        소장이 확인된 도서관부호
+     * @param isbnsByLib      도서관마다 <b>그 도서관이 실제로 가진 것으로 확인된</b> ISBN.
+     *                        {@code isbn13List} 의 순서를 따릅니다. 도서관 링크는 이 값을
+     *                        써야 합니다(아래).
      * @param unresolvedIsbns 전혀 확인하지 못한 ISBN
      * @param partialIsbns    일부 지역만 확인된 ISBN
      * @param oldestFetchedAt 이 결과에 쓰인 답 가운데 <b>가장 오래된</b> 조회 시각. 아무 답도
@@ -121,9 +124,17 @@ public final class HoldingsLookup {
      * <p><b>{@code unresolvedIsbns} 와 {@code partialIsbns} 를 미소장으로 표시하면 안 됩니다.</b>
      * 실제로 있는 책을 없다고 답하게 되어 헛걸음을 만듭니다. 화면에는 "확인 불가"로 따로
      * 표시해야 합니다.
+     *
+     * <p><b>{@code libCodes} 는 판본 전체의 합집합이라 어느 판을 가졌는지를 잃습니다.</b>
+     * 그 정보가 없으면 도서관 링크가 저작의 첫 ISBN 으로 나가는데, 그 도서관이 다른 판만
+     * 가지고 있으면 OPAC 검색은 <b>규칙이 맞아도 0건</b>이 됩니다. 사용자에게는 「소장한다더니
+     * 그 책이 없네」로 보이고, 판본이 많은 책일수록 자주 그렇습니다. 그래서 (ISBN, 지역) 호출
+     * 하나하나가 이미 알고 있는 「어느 ISBN 이 이 도서관을 데려왔는지」를 여기서 버리지 않고
+     * 들고 나갑니다.
      */
     public record Result(
             Set<String> libCodes,
+            Map<String, List<String>> isbnsByLib,
             List<String> unresolvedIsbns,
             List<String> partialIsbns,
             int calls,
@@ -151,6 +162,7 @@ public final class HoldingsLookup {
      */
     public Result lookup(List<String> isbn13List, List<String> regionCodes) {
         Set<String> found = new LinkedHashSet<>();
+        Map<String, List<String>> byLib = new LinkedHashMap<>();
         List<String> unresolved = new ArrayList<>();
         List<String> partial = new ArrayList<>();
         Oldest oldest = new Oldest();
@@ -160,7 +172,7 @@ public final class HoldingsLookup {
         List<String> pending = new ArrayList<>();
         for (String isbn : isbn13List) {
             if (modeStore.get() == RegionMode.UNKNOWN) {
-                calls += probeMode(isbn, regionCodes, found, oldest);
+                calls += probeMode(isbn, regionCodes, found, byLib, oldest);
                 // 탐색 과정에서 이미 결과를 모았으므로 같은 ISBN 을 다시 부르지 않습니다.
                 continue;
             }
@@ -173,13 +185,28 @@ public final class HoldingsLookup {
             IsbnOutcome outcome = outcomes.get(isbn);
             calls += outcome.calls();
             found.addAll(outcome.libCodes());
+            heldBy(byLib, isbn, outcome.libCodes());
             oldest.note(outcome.oldestFetchedAt());
             if (outcome.failedAll()) unresolved.add(isbn);
             else if (outcome.failedSome()) partial.add(isbn);
         }
 
-        return new Result(found, List.copyOf(unresolved), List.copyOf(partial),
+        return new Result(found, freeze(byLib), List.copyOf(unresolved), List.copyOf(partial),
                 calls, modeStore.get(), oldest.value);
+    }
+
+    /** 이 ISBN 을 가진 것으로 확인된 도서관마다 그 ISBN 을 적어 둡니다. */
+    private static void heldBy(Map<String, List<String>> byLib, String isbn, List<String> libCodes) {
+        for (String code : libCodes) {
+            List<String> held = byLib.computeIfAbsent(code, k -> new ArrayList<>());
+            if (!held.contains(isbn)) held.add(isbn);
+        }
+    }
+
+    private static Map<String, List<String>> freeze(Map<String, List<String>> byLib) {
+        Map<String, List<String>> out = new LinkedHashMap<>();
+        byLib.forEach((code, isbns) -> out.put(code, List.copyOf(isbns)));
+        return java.util.Collections.unmodifiableMap(out);
     }
 
     /** 한 번의 호출과 그 결과. 실패하면 {@code answer} 가 null 입니다. */
@@ -255,7 +282,8 @@ public final class HoldingsLookup {
      * <p>둘 다 비어 있으면 방식을 확정하지 않습니다. 그 책을 아무 도서관도 소장하지 않은
      * 경우와 구분할 수 없기 때문입니다. 여기서 잘못 확정하면 이후의 모든 조회가 틀립니다.
      */
-    private int probeMode(String isbn, List<String> regionCodes, Set<String> found, Oldest oldest) {
+    private int probeMode(String isbn, List<String> regionCodes, Set<String> found,
+                          Map<String, List<String>> byLib, Oldest oldest) {
         int calls = 0;
         try {
             calls++;
@@ -263,6 +291,7 @@ public final class HoldingsLookup {
             if (!nationwide.libCodes().isEmpty()) {
                 modeStore.set(RegionMode.NATIONWIDE);
                 found.addAll(nationwide.libCodes());
+                heldBy(byLib, isbn, nationwide.libCodes());
                 oldest.note(nationwide.fetchedAt());
                 return calls;
             }
@@ -274,6 +303,7 @@ public final class HoldingsLookup {
         IsbnOutcome outcome = fetchPerRegion(isbn, regionCodes, oldest);
         calls += outcome.calls();
         found.addAll(outcome.libCodes());
+        heldBy(byLib, isbn, outcome.libCodes());
         if (!outcome.libCodes().isEmpty()) modeStore.set(RegionMode.PER_REGION);
         return calls;
     }

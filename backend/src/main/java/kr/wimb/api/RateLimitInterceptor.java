@@ -44,7 +44,10 @@ public final class RateLimitInterceptor implements HandlerInterceptor {
         // 진단은 열 때마다 정보나루를 한 번 씁니다. 자동으로 새로 고치면 안 되는 화면이라
         // 사람이 누르는 속도보다 빠르면 막습니다.
         if (path.startsWith("/api/diagnose")) return 5;
-        // /api/libraries, /api/status, /api/version, /api/go 는 정보나루를 부르지 않거나
+        // 도서관으로 넘기는 것은 정보나루를 부르지 않지만, 상세 패턴이 있는 도서관에서는
+        // 그 도서관 OPAC 페이지를 한 번 받습니다. 남의 서버라 한 번으로 세지는 않습니다.
+        if (path.startsWith("/api/go/")) return 2;
+        // /api/libraries, /api/status, /api/version 은 정보나루를 부르지 않거나
         // (마스터 적재) 재시도 빗장으로 이미 묶여 있습니다. 그래도 0 은 아닙니다.
         // 무한정 두드리는 것 자체가 우리 서버의 몫을 씁니다.
         return 1;
