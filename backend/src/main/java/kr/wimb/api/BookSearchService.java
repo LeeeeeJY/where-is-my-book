@@ -150,6 +150,11 @@ public class BookSearchService {
      * <p>덤으로 하는 검색은 실패해도 입력 그대로의 결과를 그대로 내보냅니다. 입력 그대로가
      * 실패하면 검색 전체가 실패한 것이고, 화면은 그것을 「확인 불가」로 그립니다.
      *
+     * <p><b>출판사도 붙여 쓴 표기로 함께 찾습니다.</b> 제목과 저자에만 넣고 출판사를
+     * 빠뜨리면 「마의 산 - 문학과 지성사」가 0건이 되어 <b>사용자에게는 「그런 책이
+     * 없다」로 보입니다.</b> 다만 <b>자리를 옮겨 보는 것은 하지 않습니다.</b> 실제 서지의
+     * 출판사 표기가 대체로 붙여 쓴 쪽이라, 위험한 방향은 사용자가 공백을 넣는 쪽 하나입니다.
+     *
      * <p><b>서로 기다릴 필요가 없는 호출은 동시에 내보냅니다.</b> 정보나루의 서지 검색은 한 번에
      * 3~4초가 걸려서, 넷을 차례로 부르면 그것만으로 15초입니다. 입력 그대로, 붙여 쓴 표기,
      * 제목만으로 되찾기, 저자의 띄어쓰기 자리 바꾸기는 서로 무관하므로 1회전에 함께, 둘째 쪽과
@@ -173,6 +178,13 @@ public class BookSearchService {
         if (compactAuthor != null) searchedAuthors.add(compactAuthor);
         // 제목만으로 되찾거나 띄어쓰기 자리를 옮겨 찾은 것은 정보나루가 아니라 **우리가
         // 저자를 거릅니다.** 공백과 구두점을 지운 표기로 견줍니다.
+        // **출판사도 같은 병을 앓습니다.** 정보나루는 넣은 글자를 그대로 찾으므로
+        // 「문학과 지성사」와 「문학과지성사」가 서로 다른 검색입니다. 우리가 받은 값을
+        // 견줄 때는 `normalizePublisher` 가 공백을 지워 주지만, **질의는 사용자가 적은
+        // 표기 그대로 나갑니다.** 실제 서지의 출판사 표기는 대체로 붙여 쓴 쪽이라
+        // (범우사·을유문화사·열린책들·동서문화사·민음사·사이언스북스·문학동네),
+        // 사용자가 공백을 넣어 적으면 0건이 오고 그 해석이 통째로 건너뛰어집니다.
+        String compactPublisher = withoutSpaces(query.publisher());
         String authorKey = BibNormalizer.spellingKey(query.author());
         List<String> guesses = hasTitle ? List.of() : spacedAuthorGuesses(query.author());
         searchedAuthors.addAll(guesses);
@@ -186,6 +198,8 @@ public class BookSearchService {
                     : executor.submit(() -> searchQuietly(query.withTitle(compact)));
             Future<Optional<List<BookInfo>>> compactAuthorBooks = compactAuthor == null ? null
                     : executor.submit(() -> searchQuietly(query.withAuthor(compactAuthor)));
+            Future<Optional<List<BookInfo>>> compactPublisherBooks = compactPublisher == null ? null
+                    : executor.submit(() -> searchQuietly(query.withPublisher(compactPublisher)));
             Future<Optional<List<BookInfo>>> byTitleOnly = hasTitle && !authorKey.isEmpty()
                     ? executor.submit(() -> searchQuietly(query.withAuthor(null))) : null;
             List<Future<Optional<List<BookInfo>>>> byGuess = new ArrayList<>();
@@ -206,6 +220,10 @@ public class BookSearchService {
                     if (found.addAll(books)) alsoSearchedAuthors.add(compactAuthor);
                 });
             }
+            // 출판사 표기는 화면에 밝히지 않습니다. 출판사는 사용자가 직접 적어 넣은
+            // 조건이라 목록의 출판사 열에 그대로 보이고, 제목처럼 우리가 표기를 바꿔
+            // 데려온 것이 무엇인지 따로 말해 줄 것이 없습니다.
+            if (compactPublisherBooks != null) await(compactPublisherBooks).ifPresent(found::addAll);
             if (byTitleOnly != null) {
                 await(byTitleOnly).ifPresent(books -> addMatchingAuthor(authorKey, found, books));
             }

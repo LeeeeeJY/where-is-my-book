@@ -166,6 +166,30 @@ class MultiCheckServiceTest {
         assertTrue(line.explanation().contains("출판사"), line.explanation());
     }
 
+    /**
+     * <b>출판사도 띄어쓰기가 다르면 다른 검색입니다.</b> 정보나루는 넣은 글자를 그대로
+     * 찾으므로 「문학과 지성사」와 「문학과지성사」가 서로 다른 검색인데, 실제 서지의
+     * 출판사 표기는 대체로 붙여 쓴 쪽입니다. 사용자가 공백을 넣어 적었을 때 0건이 오면
+     * 출판사 해석이 통째로 건너뛰어지고, 저자 해석도 첫 해석도 못 찾으므로 그 줄은
+     * <b>「그런 책이 없다」로 나갑니다.</b> 제목과 저자에만 회전을 넣고 출판사를 빠뜨린
+     * 상태가 실제로 그랬습니다.
+     */
+    @Test
+    @DisplayName("출판사도 띄어쓰기를 뺀 표기로 함께 찾는다")
+    void alsoSearchesPublisherWithoutSpaces() {
+        var transport = new FakeD4L();
+        // 정보나루에는 붙여 쓴 표기로만 등록되어 있습니다.
+        transport.answer = q -> q.contains("publisher=문학과지성사")
+                ? docs(bib("마의 산", "문학과지성사", "9788932011752", "", 30))
+                : docs();
+
+        var line = service(transport).resolve(List.of("마의 산 - 문학과 지성사")).lines().get(0);
+
+        assertFalse(line.candidates().isEmpty(),
+                "공백을 뺀 표기로도 찾아야 합니다: " + transport.queries);
+        assertEquals("문학과지성사", line.candidates().get(0).publisher());
+    }
+
     @Test
     @DisplayName("줄 전체가 제목으로 그대로 맞으면 나눠 묻지 않는다")
     void doesNotSplitWhenWholeLineMatchesExactly() {

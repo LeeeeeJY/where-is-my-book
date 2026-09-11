@@ -202,6 +202,11 @@ public final class Data4LibraryClient {
             return new BookQuery(title, newAuthor, publisher, isbn13, keyword, exactMatch);
         }
 
+        /** 출판사만 바꾼 사본. 띄어쓰기를 달리해 다시 찾아볼 때 씁니다. */
+        public BookQuery withPublisher(String newPublisher) {
+            return new BookQuery(title, author, newPublisher, isbn13, keyword, exactMatch);
+        }
+
         Map<String, String> toParams() {
             Map<String, String> params = new LinkedHashMap<>();
             putIfPresent(params, "title", title);
