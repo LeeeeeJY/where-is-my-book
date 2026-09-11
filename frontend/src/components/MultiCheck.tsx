@@ -76,10 +76,16 @@ const INPUT_ROWS = 8;
 /**
  * 입력 칸에 비쳐 보이는 예시.
  *
- * <b>네 줄이 저마다 다른 형태입니다.</b> 제목만, 「제목 - 저자」, 「제목 / 저자」, ISBN.
- * 같은 모양으로 여러 줄을 적으면 예시가 사실상 하나뿐이라, 제목만 넣어도 된다는 것도
- * ISBN 이 된다는 것도 알 수 없습니다. <b>예전에는 다섯 줄 가운데 셋이 「제목 - 저자」로
- * 같았습니다.</b> 줄 수만 채우고 형태는 못 보여 준 셈이었습니다.
+ * <b>다섯 줄이 저마다 다른 형태입니다.</b> 제목만, 「제목 - 저자」, 「제목 - 출판사」,
+ * 「제목 / 저자」, ISBN. 같은 모양으로 여러 줄을 적으면 예시가 사실상 하나뿐이라, 제목만
+ * 넣어도 된다는 것도 ISBN 이 된다는 것도 알 수 없습니다. <b>예전에는 다섯 줄 가운데 셋이
+ * 「제목 - 저자」로 같았습니다.</b> 줄 수만 채우고 형태는 못 보여 준 셈이었습니다.
+ *
+ * <p><b>저자 줄과 출판사 줄은 생김새가 같지만 둘 다 세웁니다.</b> 되풀이로 보이지만
+ * 되풀이가 아닙니다. 구분자 뒤에 오는 말이 <b>저자일 수도 출판사일 수도 있다</b>는 것은
+ * 다른 줄로 보여 주지 않으면 알 방법이 없고, 그것을 모르면 출판사를 적어 볼 생각을 하지
+ * 못합니다. <b>고전 번역서에서 판을 가르는 것은 저자가 아니라 출판사입니다.</b> 저작을
+ * 출판사별로 갈라 놓았으므로 「마의 산 - 토마스 만」은 저자를 붙여도 후보가 줄지 않습니다.
  *
  * <p><b>책이 줄마다 다른 것도 의도한 것입니다.</b> 실제로 붙여 넣는 목록이 그렇게 생겼기
  * 때문입니다. 어디선가 옮겨 적은 목록은 줄마다 적은 방식이 제각각인데, 예시가 가지런하면
@@ -104,15 +110,18 @@ const INPUT_ROWS = 8;
  * 읽지 못합니다.</b> 많이 쓰는 서점일수록 그렇습니다. 되는 경우가 드문 것을 예시로 세우면
  * 사용자는 안 되는 주소를 넣어 보고 고장이라고 여깁니다.
  *
- * <p><b>네 줄 모두 실제로 책이 나오는 값입니다</b>(2026-09-10, 배포된 서버로 확인).
- * 따라 쳐 보는 사람이 있으므로 <b>지어내지 마세요.</b> ISBN 은 「특성 없는 남자」(문학동네)
- * 이고, 바꿀 때는 `Isbn.isValidIsbn13` 과 `Isbn.isNotABookNumber` 로 먼저 확인하세요.
- * 체크디지트가 틀린 숫자는 제목으로 넘어가 0건이 나오고, 사용자는 그것을 「이 책이 없다」로
- * 읽습니다.
+ * <p><b>다섯 줄 모두 실제로 책이 나오는 값입니다.</b> 앞의 넷은 2026-09-10 에 배포된
+ * 서버로 확인했고, 「마의 산 - 을유문화사」는 `docs/가정과-검증상태.md` 2-3 의 실측에서
+ * 가져왔습니다(을유문화사 판 `9788932403311`, `9788932403328` 이 실제로 있고
+ * `publisher=을유문화사` 가 정보나루에서 동작합니다). 따라 쳐 보는 사람이 있으므로
+ * <b>지어내지 마세요.</b> ISBN 은 「특성 없는 남자」(문학동네)이고, 바꿀 때는
+ * `Isbn.isValidIsbn13` 과 `Isbn.isNotABookNumber` 로 먼저 확인하세요. 체크디지트가 틀린
+ * 숫자는 제목으로 넘어가 0건이 나오고, 사용자는 그것을 「이 책이 없다」로 읽습니다.
  */
 const INPUT_EXAMPLES = [
   '불안의 책',
   '생의 이면 - 이승우',
+  '마의 산 - 을유문화사',
   '목로주점 1 / 에밀 졸라',
   '9788954691468',
 ].join('\n');
@@ -391,8 +400,9 @@ export function MultiCheck({
               드뭅니다. 자세한 이유는 INPUT_EXAMPLES 에 적어 두었습니다.
             */}
             <span className="muted">
-              한 줄에 한 권씩. 제목만 넣어도 되고, 「제목 - 저자」로 적으면 더 정확합니다.
-              ISBN 도 되고, 앞에 번호나 기호가 붙어 있어도 그대로 넣으면 됩니다
+              한 줄에 한 권씩. 제목만 넣어도 되고, 「제목 - 저자」나 「제목 - 출판사」로
+              적으면 더 정확합니다. ISBN 도 되고, 앞에 번호나 기호가 붙어 있어도 그대로
+              넣으면 됩니다
               {lineCount > 0 && ` · ${lineCount}줄`}
             </span>
             <button className="button" type="submit" disabled={phase.kind === 'resolving'}>
@@ -718,24 +728,28 @@ function ChosenBook({ work, tag, tagTitle }: { work: WorkResult; tag: string; ta
           {[work.author, work.publisher].filter(Boolean).join(' · ')}
           {work.isbn13List.length > 1 && ` · 판본 ${work.isbn13List.length}개`}
         </span>
-        {/*
-          칩을 격자(.pick__body)에 바로 두면 칸 폭만큼 늘어나 카드 너비의 단추가 됩니다.
-          한 권 검색과 같은 줄(.book__links)에 담아 제 크기로 둡니다.
-        */}
-        {work.detailUrl && (
-          <span className="book__links">
-            <a
-              className="chip chip--sm chip--go"
-              href={work.detailUrl}
-              target="_blank"
-              rel="noreferrer"
-            >
-              정보나루 책 정보
-            </a>
-          </span>
-        )}
       </span>
       <span className="pick__tag" title={tagTitle}>✓ {tag}</span>
+      {/*
+        칩을 격자(.pick__body)에 바로 두면 칸 폭만큼 늘어나 카드 너비의 단추가 됩니다.
+        한 권 검색과 같은 줄(.book__links)에 담아 제 크기로 둡니다.
+
+        **그 줄은 본문 칸 안이 아니라 카드의 둘째 줄입니다.** 본문 칸은 선택 표시 옆이라
+        표시 너비만큼 좁은데, 표시는 한 줄뿐이라 그 아래는 비어 있습니다. 칩을 좁은 칸에
+        두면 자리가 남는데도 두 줄로 접혔습니다(styles.css 의 `.pick--chosen` 참고).
+      */}
+      {work.detailUrl && (
+        <span className="book__links">
+          <a
+            className="chip chip--sm chip--go"
+            href={work.detailUrl}
+            target="_blank"
+            rel="noreferrer"
+          >
+            정보나루 책 정보
+          </a>
+        </span>
+      )}
     </div>
   );
 }
@@ -796,13 +810,23 @@ function LineWhere({
 
   const held = row.holdings?.libCodes ?? [];
   return (
-    <p className="line__where">
-      <span className="line__where-label">있는 곳</span>{' '}
-      {held.map((code) => byCode.get(code)?.name ?? code).join(' · ')}
+    /*
+      **도서관 하나가 한 줄입니다**(`.namelist`). 가운뎃점으로 이으면 한국어는 음절마다 줄이
+      바뀔 수 있어 이름이 가운데서 끊기고, 어디까지가 한 도서관인지 읽히지 않습니다. 이 줄은
+      「그래서 어디로 가면 되나」에 답하는 자리라 그것을 못 읽으면 아무 말도 하지 않은 셈입니다.
+      이름표는 격자의 첫 칸이라 한 곳뿐일 때는 이름 옆에 그대로 섭니다.
+    */
+    <div className="line__where labeled">
+      <span className="line__where-label labeled__label">있는 곳</span>
+      <ul className="namelist">
+        {held.map((code) => (
+          <li key={code}>{byCode.get(code)?.name ?? code}</li>
+        ))}
+      </ul>
       {row.holdings && !row.holdings.complete && (
-        <span className="muted"> · 확인하지 못한 판본이 있어 더 있을 수 있습니다.</span>
+        <p className="labeled__note muted">확인하지 못한 판본이 있어 더 있을 수 있습니다.</p>
       )}
-    </p>
+    </div>
   );
 }
 
@@ -1013,34 +1037,48 @@ function LibraryRow({
       )}
       {open && (
         <div className="rank__detail">
-          <p className="rank__books">
-            <span className="rank__books-label">있음</span>{' '}
-            {books.map((book, i) => (
-              <span key={book.key}>
-                {i > 0 && ' · '}
-                {bookLinks ? (
-                  <a
-                    href={libraryLink(
-                      rank.libCode,
-                      isbnsForLink(book.heldIsbns?.[rank.libCode], book.isbn13List),
-                      book.title,
-                    )}
-                    target="_blank"
-                    rel="noreferrer"
-                    title={linkLabel(library?.linkKind)}
-                  >
-                    {book.title}
-                  </a>
-                ) : (
-                  book.title
-                )}
-              </span>
-            ))}
-          </p>
+          {/*
+            **책 하나가 한 줄입니다**(`.namelist`, ② 의 「있는 곳」과 같은 규칙). 제목을
+            가운뎃점으로 이으면 한국어는 음절마다 줄이 바뀔 수 있어 제목이 가운데서 끊기고,
+            어디까지가 한 권인지 읽히지 않습니다. 「거기 가면 무엇을 빌리나」에 답하는 자리라
+            그것을 못 읽으면 목록이 아무 말도 하지 않습니다. 제목이 링크일 때는 더 그렇습니다.
+            누를 자리가 두 줄에 걸쳐 끊겨 있으면 어느 것을 누르는지 알 수 없습니다.
+          */}
+          <div className="rank__books labeled">
+            <span className="rank__books-label labeled__label">있음</span>
+            <ul className="namelist">
+              {books.map((book) => (
+                <li key={book.key}>
+                  {bookLinks ? (
+                    <a
+                      href={libraryLink(
+                        rank.libCode,
+                        isbnsForLink(book.heldIsbns?.[rank.libCode], book.isbn13List),
+                        book.title,
+                      )}
+                      target="_blank"
+                      rel="noreferrer"
+                      title={linkLabel(library?.linkKind)}
+                    >
+                      {book.title}
+                    </a>
+                  ) : (
+                    book.title
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
           {rank.missing.length > 0 && (
-            <p className="rank__books muted">
-              <span className="rank__books-label">없음</span> {rank.missing.join(' · ')}
-            </p>
+            <div className="rank__books muted labeled">
+              <span className="rank__books-label labeled__label">없음</span>
+              <ul className="namelist">
+                {/* 제목만 오므로 같은 제목이 두 줄에서 나올 수 있습니다. 자리까지 열쇠에 넣습니다. */}
+                {rank.missing.map((title, i) => (
+                  <li key={`${i}-${title}`}>{title}</li>
+                ))}
+              </ul>
+            </div>
           )}
           <div className="rank__actions">
             {/*
@@ -1092,17 +1130,29 @@ function Leftovers({ rows }: { rows: BookRow[] }) {
 
   return (
     <div className="leftovers">
+      {/*
+        여기도 **책 하나가 한 줄입니다**(`.namelist`). 위의 목록들과 같은 이유인데, 이름표가
+        짧은 말이 아니라 제목 줄이라 `.labeled` 는 쓰지 않습니다. 목록만 그 아래에 둡니다.
+      */}
       {nowhere.length > 0 && (
         <div className="leftover">
           <h4 className="section-title">고른 도서관에 없는 책 {nowhere.length}권</h4>
-          <p className="muted">{nowhere.map((row) => row.title).join(' · ')}</p>
+          <ul className="namelist muted">
+            {nowhere.map((row) => (
+              <li key={row.key}>{row.title}</li>
+            ))}
+          </ul>
         </div>
       )}
       {unknown.length > 0 && (
         <div className="leftover leftover--unknown">
           <h4 className="section-title">확인하지 못한 책 {unknown.length}권</h4>
-          <p>{unknown.map((row) => row.title).join(' · ')}</p>
-          <p className="muted">없다는 뜻이 아닙니다. 잠시 후 다시 확인해 주세요.</p>
+          <ul className="namelist">
+            {unknown.map((row) => (
+              <li key={row.key}>{row.title}</li>
+            ))}
+          </ul>
+          <p className="leftover__note muted">없다는 뜻이 아닙니다. 잠시 후 다시 확인해 주세요.</p>
         </div>
       )}
     </div>

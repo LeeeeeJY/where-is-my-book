@@ -738,18 +738,28 @@ class BookSearchServiceTest {
     }
 
     /**
-     * <b>저자를 알아내지 못하면 부르지 않습니다.</b> 0건 검색에서까지 호출이 늘면 하루
-     * 예산이 그만큼 빨리 사라집니다.
+     * <b>저자를 알아내지 못하면 되찾기를 부르지 않습니다.</b> 되찾기는 첫 검색이 알려 준
+     * 저자로 다시 묻는 것이라, 한 건도 받지 못했으면 물어볼 저자가 없습니다.
+     *
+     * <p><b>대신 띄어쓰기 자리는 옮겨 봅니다. 예전에는 이것도 하지 않았습니다.</b> 0건
+     * 검색에 호출을 한 건도 더 쓰지 않는 쪽이었는데, 그 상태에서는 <b>「마의산」처럼 붙여
+     * 쓴 제목이 영영 0건</b>이었습니다. 정보나루가 「마의 산」으로만 들고 있으면 어절이
+     * 맞지 않아 한 건도 오지 않고, <b>한 건도 오지 않으므로 되찾기도 다른 표기 찾기도
+     * 구조적으로 발동할 수 없습니다.</b> 자리를 옮겨 보는 것 말고는 길이 없는 자리입니다.
+     *
+     * <p>대신 <b>0건일 때만</b>, <b>붙여 쓴 한글 3~8음절일 때만</b>, <b>옮길 자리 수만큼만</b>
+     * 부릅니다. 책을 찾은 검색에는 한 건도 붙지 않습니다.
      */
     @Test
-    @DisplayName("한 건도 못 찾았으면 저자로 되찾을 것도 없다")
+    @DisplayName("한 건도 못 찾으면 저자로 되찾지 않고, 띄어쓰기 자리만 옮겨 본다")
     void doesNotRecoverWithoutAnyResult() {
         String empty = EMPTY_RESPONSE;
-        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        var queries = java.util.Collections.synchronizedList(new java.util.ArrayList<String>());
         var budget = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 1000),
                 Clock.fixed(Instant.parse("2026-09-05T00:00:00Z"), ZoneId.of("UTC")));
         var client = new Data4LibraryClient(uri -> {
-            calls.incrementAndGet();
+            queries.add(java.net.URLDecoder.decode(uri.toString(),
+                    java.nio.charset.StandardCharsets.UTF_8));
             return empty;
         }, "테스트키", budget);
         var service = new BookSearchService(client, new HoldingsLookup(
@@ -757,8 +767,13 @@ class BookSearchServiceTest {
 
         var response = service.search("없는책");
 
-        assertEquals(1, calls.get(), "저자를 알 수 없으므로 되찾기를 부르지 않습니다");
         assertFalse(response.recoveredByAuthor());
+        assertTrue(queries.stream().noneMatch(q -> q.contains("author=")),
+                "저자를 알 수 없으므로 저자로는 묻지 않습니다: " + queries);
+        // 입력 그대로 한 번에, 옮겨 볼 자리 수만큼입니다. 그 이상은 나가면 안 됩니다.
+        assertEquals(1 + BookSearchService.spacedGuesses(
+                        "없는책", BookSearchService.MIN_TITLE_SYLLABLES_TO_RESPACE).size(),
+                queries.size(), "0건 검색에 붙는 호출은 자리 옮기기뿐입니다: " + queries);
     }
 
     /**
@@ -804,6 +819,157 @@ class BookSearchServiceTest {
         var client = new Data4LibraryClient(transport, "테스트키", budget);
         return new BookSearchService(client, new HoldingsLookup(
                 (isbn, region) -> List.of(), HoldingsLookup.RegionModeStore.documented()));
+    }
+
+    // ------------------------------------------------------------------
+    // 띄어쓰기가 달라도 같은 결과를 받아야 합니다. 제목·저자·출판사 셋 다입니다.
+    //
+    // 정보나루는 넣은 글자를 그대로 찾으므로 「마의 산」과 「마의산」이 서로 다른 검색이고,
+    // 사용자에게는 그 차이가 **「그런 책이 없다」로 보입니다.** 어긋나는 방향이 둘이라
+    // 양쪽을 다 재 둡니다. 사용자가 공백을 넣었는데 등록이 붙어 있는 경우와 그 반대입니다.
+    // ------------------------------------------------------------------
+
+    /** 등록 표기는 제목에 공백, 저자에 공백, 출판사는 붙여 씀입니다. */
+    private static final String SPACED_SHELF = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <response>
+          <docs>
+            <doc>
+              <bookname><![CDATA[마의 산]]></bookname>
+              <authors><![CDATA[토마스 만 지음 ; 홍성광 옮김]]></authors>
+              <publisher><![CDATA[문학과지성사]]></publisher>
+              <publication_year>2008</publication_year>
+              <isbn13>9788932403311</isbn13>
+              <loan_count>30</loan_count>
+            </doc>
+          </docs>
+        </response>
+        """;
+
+    /**
+     * 정보나루처럼 답하는 가짜. <b>제목은 어절 앞에서부터</b> 맞추고(「마의」는 맞지만
+     * 「마의산」과 「의 산」은 0건), 저자와 출판사는 들어 있으면 맞는 것으로 봅니다.
+     * 질의를 무시하고 늘 같은 답을 주는 가짜로는 띄어쓰기 처리를 검사할 수 없습니다.
+     */
+    private static Data4LibraryClient.Transport shelfOf(
+            String title, String author, String publisher, String isbn13) {
+        return uri -> {
+            String url = java.net.URLDecoder.decode(uri.toString(),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            if (!matches(param(url, "title"), title, true)) return EMPTY_RESPONSE;
+            if (!matches(param(url, "author"), author, false)) return EMPTY_RESPONSE;
+            if (!matches(param(url, "publisher"), publisher, false)) return EMPTY_RESPONSE;
+            return SPACED_SHELF.replace("마의 산", title).replace("문학과지성사", publisher)
+                    .replace("토마스 만 지음 ; 홍성광 옮김", author)
+                    .replace("9788932403311", isbn13);
+        };
+    }
+
+    /** @param wordPrefix 어절 앞에서부터 맞추는지. 제목이 그렇습니다 */
+    private static boolean matches(String asked, String registered, boolean wordPrefix) {
+        if (asked == null) return true;
+        if (!wordPrefix) return registered.contains(asked);
+        for (int at = registered.indexOf(asked); at >= 0; at = registered.indexOf(asked, at + 1)) {
+            if (at == 0 || registered.charAt(at - 1) == ' ') return true;
+        }
+        return false;
+    }
+
+    private static String param(String url, String key) {
+        var m = java.util.regex.Pattern.compile("[?&]" + key + "=([^&]*)").matcher(url);
+        return m.find() ? m.group(1) : null;
+    }
+
+    /**
+     * <b>붙여 쓴 제목이 영영 0건이던 자리입니다.</b> 정보나루가 「마의 산」으로만 들고
+     * 있으면 「마의산」은 어절이 맞지 않아 한 건도 오지 않고, <b>한 건도 오지 않으므로
+     * 저자로 되찾을 수도 다른 표기를 알아낼 수도 없습니다.</b> 그 둘이 구조적으로 발동할
+     * 수 없는 자리라, 띄어쓰기 자리를 옮겨 보는 것 말고는 길이 없습니다.
+     */
+    @Test
+    @DisplayName("제목을 붙여 써도 띄어 써서 등록된 책을 찾는다")
+    void findsSpacedTitleFromCompactQuery() {
+        var service = serviceWith(shelfOf("마의 산", "토마스 만 지음", "문학과지성사", "9788932403311"));
+
+        var response = service.search("마의산");
+
+        assertFalse(response.works().isEmpty(), "자리를 옮겨서라도 찾아야 합니다");
+        assertEquals("마의 산", response.works().get(0).title());
+    }
+
+    /**
+     * <b>출판사도 같은 병을 앓습니다.</b> 제목이 함께 있으면 제목만으로 받아 와 우리가
+     * 거르므로 <b>양쪽 방향이 한 번에</b> 풀립니다. 우리 키는 공백을 지우기 때문입니다.
+     */
+    @Test
+    @DisplayName("출판사의 띄어쓰기가 어느 쪽으로 어긋나도 찾는다")
+    void findsPublisherWhicheverWayTheSpacingDiffers() {
+        var compactShelf = serviceWith(
+                shelfOf("마의 산", "토마스 만 지음", "문학과지성사", "9788932403311"));
+        var spacedShelf = serviceWith(
+                shelfOf("마의 산", "토마스 만 지음", "문학과 지성사", "9788932403328"));
+
+        // 등록은 붙여 쓴 쪽인데 사용자가 공백을 넣었습니다.
+        assertFalse(compactShelf.search(new Data4LibraryClient.BookQuery(
+                "마의 산", null, "문학과 지성사", null, false)).works().isEmpty());
+        // 등록은 띄어 쓴 쪽인데 사용자가 붙여 썼습니다.
+        assertFalse(spacedShelf.search(new Data4LibraryClient.BookQuery(
+                "마의 산", null, "문학과지성사", null, false)).works().isEmpty());
+    }
+
+    /**
+     * 출판사만 넣은 검색에는 <b>되찾을 실마리가 될 제목이 없습니다.</b> 저자만 넣은 검색과
+     * 같은 자리라 같은 장치(자리 옮기기)를 씁니다.
+     */
+    @Test
+    @DisplayName("출판사만 붙여 써서 넣어도 띄어 써서 등록된 것을 찾는다")
+    void findsSpacedPublisherWithoutATitle() {
+        var service = serviceWith(
+                shelfOf("마의 산", "토마스 만 지음", "문학과 지성사", "9788932403328"));
+
+        var response = service.search(new Data4LibraryClient.BookQuery(
+                null, null, "문학과지성사", null, false));
+
+        assertFalse(response.works().isEmpty(), "자리를 옮겨서라도 찾아야 합니다");
+    }
+
+    /**
+     * <b>자리를 옮길 때는 다른 조건을 떼고 묻습니다.</b> 저자만 옮기고 출판사를 질의에
+     * 남겨 두면 그 출판사 표기가 여전히 틀려 0건이 옵니다. 떼고 물어 우리가 거르면
+     * 한쪽씩 풀립니다. 호출은 늘지 않고 질의의 조건만 줄어듭니다.
+     */
+    @Test
+    @DisplayName("저자와 출판사를 둘 다 붙여 써도 찾는다")
+    void findsWhenBothAuthorAndPublisherAreCompact() {
+        var service = serviceWith(
+                shelfOf("마의 산", "토마스 만 지음", "문학과 지성사", "9788932403328"));
+
+        var response = service.search(new Data4LibraryClient.BookQuery(
+                null, "토마스만", "문학과지성사", null, false));
+
+        assertFalse(response.works().isEmpty());
+    }
+
+    /**
+     * <b>자리 옮기기는 0건일 때만 돕니다.</b> 책을 찾은 검색에 호출이 붙으면 모든 검색이
+     * 그만큼 비싸집니다. 한 건이라도 받으면 저자를 알게 되므로 되찾기와 다른 표기 찾기가
+     * 훨씬 정확하게 그 자리를 맡습니다.
+     */
+    @Test
+    @DisplayName("책을 찾은 검색에는 자리 옮기기가 붙지 않는다")
+    void doesNotRespaceWhenSomethingWasFound() {
+        var queries = java.util.Collections.synchronizedList(new java.util.ArrayList<String>());
+        var shelf = shelfOf("마의산", "토마스 만 지음", "문학과지성사", "9788932403311");
+        var service = serviceWith(uri -> {
+            queries.add(java.net.URLDecoder.decode(uri.toString(),
+                    java.nio.charset.StandardCharsets.UTF_8));
+            return shelf.get(uri);
+        });
+
+        assertFalse(service.search("마의산").works().isEmpty());
+        assertTrue(queries.stream().noneMatch(q -> q.contains("마의 산")
+                        || q.contains("마 의산")),
+                "찾았으면 자리를 옮겨 보지 않습니다: " + queries);
     }
 
     private static java.util.Set<String> isbnsOf(BookSearchService.SearchResponse response) {
