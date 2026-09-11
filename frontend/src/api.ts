@@ -1,4 +1,5 @@
 import type { Library, LinkKind } from './domain/types';
+import { withVisibilityRetry, type VisibilityDoc } from './domain/visibilityRetry';
 
 const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8080';
 
@@ -137,20 +138,51 @@ export class ApiUnreadable extends Error {
   }
 }
 
-async function get<T>(path: string): Promise<T> {
-  let response: Response;
+/**
+ * <b>모든 호출이 지나는 한 곳입니다. GET 과 POST 가 같은 함수를 씁니다.</b> 한쪽만 고치면
+ * 언젠가 다시 갈립니다.
+ *
+ * <p><b>화면을 비운 사이 끊긴 요청은 돌아왔을 때 한 번 다시 보냅니다</b>
+ * ({@link withVisibilityRetry}). 검색 한 번이 수 초에서 수십 초라 기다리다 창을 최소화하거나
+ * 다른 앱으로 넘어가는 일이 흔한데, 그때 브라우저가 나가 있던 연결을 끊습니다. 그것을
+ * 그대로 실패로 두면 **멀쩡한 서버를 죽었다고 말하게 됩니다.** 여기 없으면 화면마다 따로
+ * 다시 부르는 장치를 달게 되고, 그러면 언젠가 한 화면이 빠집니다.
+ *
+ * <p><b>다시 보내는 것은 연결이 끊긴 경우뿐입니다.</b> 서버가 답을 준 것({@link ApiUnreadable})은
+ * 끊긴 것이 아니므로 다시 보내지 않습니다. 429 를 다시 두드려 봐야 남은 몫만 깎이고
+ * 답은 같습니다.
+ */
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
   try {
-    response = await fetch(`${BASE}${path}`);
-  } catch {
-    // 서버가 안 떠 있는 경우입니다. 화면이 죽지 않도록 구분해 던집니다.
+    return await withVisibilityRetry(
+      async () => {
+        const response = await fetch(`${BASE}${path}`, init);
+        // **서버가 알려 준 이유를 반드시 꺼내 씁니다.** 정보나루는 무엇이 잘못됐는지
+        // 한국어로 또박또박 알려 주는데, 그것을 버리고 「API 오류 503」만 보여 주면
+        // 사용자도 우리도 원인을 코드에서 찾게 됩니다. 실제로 그렇게 하루를 추측으로
+        // 보냈습니다. 주소별 호출 제한(429)이 붙은 뒤로는 특히 그렇습니다. 「잠시 뒤
+        // 다시 해 주세요」와 「오늘 몫을 다 썼습니다」는 사람이 할 일이 다릅니다.
+        if (!response.ok) throw await unreadable(response);
+        return (await response.json()) as T;
+      },
+      visibilityDoc(),
+      (error) => !(error instanceof ApiUnreadable),
+    );
+  } catch (error) {
+    if (error instanceof ApiUnreadable) throw error;
+    // 서버가 안 떠 있거나, 본문을 받는 도중에 연결이 끊긴 경우입니다. 화면이 죽지 않도록
+    // 구분해 던집니다.
     throw new ApiUnavailable('API 서버에 연결하지 못했습니다.');
   }
-  // **서버가 알려 준 이유를 반드시 꺼내 씁니다.** 정보나루는 무엇이 잘못됐는지 한국어로
-  // 또박또박 알려 주는데, 그것을 버리고 「API 오류 503」만 보여 주면 사용자도 우리도
-  // 원인을 코드에서 찾게 됩니다. 실제로 그렇게 하루를 추측으로 보냈습니다.
-  // POST 도 같은 함수를 씁니다. 한쪽만 고치면 언젠가 다시 갈립니다.
-  if (!response.ok) throw await unreadable(response);
-  return (await response.json()) as T;
+}
+
+/** 브라우저 밖(테스트 등)에서는 가시성을 볼 수 없으므로 그대로 한 번만 보냅니다. */
+function visibilityDoc(): VisibilityDoc | null {
+  return typeof document === 'undefined' ? null : document;
+}
+
+async function get<T>(path: string): Promise<T> {
+  return request<T>(path);
 }
 
 export async function fetchLibraries(): Promise<Library[]> {
@@ -351,24 +383,17 @@ export type HoldingsResponse = {
 };
 
 
+/**
+ * <b>GET 과 같은 통로를 씁니다.</b> 예전에는 여기에 똑같은 코드가 한 벌 더 있었고, 그래서
+ * 오류 이유를 꺼내는 것도 두 곳에 따로 있었습니다. 소장 조회와 줄 확정은 전부 이쪽으로
+ * 나가므로, 한쪽만 고치면 **가장 오래 걸리는 요청이 고쳐지지 않은 채 남습니다.**
+ */
 async function post<T>(path: string, body: unknown): Promise<T> {
-  let response: Response;
-  try {
-    response = await fetch(`${BASE}${path}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-  } catch {
-    throw new ApiUnavailable('API 서버에 연결하지 못했습니다.');
-  }
-  // **GET 과 똑같이 이유를 꺼내 씁니다.** 예전에는 여기서 상태 코드만 들고 던져서, 소장
-  // 조회와 줄 확정의 실패는 화면에 「API 오류 503」으로만 나왔습니다. 서버가 한국어로
-  // 또박또박 알려 준 문장을 우리가 버린 것이라, 그다음은 전부 추측이 됩니다.
-  // 주소별 호출 제한(429)이 붙은 뒤로는 특히 그렇습니다. 「잠시 뒤 다시 해 주세요」와
-  // 「오늘 몫을 다 썼습니다」를 사용자가 볼 수 없으면 무엇을 해야 하는지 알 수 없습니다.
-  if (!response.ok) throw await unreadable(response);
-  return (await response.json()) as T;
+  return request<T>(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
 }
 
 /** 서버가 실어 보낸 이유와 오류 코드를 꺼냅니다. 본문이 없으면 상태 코드만으로 답합니다. */
