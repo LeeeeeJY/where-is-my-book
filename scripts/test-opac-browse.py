@@ -421,6 +421,37 @@ def main() -> int:
     if not ok:
         failures.append("규칙 있는 묶음 거르기")
 
+    # 한 서버를 줄줄이 두드리지 않습니다. 분관 묶음이 수십 개인 호스트를 연달아 보다가 그 서버가
+    # 답하지 않게 된 일이 있습니다(강원교육청·화성).
+    print("\n  호스트 돌아가며 섞기, 연속 실패 끊기, 다시 볼 대상 고르기")
+    rows = [("a.kr/1", [], None, []), ("a.kr/2", [], None, []), ("a.kr/3", [], None, []),
+            ("b.kr", [], None, []), ("c.kr/x", [], None, []), ("c.kr/y", [], None, [])]
+    order = [r[0] for r in ob.interleave_by_host(rows)]
+    ok = order == ["a.kr/1", "b.kr", "c.kr/x", "a.kr/2", "c.kr/y", "a.kr/3"]
+    print(f"  {'✓' if ok else '✗'} 호스트를 돌아가며 섞습니다  {order}")
+    if not ok:
+        failures.append("섞기")
+    breaker = ob.HostBreaker(2)
+    for host, failed in (("a.kr", True), ("a.kr", True), ("b.kr", True), ("b.kr", False)):
+        breaker.record(host, failed)
+    ok = not breaker.open_for("a.kr") and breaker.open_for("b.kr") and breaker.open_for("c.kr")
+    print(f"  {'✓' if ok else '✗'} 두 번 연달아 실패한 호스트만 쉽니다")
+    if not ok:
+        failures.append("끊기")
+    ok = (ob.connection_failure("TimeoutError: Page.goto: Timeout 40000ms exceeded.")
+          and ob.connection_failure("Error: Page.goto: net::ERR_CONNECTION_RESET")
+          and not ob.connection_failure("같은 창에서도 그 책이 나오지 않습니다")
+          and not ob.connection_failure("이 기계의 네트워크가 끊겼습니다 (ERR_INTERNET_DISCONNECTED)"))
+    print(f"  {'✓' if ok else '✗'} 연결 실패만 다시 볼 것으로 가립니다")
+    if not ok:
+        failures.append("연결 실패 가리기")
+    jsonl = os.path.join(work, "done.jsonl")
+    open(jsonl, "w").write('{"key": "x"}\n{"key": "y", "retryable": true}\n')
+    ok = ob.done_keys(jsonl, False) == {"x", "y"} and ob.done_keys(jsonl, True) == {"x"}
+    print(f"  {'✓' if ok else '✗'} 다시 볼 것은 --retry-failed 일 때만 다시 봅니다")
+    if not ok:
+        failures.append("다시 볼 대상")
+
     if failures:
         print(f"\n실패: {', '.join(failures)}")
         return 1

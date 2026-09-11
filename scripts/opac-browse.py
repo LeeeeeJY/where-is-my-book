@@ -717,6 +717,64 @@ def without_rules(rows: list[tuple], ruled: set[str]) -> list[tuple]:
     return [r for r in rows if not all(m["libCode"] in ruled for m in r[1])]
 
 
+# 연결 단계의 실패. 그 도서관이 느리거나 우리를 막은 것이라 곧바로 다시 두드리지 않고,
+# 나중에 --retry-failed 로 다시 봅니다. 이 기계의 네트워크가 끊긴 것(LOCAL_NETWORK_ERRORS)과는 다릅니다.
+CONNECTION_FAILURE = re.compile(r"TimeoutError|ERR_CONNECTION|ERR_TIMED_OUT|ERR_NAME_NOT_RESOLVED|"
+                                r"ERR_ADDRESS_UNREACHABLE|ERR_EMPTY_RESPONSE")
+HOST_FAILURE_LIMIT = 2
+
+
+def connection_failure(note: str | None) -> bool:
+    return bool(CONNECTION_FAILURE.search(note or ""))
+
+
+def interleave_by_host(rows: list[tuple]) -> list[tuple]:
+    """같은 호스트의 묶음이 줄줄이 붙지 않게 호스트를 돌아가며 섞습니다. 호스트 안의 순서는 지킵니다.
+
+    호스트 간격(3초)을 지켜도, 분관 묶음이 수십 개인 호스트를 연달아 보면 그 서버에는 긴 시간
+    요청이 쌓입니다. 브라우저는 페이지 하나에 그림과 스크립트까지 수십 건을 받기 때문입니다.
+    2026-09-11 에 강원교육청(lib.gwe.go.kr)과 화성(www.hscitylib.or.kr)이 우리 조사 중에 열 번
+    가까이 연달아 답하지 않게 됐습니다.
+    """
+    queues: dict[str, list[tuple]] = {}
+    for row in rows:
+        queues.setdefault(row[0].split("/")[0], []).append(row)
+    out: list[tuple] = []
+    while queues:
+        for host in list(queues):
+            out.append(queues[host].pop(0))
+            if not queues[host]:
+                del queues[host]
+    return out
+
+
+class HostBreaker:
+    """한 호스트에서 연결 실패가 연달아 나면 그 호스트의 남은 묶음을 이번 조사에서 건너뜁니다."""
+
+    def __init__(self, limit: int = HOST_FAILURE_LIMIT):
+        self.limit, self.streak = limit, {}
+
+    def open_for(self, host: str) -> bool:
+        return self.streak.get(host, 0) < self.limit
+
+    def record(self, host: str, failed: bool) -> None:
+        self.streak[host] = self.streak.get(host, 0) + 1 if failed else 0
+
+
+def done_keys(results_path: str, retry_failed: bool) -> set[str]:
+    """이미 본 묶음. 연결 실패로 끝난 묶음(retryable)은 --retry-failed 일 때만 다시 볼 대상으로 둡니다.
+    막 우리를 막은 서버를 곧바로 다시 두드리지 않기 위해서입니다."""
+    done: set[str] = set()
+    if not os.path.exists(results_path):
+        return done
+    for line in open(results_path):
+        rec = json.loads(line)
+        if retry_failed and rec.get("retryable"):
+            continue
+        done.add(rec["key"])
+    return done
+
+
 def wait_for_network(minutes: float = 30.0) -> bool:
     """우리 서버에 닿을 때까지 기다립니다. 도서관이 아니라 우리 서버로 확인합니다."""
     deadline = time.time() + minutes * 60
@@ -730,7 +788,8 @@ def wait_for_network(minutes: float = 30.0) -> bool:
 
 
 def run(work: str, limit: int, host_delay: float, timeout: float,
-        csv_path: str = od.DEFAULT_CSV, only: list[str] | None = None) -> int:
+        csv_path: str = od.DEFAULT_CSV, only: list[str] | None = None,
+        retry_failed: bool = False) -> int:
     """`only` 에 묶음키를 주면 그 묶음만 봅니다. 큰 묶음부터 도는 순서로는 닿지 않는 자리가
     있습니다. 고양시립·안산시립처럼 분관마다 홈페이지 경로가 달라 **한 곳짜리 묶음으로 갈린
     큰 도서관들**인데, `--gaps` 가 「따로 받아야 한다」고 답한 곳이 바로 그 자리입니다."""
@@ -744,7 +803,7 @@ def run(work: str, limit: int, host_delay: float, timeout: float,
         return 1
     probe = json.load(open(probe_path))
     results_path = os.path.join(work, "browse.jsonl")
-    done = {json.loads(l)["key"] for l in open(results_path)} if os.path.exists(results_path) else set()
+    done = done_keys(results_path, retry_failed)
 
     rows = without_rules([r for r in groups_of(libs, probe) if r[0] not in done],
                          ruled_codes(csv_path))
@@ -759,6 +818,8 @@ def run(work: str, limit: int, host_delay: float, timeout: float,
             print(f"모르거나 이미 조사한 묶음입니다: {', '.join(sorted(missing))}", file=sys.stderr)
     if limit:
         rows = rows[:limit]
+    rows = interleave_by_host(rows)
+    breaker = HostBreaker()
     pacer = od.Pacer(host_delay)
     found = 0
     with sync_playwright() as p:
@@ -766,6 +827,16 @@ def run(work: str, limit: int, host_delay: float, timeout: float,
         try:
             with open(results_path, "a") as sink:
                 for i, (key, members, rep, books) in enumerate(rows, 1):
+                    host = key.split("/")[0]
+                    if not breaker.open_for(host):
+                        r = {"key": key, "libCodes": [m["libCode"] for m in members], "rep": rep["name"],
+                             "rules": [], "retryable": True,
+                             "note": "호스트가 연달아 답하지 않아 이번 조사에서는 건너뜁니다"}
+                        sink.write(json.dumps(r, ensure_ascii=False) + "\n")
+                        sink.flush()
+                        print(f"[{i}/{len(rows)}]  쉼  {key:34s} 호스트가 연달아 답하지 않았습니다",
+                              file=sys.stderr)
+                        continue
                     r = investigate(browser, key, members, rep, books, pacer, timeout)
                     if network_failure(r["note"]):
                         # 이 기계의 네트워크가 끊긴 것은 그 도서관의 사유가 아닙니다. 「끝남」으로
@@ -780,6 +851,10 @@ def run(work: str, limit: int, host_delay: float, timeout: float,
                             print(f"[{i}/{len(rows)}] 네트워크가 흔들려 적지 않고 넘어갑니다  {key}",
                                   file=sys.stderr)
                             continue
+                    failed = connection_failure(r["note"]) and not r["rules"]
+                    if failed:
+                        r["retryable"] = True
+                    breaker.record(host, failed)
                     sink.write(json.dumps(r, ensure_ascii=False) + "\n")
                     sink.flush()
                     mark = "찾음" if r["rules"] else "  — "
@@ -980,6 +1055,8 @@ def main() -> int:
     ap.add_argument("--limit", type=int, default=0, help="큰 묶음부터 이만큼만. 0 이면 전부")
     ap.add_argument("--only", metavar="KEY[,KEY...]",
                     help="이 묶음키들만 조사합니다. --gaps 가 「따로 받아야 한다」고 한 도서관의 묶음키")
+    ap.add_argument("--retry-failed", action="store_true",
+                    help="연결 실패로 끝났던 묶음도 다시 봅니다. 막혔던 서버를 곧바로 두드리지 않도록 기본은 건너뜁니다")
     ap.add_argument("--emit", action="store_true", help="찾은 규칙을 import 형식으로 출력")
     ap.add_argument("--gaps", metavar="CSV", nargs="?", const=od.DEFAULT_CSV,
                     help="규칙 있는 기관에서 빠진 도서관이 그 검색 화면에 나오는지 확인")
@@ -1000,7 +1077,7 @@ def main() -> int:
         return find_patterns(args.work, args.templates_csv, args.patterns_csv,
                              args.host_delay, args.timeout, args.limit)
     return run(args.work, args.limit, args.host_delay, args.timeout, args.templates_csv,
-               args.only.split(",") if args.only else None)
+               args.only.split(",") if args.only else None, args.retry_failed)
 
 
 if __name__ == "__main__":
