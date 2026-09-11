@@ -94,7 +94,7 @@ class LineParserTest {
     @DisplayName("줄 전체를 제목으로 먼저 보고, 나누는 것은 그다음이다")
     void wholeLineFirstThenSplit() {
         var line = one("코스모스 - 칼 세이건");
-        assertEquals(2, line.attempts().size());
+        assertEquals(3, line.attempts().size());
 
         var first = line.attempts().get(0);
         assertEquals(LineParser.Kind.TITLE, first.kind());
@@ -104,6 +104,35 @@ class LineParserTest {
         assertEquals(LineParser.Kind.TITLE_AUTHOR, second.kind());
         assertEquals("코스모스", second.title());
         assertEquals("칼 세이건", second.author());
+    }
+
+    /**
+     * <b>구분자 뒤에 오는 말이 저자인지 출판사인지는 줄만 보고 알 수 없습니다.</b>
+     * 「마의 산 - 토마스 만」과 「마의 산 - 을유문화사」는 생김새가 같습니다. 그래서 여기서
+     * 가르지 않고 둘 다 만들고, {@code MultiCheckService} 가 조회 결과의 점수로 고릅니다.
+     */
+    @Test
+    @DisplayName("나눈 줄은 저자로도 출판사로도 읽어 둔다")
+    void splitLineIsReadBothAsAuthorAndAsPublisher() {
+        var line = one("마의 산 - 을유문화사");
+
+        var asPublisher = line.attempts().get(2);
+        assertEquals(LineParser.Kind.TITLE_PUBLISHER, asPublisher.kind());
+        assertEquals("마의 산", asPublisher.title());
+        assertEquals("을유문화사", asPublisher.publisher());
+        assertNull(asPublisher.author(), "출판사로 읽은 해석에는 저자가 없습니다");
+
+        // 저자로 읽은 해석이 먼저입니다. 붙여 넣는 목록은 저자를 적은 쪽이 훨씬 흔합니다.
+        assertEquals(LineParser.Kind.TITLE_AUTHOR, line.attempts().get(1).kind());
+        assertNull(line.attempts().get(1).publisher());
+    }
+
+    @Test
+    @DisplayName("구분자가 없는 줄은 해석을 늘리지 않는다")
+    void plainTitleGetsOnlyOneAttempt() {
+        // 해석이 곧 정보나루 호출입니다. 제목만 적은 줄에 출판사 해석까지 붙으면
+        // 아무것도 얻지 못한 채 호출만 두 배가 됩니다.
+        assertEquals(1, one("불안의 책").attempts().size());
     }
 
     @Test
