@@ -125,6 +125,63 @@ class OpacTemplatesTest {
         assertDoesNotThrow(() -> OpacTemplates.load());
     }
 
+    // ── 규칙을 통째로 끄는 스위치 ──────────────────────────────────────────
+
+    private static final List<String> ONE_RULE =
+            List.of("111111,ISBN_SEARCH,UTF-8,https://lib.example.kr/search?q={isbn13}");
+    private static final List<String> ONE_PATTERN =
+            List.of("lib.example.kr,href=\"(/book/[^\"]+)\"");
+
+    @Test
+    @DisplayName("꺼 두면 규칙이 있어도 링크를 만들지 않는다")
+    void disabledMeansNoLink() {
+        // 규칙 307줄이 실제 OPAC 에서 검증되지 않아 지금은 꺼 두었습니다. 틀린 규칙은 HTTP 200
+        // 을 주면서 결과만 0건이라 「소장한다더니 그 책이 없네」로 보이고, 그것이 소장 정보
+        // 자체를 믿지 못하게 만듭니다. 검증하지 않은 색인을 전환하지 않는 것과 같은 판단입니다.
+        var off = OpacTemplates.of(ONE_RULE, ONE_PATTERN, false);
+
+        // **규칙이 없는 도서관과 똑같이 보입니다.** 그래야 부르는 쪽이 이미 가지고 있는
+        // 홈페이지 폴백을 그대로 타고, 내려앉는 길을 새로 만들지 않아도 됩니다.
+        assertTrue(off.bestFor("111111", "9788983711892", "코스모스").isEmpty());
+        assertEquals(OpacLink.Kind.HOMEPAGE, off.kindFor("111111"));
+        assertFalse(off.linksEnabled());
+    }
+
+    @Test
+    @DisplayName("꺼 두어도 규칙 수는 그대로라 파일을 잃은 것과 구별된다")
+    void disabledStillCountsRules() {
+        // /api/status 의 opacRuleLibraries 가 0이 되면 「꺼서 0」인지 「규칙 파일을 잃어서 0」
+        // 인지 구별할 수 없습니다. 예전에 .gitignore 가 CSV 를 삼킨 적이 있어서 그쪽을 먼저
+        // 의심하게 되고, 없는 원인을 찾게 됩니다.
+        var off = OpacTemplates.of(ONE_RULE, ONE_PATTERN, false);
+
+        assertEquals(1, off.size());
+        assertEquals(1, off.patternCount());
+    }
+
+    @Test
+    @DisplayName("진단은 스위치를 건너뛰어 규칙 그대로 시험한다")
+    void diagnosisSeesTheRules() {
+        // 꺼 둔 채로 규칙을 보완하려면 배포된 서버에서 한 줄씩 시험할 수 있어야 합니다.
+        // 서버가 그 OPAC 에 닿는지는 나가는 IP 에 달려 있어 로컬에서는 알 수 없습니다.
+        var off = OpacTemplates.of(ONE_RULE, ONE_PATTERN, false);
+
+        assertEquals(OpacLink.Kind.DETAIL_LOOKUP, off.asIfEnabled().kindFor("111111"));
+        assertEquals("https://lib.example.kr/search?q=9788983711892",
+                off.asIfEnabled().bestFor("111111", "9788983711892", null).orElseThrow().url());
+        // 원래 것은 그대로 꺼져 있어야 합니다. 사본이 원본을 바꾸면 스위치가 새어 나갑니다.
+        assertTrue(off.bestFor("111111", "9788983711892", null).isEmpty());
+    }
+
+    @Test
+    @DisplayName("꺼 두어도 잘못된 줄은 뜰 때 걸린다")
+    void disabledStillRejectsBadRules() {
+        // 지금 쓰지 않는다고 통과시키면 그 줄이 남아 있다가 켜는 날 서버가 뜨지 않습니다.
+        assertThrows(IllegalStateException.class, () -> OpacTemplates.of(
+                List.of("111111,ISBN_SEARCH,UTF-8,https://lib.example.kr/search?q=고정"),
+                List.of(), false));
+    }
+
     // ── 상세 패턴 ──────────────────────────────────────────────────────────
 
     private static OpacTemplates with(List<String> templates, String... patterns) {

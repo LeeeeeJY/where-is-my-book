@@ -747,8 +747,8 @@ function Holdings({
       </ul>
       {anyHomepageOnly(held.map((code) => byCode.get(code)?.linkKind)) && (
         <p className="muted holding__note">
-          도서관 이름을 누르면 첫 화면으로 갑니다. 그 도서관의 책 페이지 주소 규칙이 아직
-          없어서인데, 거기서 제목을 다시 검색해 주세요.
+          도서관 이름을 누르면 첫 화면으로 갑니다. 책 페이지로 바로 보내는 것은 아직
+          준비 중이라, 거기서 제목을 다시 검색해 주세요.
         </p>
       )}
     </div>

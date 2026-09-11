@@ -46,6 +46,20 @@ import java.util.regex.PatternSyntaxException;
  * <p>패턴은 정규식이고 <b>잡을 그룹이 정확히 하나</b>여야 합니다. 그 그룹이 href 값입니다.
  * 빈 문자열에 맞는 패턴은 받지 않습니다. 아무 페이지에서나 「찾았다」가 되어 엉뚱한 곳으로
  * 보내기 때문입니다.
+ *
+ * <h2>규칙을 통째로 끄는 스위치 ({@code wimb.opac.links-enabled})</h2>
+ *
+ * <p><b>지금 운영에서는 꺼져 있어 모든 도서관이 홈페이지로 갑니다.</b> 규칙 307줄이 실제
+ * OPAC 에서 검증되지 않아 정확도를 믿을 수 없기 때문입니다. 틀린 규칙은 HTTP 200 을 주면서
+ * 결과만 0건이라 「소장한다더니 그 책이 없네」로 보이는데, 그것이 소장 정보 자체를 믿지 못하게
+ * 만듭니다. <b>검증되지 않은 규칙으로 보내느니 홈페이지로 보내는 편이 낫습니다.</b> 색인을
+ * 검증 없이 전환하지 않는 것과 같은 판단입니다.
+ *
+ * <p><b>그런데 규칙 표는 그대로 읽습니다.</b> 껐다고 파일을 비우거나 빈 객체로 바꾸면 셋을
+ * 잃습니다. 보완의 기반인 307줄, {@code /api/status} 의 {@code opacRuleLibraries} 가 「꺼서 0」
+ * 인지 「파일을 잃어서 0」인지 가르는 근거, 그리고 배포된 서버에서 규칙을 시험하는
+ * {@code /api/diagnose/opac} 입니다. 진단은 {@link #asIfEnabled()} 로 스위치를 건너뛰므로
+ * <b>끈 상태에서도 한 줄씩 확인해 가며 채울 수 있습니다.</b>
  */
 public final class OpacTemplates {
 
@@ -57,19 +71,32 @@ public final class OpacTemplates {
     private final Map<String, Map<OpacLink.Kind, Template>> byLibCode;
     private final Map<String, DetailPattern> patterns;
 
+    /**
+     * 규칙으로 링크를 만들어 줄지. 꺼 두면 규칙을 읽어 들고는 있되 {@link #bestFor} 와
+     * {@link #kindFor} 가 아무것도 돌려주지 않아 <b>부르는 쪽이 저절로 홈페이지로 내려앉습니다.</b>
+     * 위의 「규칙을 통째로 끄는 스위치」를 보세요.
+     */
+    private final boolean linksEnabled;
+
     private OpacTemplates(Map<String, Map<OpacLink.Kind, Template>> byLibCode,
-                          Map<String, DetailPattern> patterns) {
+                          Map<String, DetailPattern> patterns, boolean linksEnabled) {
         this.byLibCode = byLibCode;
         this.patterns = patterns;
+        this.linksEnabled = linksEnabled;
     }
 
     /** 자원에서 읽어 들입니다. 파일이 없으면 규칙이 하나도 없는 것으로 보고 넘어갑니다. */
     public static OpacTemplates load() {
-        return load("/opac/templates.csv", "/opac/detail-patterns.csv");
+        return load(true);
     }
 
-    static OpacTemplates load(String templatesPath, String patternsPath) {
-        return of(readLines(templatesPath), readLines(patternsPath));
+    /** 규칙을 읽어 들이되 링크로 쓸지 말지를 정합니다. 설정이 그 값을 넘깁니다. */
+    public static OpacTemplates load(boolean linksEnabled) {
+        return load("/opac/templates.csv", "/opac/detail-patterns.csv", linksEnabled);
+    }
+
+    static OpacTemplates load(String templatesPath, String patternsPath, boolean linksEnabled) {
+        return of(readLines(templatesPath), readLines(patternsPath), linksEnabled);
     }
 
     private static List<String> readLines(String resourcePath) {
@@ -91,15 +118,23 @@ public final class OpacTemplates {
 
     /** 규칙 표와 상세 패턴을 글줄로 받습니다. 테스트가 씁니다. */
     public static OpacTemplates of(List<String> templateLines, List<String> patternLines) {
+        return of(templateLines, patternLines, true);
+    }
+
+    /** 규칙 표와 상세 패턴을 글줄로 받고, 그것을 링크로 쓸지까지 정합니다. */
+    public static OpacTemplates of(List<String> templateLines, List<String> patternLines,
+                                   boolean linksEnabled) {
         List<String> problems = new ArrayList<>();
         Map<String, Map<OpacLink.Kind, Template>> templates = parseTemplates(templateLines, problems);
         Map<String, DetailPattern> patterns = parsePatterns(patternLines, problems);
         if (!problems.isEmpty()) {
             // 조용히 넘어가면 규칙이 빠진 채로 배포됩니다. 뜰 때 실패시켜 눈에 띄게 합니다.
+            // **스위치를 꺼 두었을 때도 그대로 던집니다.** 지금 쓰지 않는다고 잘못된 줄을
+            // 통과시키면, 나중에 켜는 날 그 줄이 남아 있어 그때 서버가 뜨지 않습니다.
             throw new IllegalStateException(
                     "OPAC 주소 규칙을 읽지 못했습니다:\n  " + String.join("\n  ", problems));
         }
-        return new OpacTemplates(templates, patterns);
+        return new OpacTemplates(templates, patterns, linksEnabled);
     }
 
     private static Map<String, Map<OpacLink.Kind, Template>> parseTemplates(
@@ -213,11 +248,14 @@ public final class OpacTemplates {
      * 그 도서관으로 보낼 가장 좋은 링크.
      *
      * <p>상세 → ISBN 검색 → 제목 검색 순으로 내려가고, 규칙이 하나도 없으면 비어 있는 값을
-     * 돌려줍니다. 그때는 부르는 쪽이 홈페이지로 보내면 됩니다. {@code DETAIL_LOOKUP} 은
+     * 돌려줍니다. 그때는 부르는 쪽이 홈페이지로 보내면 됩니다. <b>스위치가 꺼져 있으면 규칙이
+     * 있어도 비어 있는 값입니다.</b> 부르는 쪽에서 보면 규칙이 없는 도서관과 같아서, 홈페이지로
+     * 내려앉는 길을 새로 만들 필요가 없습니다. {@code DETAIL_LOOKUP} 은
      * 여기서 나오지 않습니다. ISBN 검색 링크를 받은 쪽이 {@link #detailPatternFor} 로 패턴을
      * 얻어 {@link DetailResolver} 에 넘기면 그것이 상세 조회입니다.
      */
     public Optional<OpacLink> bestFor(String libCode, String isbn13, String title) {
+        if (!linksEnabled) return Optional.empty();
         Map<OpacLink.Kind, Template> templates = byLibCode.get(libCode);
         if (templates == null) return Optional.empty();
 
@@ -239,6 +277,7 @@ public final class OpacTemplates {
      * 것이라 못 찾을 수 있고</b>, 그때는 검색 결과로 내려갑니다. 화면 문구가 그것을 말합니다.
      */
     public OpacLink.Kind kindFor(String libCode) {
+        if (!linksEnabled) return OpacLink.Kind.HOMEPAGE;
         Map<OpacLink.Kind, Template> templates = byLibCode.get(libCode);
         if (templates == null) return OpacLink.Kind.HOMEPAGE;
         for (OpacLink.Kind kind : OpacLink.Kind.values()) {
@@ -286,6 +325,29 @@ public final class OpacTemplates {
         if (i < 0) return j;
         if (j < 0) return i;
         return Math.min(i, j);
+    }
+
+    /**
+     * 규칙을 링크로 쓰고 있는지. {@code /api/status} 가 내보냅니다.
+     *
+     * <p><b>{@code opacRuleLibraries} 와 함께 보아야 뜻이 통합니다.</b> 규칙 수가 0인 이유가
+     * 「꺼 두어서」인지 「규칙 파일을 잃어서」인지는 이 값이 없으면 구별되지 않고, 그러면
+     * 예전에 {@code .gitignore} 가 CSV 를 삼켰을 때처럼 없는 원인을 찾게 됩니다.
+     */
+    public boolean linksEnabled() {
+        return linksEnabled;
+    }
+
+    /**
+     * 스위치를 건너뛰고 규칙을 그대로 쓰는 사본. <b>{@code /api/diagnose/opac} 전용입니다.</b>
+     *
+     * <p>규칙을 꺼 둔 채로 보완하려면 배포된 서버에서 한 줄씩 시험해 볼 수 있어야 합니다.
+     * 서버가 그 OPAC 에 닿는지는 배포된 곳의 나가는 IP 에 달려 있어 로컬에서 확인한 것으로는
+     * 알 수 없기 때문입니다. 운영자가 부르는 통로라 여기서만 씁니다. <b>화면으로 나가는
+     * 경로에서 부르지 마세요.</b> 그 순간 스위치가 아무것도 막지 못합니다.
+     */
+    public OpacTemplates asIfEnabled() {
+        return linksEnabled ? this : new OpacTemplates(byLibCode, patterns, true);
     }
 
     /** 규칙을 넣어 둔 도서관 수. 뜰 때 로그로 남겨 두면 빠진 것을 알아차립니다. */

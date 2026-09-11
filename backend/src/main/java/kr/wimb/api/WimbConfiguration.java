@@ -126,13 +126,26 @@ public class WimbConfiguration implements WebMvcConfigurer {
     }
 
     /**
+     * 규칙으로 만든 링크를 실제로 쓸지. <b>꺼 두면 모든 도서관이 홈페이지로 갑니다.</b>
+     *
+     * <p>규칙 307줄이 실제 OPAC 에서 검증되지 않아 정확도를 믿을 수 없습니다. 틀린 규칙은
+     * HTTP 200 을 주면서 결과만 0건이라 「소장한다더니 그 책이 없네」로 보이는데, 그것이 소장
+     * 정보 자체를 믿지 못하게 만듭니다. 규칙을 한 줄씩 확인해 채우는 동안에는 꺼 두고,
+     * 확인이 끝나면 켭니다. 규칙 표 자체는 그대로 읽으므로 켜는 것은 이 값 하나입니다.
+     *   WIMB_OPAC_LINKS_ENABLED=true
+     */
+    @Value("${wimb.opac.links-enabled:true}")
+    private boolean opacLinksEnabled;
+
+    /**
      * 도서관별 OPAC 주소 규칙. 정보나루가 홈페이지 주소만 주기 때문에 우리가 들고 있어야
      * 합니다. 규칙이 잘못된 줄이 있으면 여기서 예외가 나 서버가 뜨지 않는데, 조용히 빠진
-     * 채로 배포되는 것보다 낫습니다.
+     * 채로 배포되는 것보다 낫습니다. <b>스위치를 꺼도 읽는 것은 그대로입니다.</b> 잘못된 줄은
+     * 지금 쓰지 않더라도 여기서 걸려야, 나중에 켜는 날 서버가 뜨지 않는 일이 없습니다.
      */
     @Bean
     public kr.wimb.opac.OpacTemplates opacTemplates() {
-        return kr.wimb.opac.OpacTemplates.load();
+        return kr.wimb.opac.OpacTemplates.load(opacLinksEnabled);
     }
 
     /**

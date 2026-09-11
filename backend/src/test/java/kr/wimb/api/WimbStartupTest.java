@@ -6,7 +6,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationContext;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * 서버가 실제로 뜨는지 확인합니다.
@@ -37,5 +39,22 @@ class WimbStartupTest {
     void controllerIsInstantiated() {
         assertNotNull(context.getBean(WimbController.class),
                 "생성자가 둘인데 @Autowired 가 없으면 여기서 걸립니다");
+    }
+
+    @Test
+    @DisplayName("실제 설정에서 OPAC 규칙이 꺼져 있고, 규칙 표는 그대로 실려 있다")
+    void opacLinksAreDisabledButRulesAreLoaded() {
+        var templates = context.getBean(kr.wimb.opac.OpacTemplates.class);
+
+        // **@Value 의 폴백은 켜짐입니다.** application.yml 의 키 이름에 오타가 나면 그 폴백이
+        // 먹어서 **조용히 켜진 채로 배포됩니다.** 확인하지 않은 규칙 315곳이 그대로 화면에
+        // 나가는데, 오류도 경고도 나지 않고 링크가 열리기까지 하므로 눌러 본 사람만 압니다.
+        // 그래서 실제 설정 파일을 읽어 올린 컨텍스트에서 값을 봅니다.
+        assertFalse(templates.linksEnabled(),
+                "확인하지 않은 규칙은 화면으로 내보내지 않습니다. 확인을 마치고 켤 때 이 검사도 "
+                        + "함께 고치세요. 켜는 것은 의도한 결정이어야 합니다");
+        // 꺼도 표는 읽습니다. 0이면 이미지에서 규칙 파일을 잃은 것이고, 예전에 .gitignore 가
+        // CSV 를 삼킨 적이 있습니다. /api/status 가 이 둘을 함께 내보내는 이유입니다.
+        assertTrue(templates.size() > 0, "규칙 표를 잃으면 보완할 기반도 없어집니다");
     }
 }

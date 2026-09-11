@@ -504,6 +504,11 @@ public class WimbController {
         // .gitignore 가 삼킨 적이 있습니다), 상세 해석의 성적은 어디서 새는지를 말합니다.
         // resolved 는 상세로 갔고, missed 는 페이지는 받았는데 링크가 없었고(그 판이 없거나
         // 패턴이 안 맞음), failed 는 페이지를 못 받은 것(해외 IP 차단이면 여기가 늡니다)입니다.
+        // **규칙을 링크로 쓰고 있는지를 규칙 수와 함께 봐야 합니다.** 거짓이면 규칙이 몇 줄이든
+        // 모든 도서관이 홈페이지로 가는데, 이 값이 없으면 링크가 홈페이지로만 가는 것을 보고
+        // 규칙 파일을 잃었나 의심하게 됩니다. 실제로 .gitignore 가 CSV 를 삼킨 적이 있어서
+        // 그쪽을 먼저 떠올리게 됩니다.
+        out.put("opacLinksEnabled", opacTemplates.linksEnabled());
         out.put("opacRuleLibraries", opacTemplates.size());
         out.put("opacDetailPatterns", opacTemplates.patternCount());
         out.putAll(detailResolver.stats());

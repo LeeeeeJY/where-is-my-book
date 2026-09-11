@@ -38,6 +38,9 @@ class WimbControllerTest {
         for (String code : codes) {
             sb.append("<lib><libCode>").append(code).append("</libCode>")
               .append("<libName><![CDATA[도서관").append(code).append("]]></libName>")
+              // 규칙을 꺼 두면 여기로 갑니다. 정보나루도 실제로 홈페이지를 주므로
+              // 이쪽이 오히려 실제에 가깝습니다.
+              .append("<homepage><![CDATA[https://lib").append(code).append(".example.kr]]></homepage>")
               .append("<address><![CDATA[").append(address).append("]]></address></lib>");
         }
         return sb.append("</libs></response>").toString();
@@ -183,6 +186,11 @@ class WimbControllerTest {
             "lib.example.kr,href=\"(/book/[^\"]+)\"");
 
     private static WimbController linkController(FakeOpac opac, List<String> patterns) {
+        return linkController(opac, patterns, true);
+    }
+
+    private static WimbController linkController(FakeOpac opac, List<String> patterns,
+                                                 boolean linksEnabled) {
         var transport = new RegionAware();
         var budget = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 100_000),
                 Clock.fixed(Instant.parse("2026-09-06T00:00:00Z"), ZoneId.of("UTC")));
@@ -190,7 +198,7 @@ class WimbControllerTest {
         var search = new BookSearchService(client, new HoldingsLookup(
                 (isbn, region) -> List.of(), HoldingsLookup.RegionModeStore.documented()));
         var controller = new WimbController(client, search, new MultiCheckService(search), budget,
-                kr.wimb.opac.OpacTemplates.of(EXAMPLE_RULE, patterns),
+                kr.wimb.opac.OpacTemplates.of(EXAMPLE_RULE, patterns, linksEnabled),
                 new kr.wimb.opac.DetailResolver(opac, Clock.systemUTC()),
                 new CachingHoldingsClient((isbn, region) -> List.of(), Duration.ofHours(6), 100,
                         Clock.systemUTC()),
@@ -256,6 +264,30 @@ class WimbControllerTest {
 
         assertEquals("https://lib.example.kr/search?q=A", sentTo(linkController(opac, List.of()), "A"));
         assertTrue(opac.asked.isEmpty(), "남의 서버를 이유 없이 두드리지 않습니다");
+    }
+
+    @Test
+    @DisplayName("규칙을 꺼 두면 규칙이 있어도 홈페이지로 보낸다")
+    void goSkipsRulesWhenLinksAreDisabled() {
+        // 규칙 307줄이 실제 OPAC 에서 검증되지 않아 지금은 꺼 두었습니다. 틀린 규칙은 HTTP 200
+        // 을 주면서 결과만 0건이라 「소장한다더니 그 책이 없네」로 보이고, 그것이 소장 정보
+        // 자체를 믿지 못하게 만듭니다. 검증하지 않은 색인을 전환하지 않는 것과 같은 판단입니다.
+        var opac = new FakeOpac();
+        opac.pages.put("https://lib.example.kr/search?q=9788983711892", "<a href=\"/book/1\">코스모스</a>");
+
+        assertEquals("https://lib110001.example.kr",
+                sentTo(linkController(opac, EXAMPLE_PATTERN, false), "9788983711892"));
+        assertTrue(opac.asked.isEmpty(),
+                "규칙을 쓰지 않기로 했으면 남의 서버를 두드릴 이유도 없습니다: " + opac.asked);
+    }
+
+    @Test
+    @DisplayName("규칙을 꺼도 화면에 알리는 단계는 홈페이지다")
+    void disabledRulesReportHomepageKind() {
+        // 여기가 어긋나면 화면은 「이 책 페이지」 배지를 달아 놓고 첫 화면으로 보냅니다.
+        // 조용히 강등하는 것이라, 사용자는 검색 결과 자체가 틀렸다고 생각합니다.
+        assertEquals(kr.wimb.opac.OpacLink.Kind.HOMEPAGE,
+                kr.wimb.opac.OpacTemplates.of(EXAMPLE_RULE, EXAMPLE_PATTERN, false).kindFor("110001"));
     }
 
     @Test

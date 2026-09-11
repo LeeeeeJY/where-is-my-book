@@ -118,8 +118,19 @@ public class DiagnoseController {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("libCode", lib);
         out.put("isbn", isbn);
-        out.put("kind", opacTemplates.kindFor(lib).name());
-        var link = opacTemplates.bestFor(lib, isbn, null);
+        // **스위치를 건너뛰고 규칙 그대로 시험합니다.** 지금 운영은 규칙을 꺼 두고 모든
+        // 도서관을 홈페이지로 보내는데, 여기까지 함께 꺼지면 규칙을 보완하는 사람이 배포된
+        // 서버에서 한 줄도 확인할 수 없습니다. 서버가 그 OPAC 에 닿는지는 나가는 IP 에 달려
+        // 있어 로컬에서 확인한 것으로는 알 수 없습니다. 대신 지금 화면에 나가는 것이 아님을
+        // 함께 적어, 여기서 통과한 규칙이 곧 서비스에 반영된 것으로 읽히지 않게 합니다.
+        var rules = opacTemplates.asIfEnabled();
+        out.put("linksEnabled", opacTemplates.linksEnabled());
+        if (!opacTemplates.linksEnabled()) {
+            out.put("liveNote", "지금은 규칙을 꺼 두어 화면의 링크는 홈페이지로 갑니다. "
+                    + "아래는 규칙을 켰을 때 어떻게 되는지입니다.");
+        }
+        out.put("kind", rules.kindFor(lib).name());
+        var link = rules.bestFor(lib, isbn, null);
         if (link.isEmpty()) {
             out.put("status", "NO_RULE");
             out.put("note", "이 도서관에는 ISBN 검색 규칙이 없습니다. 홈페이지로 갑니다.");
@@ -131,7 +142,7 @@ public class DiagnoseController {
             out.put("note", "상세 주소를 미리 만들 수 있는 도서관이라 검색 결과를 받지 않습니다.");
             return out;
         }
-        var pattern = opacTemplates.detailPatternFor(link.get().url());
+        var pattern = rules.detailPatternFor(link.get().url());
         if (pattern.isEmpty()) {
             out.put("status", "NO_PATTERN");
             out.put("note", "이 OPAC 의 상세 패턴이 detail-patterns.csv 에 없습니다. 검색 결과로 갑니다.");
