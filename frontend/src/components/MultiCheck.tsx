@@ -788,13 +788,24 @@ function LineWhere({
 
   const held = row.holdings?.libCodes ?? [];
   return (
-    <p className="line__where">
-      <span className="line__where-label">있는 곳</span>{' '}
-      {held.map((code) => byCode.get(code)?.name ?? code).join(' · ')}
+    /*
+      **도서관 하나가 한 줄입니다.** 예전에는 이름을 가운뎃점으로 이어 한 문단으로 적었는데,
+      한국어는 음절마다 줄이 바뀔 수 있어 이름이 가운데서 끊기고 가운뎃점만 줄 끝에 남아
+      **어디까지가 한 도서관인지 읽히지 않았습니다.** 고른 곳이 많을수록 심해지는데, 이 줄은
+      「그래서 어디로 가면 되나」에 답하는 자리라 그것을 못 읽으면 아무 말도 하지 않은 셈입니다.
+      이름표는 격자의 첫 칸이라 한 곳뿐일 때는 지금처럼 이름 옆에 그대로 섭니다.
+    */
+    <div className="line__where line__where--held">
+      <span className="line__where-label">있는 곳</span>
+      <ul className="line__where-list">
+        {held.map((code) => (
+          <li key={code}>{byCode.get(code)?.name ?? code}</li>
+        ))}
+      </ul>
       {row.holdings && !row.holdings.complete && (
-        <span className="muted"> · 확인하지 못한 판본이 있어 더 있을 수 있습니다.</span>
+        <p className="line__where-note muted">확인하지 못한 판본이 있어 더 있을 수 있습니다.</p>
       )}
-    </p>
+    </div>
   );
 }
 
