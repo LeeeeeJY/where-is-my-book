@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildRegionTree,
+  chosenGroups,
   chosenLibraries,
+  CHOSEN_NAMES_MAX,
+  groupsWorthShowing,
   groupState,
   haversineKm,
   nearbyLibraries,
@@ -85,6 +88,56 @@ describe('고른 도서관 목록', () => {
     // 화면이 이 부호로 해제하므로 라벨과 도서관이 어긋나면 엉뚱한 곳이 지워집니다.
     const chosen = chosenLibraries(ALL, new Set(['011002']));
     expect(chosen[0].library.libCode).toBe('011002');
+  });
+});
+
+describe('고른 도서관을 지역으로 묶기', () => {
+  const seoulGangnam = lib('011003', 7, '서울특별시', '강남구', '강남구립도서관');
+
+  it('여러 시도에 걸쳐 있으면 시도로 묶는다', () => {
+    const groups = chosenGroups(chosenLibraries(ALL, new Set(['011001', '011002', '141053'])));
+    expect(groups.map((g) => [g.label, g.libraries.length])).toEqual([
+      ['경기도', 1],
+      ['서울특별시', 2],
+    ]);
+  });
+
+  it('한 시도 안이면 시군구로 한 단계 내려간다', () => {
+    // 시도로 묶으면 묶음이 하나뿐이라 아무것도 줄여 주지 못합니다. 서울 359곳이 이렇습니다.
+    const all = [...ALL, seoulGangnam];
+    const groups = chosenGroups(chosenLibraries(all, new Set(['011001', '011002', '011003'])));
+    expect(groups.map((g) => [g.label, g.libraries.length])).toEqual([
+      ['강남구', 1],
+      ['서초구', 2],
+    ]);
+  });
+
+  it('주소를 모르는 곳은 지역들 사이에 끼우지 않고 맨 뒤에 둔다', () => {
+    const unknown = lib('141236', 8, null, null, '고양시립백석도서관');
+    const groups = chosenGroups(chosenLibraries([...ALL, unknown], new Set(['011001', '141053', '141236'])));
+    expect(groups.map((g) => g.label)).toEqual(['경기도', '서울특별시', '주소를 모르는 곳']);
+  });
+});
+
+describe('이름으로 보여 줄지 지역으로 묶을지', () => {
+  it('이름으로 감당되는 동안에는 묶지 않는다', () => {
+    expect(groupsWorthShowing(CHOSEN_NAMES_MAX, 5)).toBe(false);
+  });
+
+  it('묶어도 거의 줄지 않으면 이름을 그대로 둔다', () => {
+    // 서른 곳이 열다섯 지역에 흩어져 있으면 묶음도 열다섯 줄입니다. 줄지 않는데 이름만
+    // 한 번 더 눌러야 보이므로 손해입니다.
+    expect(groupsWorthShowing(30, 15)).toBe(false);
+  });
+
+  it('많고 실제로 줄어들면 묶는다', () => {
+    // 서울 전체 359곳이 스물다섯 구로 묶이는 경우입니다.
+    expect(groupsWorthShowing(359, 25)).toBe(true);
+  });
+
+  it('묶음이 하나면 묶지 않는다', () => {
+    // 시군구 하나를 통째로 고른 경우라, 묶어도 그 묶음 하나가 전부입니다.
+    expect(groupsWorthShowing(31, 1)).toBe(false);
   });
 });
 
