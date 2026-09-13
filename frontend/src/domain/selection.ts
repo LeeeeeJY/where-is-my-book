@@ -81,6 +81,79 @@ export function chosenLibraries(
     );
 }
 
+/** 고른 도서관을 묶은 한 덩어리. `label` 은 시도 이름이거나 시군구 이름입니다. */
+export type ChosenGroup = { label: string; libraries: ChosenLibrary[] };
+
+/** 주소를 읽지 못한 도서관이 들어갈 자리. 「고양시립」 두 곳이 실제로 그렇습니다. */
+export const UNKNOWN_REGION = '주소를 모르는 곳';
+
+/**
+ * 고른 도서관이 많을 때 **이름 대신 보여 줄 묶음**을 만듭니다.
+ *
+ * <p>많이 고르는 행동은 대개 지역 단위 선택입니다. 지역 계층의 「서울특별시」를 한 번
+ * 누르면 **359곳**이 한꺼번에 들어오는데, 그때 이름을 359개 늘어놓아 봐야 사용자가 알고
+ * 싶은 답은 「서울 전체」라는 한마디입니다. 그래서 **갈라지는 가장 위 단위로 묶습니다.**
+ * 여러 시도에 걸쳐 있으면 시도로, 한 시도 안이면 시군구로 묶고, 시군구까지 하나면 묶을
+ * 것이 없으므로 묶음 하나를 그대로 돌려줍니다. 부르는 쪽은 그때 이름을 늘어놓습니다.
+ *
+ * <p>묶음 순서는 지역 계층과 같은 이름순입니다. **개수 순으로 세우지 마세요.** 사용자가
+ * 방금 트리에서 본 순서와 어긋나면 같은 지역을 두 곳에서 다르게 찾게 됩니다.
+ */
+export function chosenGroups(chosen: readonly ChosenLibrary[]): ChosenGroup[] {
+  const bySido = groupChosen(chosen, (c) => c.library.sido);
+  if (bySido.length > 1) return bySido;
+  // 시도가 하나뿐이면 한 단계 내려갑니다. 서울 359곳은 시도로 묶어도 묶음이 하나라
+  // 아무것도 줄여 주지 못하지만, 시군구로 묶으면 스물다섯 줄이 됩니다.
+  return groupChosen(chosen, (c) => c.library.sigungu ?? c.library.sido);
+}
+
+function groupChosen(
+  chosen: readonly ChosenLibrary[],
+  keyOf: (c: ChosenLibrary) => string | null,
+): ChosenGroup[] {
+  const groups = new Map<string, ChosenLibrary[]>();
+  for (const entry of chosen) {
+    const key = keyOf(entry) ?? UNKNOWN_REGION;
+    const list = groups.get(key);
+    if (list) list.push(entry);
+    else groups.set(key, [entry]);
+  }
+  return [...groups.entries()]
+    .map(([label, libraries]) => ({ label, libraries }))
+    .sort((a, b) => {
+      // 주소를 모르는 곳은 지역 이름이 아니므로 지역들 사이에 끼워 넣지 않고 맨 뒤에 둡니다.
+      if (a.label === UNKNOWN_REGION) return 1;
+      if (b.label === UNKNOWN_REGION) return -1;
+      return a.label.localeCompare(b.label, 'ko');
+    });
+}
+
+/**
+ * 이름을 그대로 늘어놓는 최대 개수.
+ *
+ * <p>선택 칸 폭에서 여덟 곳 남짓이 한 화면이라 스무 곳이면 두세 번 내려야 하지만, **이름은
+ * 사용자가 실제로 찾는 답이므로 감당되는 한 이름을 보여 줍니다.** 지역 묶음은 이름을 다
+ * 보여 줄 수 없을 때의 대안입니다.
+ */
+export const CHOSEN_NAMES_MAX = 20;
+
+/** 묶음 하나가 이만큼은 담아야 묶는 값이 있습니다. */
+const MIN_PER_GROUP = 3;
+
+/**
+ * 이름 대신 지역 묶음으로 보여 줄 때인지.
+ *
+ * <p>**개수만 보고 정하면 안 됩니다.** 열세 곳을 여섯 구에서 골랐을 때 묶어 보니 「1곳」
+ * 짜리 묶음이 넷이었습니다. 줄어드는 것은 거의 없는데 이름은 한 번 더 눌러야 보이므로
+ * 손해입니다. 그래서 **묶으면 실제로 줄어드는지**를 함께 봅니다.
+ */
+export function groupsWorthShowing(count: number, groupCount: number): boolean {
+  if (count <= CHOSEN_NAMES_MAX) return false;
+  // 묶음이 하나면 묶어도 그대로입니다. 시군구 하나를 통째로 고른 경우가 여기입니다.
+  if (groupCount <= 1) return false;
+  return groupCount * MIN_PER_GROUP <= count;
+}
+
 /** 시도 > 시군구 > 도서관 3단계 목록을 만듭니다. */
 export type RegionTree = {
   sido: string;

@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Library, UserPosition } from '../domain/types';
+import type { ChosenLibrary } from '../domain/selection';
 import {
   buildRegionTree,
+  chosenGroups,
   chosenLibraries,
+  groupsWorthShowing,
   groupState,
   haversineKm,
   nearbyLibraries,
@@ -101,21 +104,17 @@ export function LibraryPicker({
 }
 
 /**
- * 접어 둔 상태에서 보여 줄 개수.
- *
- * <p>여섯 곳이면 선택 칸 폭에서 두세 줄입니다. 넓은 화면에서 이 칸은 화면 높이에 매인
- * 붙박이라 목록이 길어진 만큼 위쪽의 도서관 목록이 눌리므로, 나머지는 눌러서 펼치게 합니다.
- */
-const CHOSEN_PREVIEW = 6;
-
-/**
- * 고른 도서관을 이름으로 늘어놓고, 누르면 그 한 곳만 해제합니다.
+ * 고른 도서관을 보여 주고, 누르면 그 한 곳만 해제합니다.
  *
  * <p>**「n곳 선택됨」이라는 숫자만으로는 무엇을 골랐는지 알 수 없습니다.** 지역 계층은
  * 접혀 있어서 이미 고른 도서관을 다시 찾으려면 시도와 시군구를 차례로 펼쳐야 하고, 그
  * 도서관이 어느 시군구였는지 기억나지 않으면 찾을 방법이 없습니다. 그래서 한 곳만 빼고
- * 싶을 때도 전체를 해제하고 처음부터 다시 고르게 됩니다. 고른 것을 여기 모아 두면 그
- * 자리에서 지울 수 있습니다.
+ * 싶을 때도 전체를 해제하고 처음부터 다시 고르게 됩니다.
+ *
+ * <p>**다만 이름을 늘어놓는 것이 답인 구간이 따로 있습니다.** 지역 계층의 「서울특별시」를
+ * 한 번 누르면 359곳이 들어오는데, 그때 이름을 359개 늘어놓으면 **묻지도 않은 것에 길게
+ * 답하고 정작 「서울 전체」라는 답은 하지 못합니다.** 그래서 **묶으면 실제로 줄어들
+ * 때만**(`groupsWorthShowing`) 지역 묶음으로 보여 주고, 누른 지역만 이름을 폅니다.
  *
  * <p>**목록만 스크롤하는 칸(`.picker__body`) 밖에 둡니다.** 어느 탭에 있든 고른 것은
  * 그대로 보여야 하고, 지역 계층을 훑어 내리는 동안에도 사라지면 안 됩니다.
@@ -130,52 +129,120 @@ function ChosenList({
   onChange: (next: Set<string>) => void;
 }) {
   const chosen = useMemo(() => chosenLibraries(libraries, selected), [libraries, selected]);
-  const [expanded, setExpanded] = useState(false);
-  const rest = chosen.length - CHOSEN_PREVIEW;
-  const shown = expanded || rest <= 0 ? chosen : chosen.slice(0, CHOSEN_PREVIEW);
+  const groups = useMemo(() => chosenGroups(chosen), [chosen]);
+  const [openLabel, setOpenLabel] = useState<string | null>(null);
+
+  const dropOne = (libCode: string) => onChange(toggleOne(selected, libCode));
 
   // 도서관 목록이 아직 도착하지 않았으면 부호만 있고 이름이 없습니다. 부호를 늘어놓아 봐야
   // 어느 도서관인지 알 수 없으므로 아무것도 그리지 않습니다.
   if (chosen.length === 0) return null;
 
+  // 묶어도 줄어들지 않으면 이름을 그대로 늘어놓습니다. 판단은 `groupsWorthShowing` 에
+  // 모아 두었습니다.
+  if (!groupsWorthShowing(chosen.length, groups.length)) {
+    return (
+      <div className="chosen">
+        {/*
+          **누르면 해제된다는 것을 글로 적습니다.** 칩이 × 를 달고 있어도 처음 보는 사람은
+          그것이 지우는 자리인지 그 도서관으로 가는 자리인지 알 수 없습니다. 다른 칩들이
+          실제로 도서관으로 가는 링크라 더 그렇습니다.
+        */}
+        <p className="chosen__label muted">고른 도서관입니다. 누르면 그 한 곳만 해제됩니다.</p>
+        <ChosenChips items={chosen} onDrop={dropOne} />
+      </div>
+    );
+  }
+
+  const open = groups.find((group) => group.label === openLabel) ?? null;
+
   return (
     <div className="chosen">
-      {/*
-        **누르면 해제된다는 것을 글로 적습니다.** 칩이 × 를 달고 있어도 처음 보는 사람은
-        그것이 지우는 자리인지 그 도서관으로 가는 자리인지 알 수 없습니다. 다른 칩들이
-        실제로 도서관으로 가는 링크라 더 그렇습니다.
-      */}
       <p className="chosen__label muted">
-        고른 도서관입니다. 누르면 그 한 곳만 해제됩니다.{' '}
-        {rest > 0 && (
-          /*
-            **펼치고 접는 단추는 목록 밖에 둡니다.** 목록 끝에 두었더니 시도 하나를 통째로
-            고른 사람이 펼친 뒤 접으려고 이백 줄을 끝까지 내려야 했습니다. 문장 속에 있는
-            자리라 칩이 아니라 밑줄 버튼입니다. 칩을 넣으면 줄 높이가 튀어 문장이 읽히지
-            않습니다.
-          */
-          <button
-            className="link-button"
-            aria-expanded={expanded}
-            onClick={() => setExpanded((prev) => !prev)}
-          >
-            {expanded ? '접기' : `${rest}곳 더 보기`}
-          </button>
-        )}
+        {/*
+          펼친 뒤에는 어느 지역인지 아래 칩이 켜진 채로 말하고 있고 전체 개수는 카드
+          머리말에 있으므로, 여기서는 돌아가는 길만 알려 줍니다. 셋을 다 적으면 12px
+          두 줄이 되어 정작 목록이 밀립니다.
+        */}
+        {open === null
+          ? `고른 도서관 ${chosen.length}곳입니다. 지역을 누르면 그 안을 봅니다.`
+          : '지역을 다시 누르면 목록으로 돌아갑니다.'}
       </p>
+      {/*
+        **지역을 펼치면 그 지역 칩만 남깁니다.** 지역 목록과 그 안의 이름을 함께 두면 두
+        목록이 위아래로 쌓여 **고르는 자리가 0px 이 됩니다.** 실제로 서울 전체(359곳)에서
+        구 하나를 펼치자 위쪽 도서관 목록이 통째로 사라졌습니다. 한 번에 한 목록만 두면
+        높이가 늘 한 목록 분량이고, 켜진 칩을 다시 누르는 것이 곧 돌아가는 길입니다.
+      */}
       <div className="chips chosen__list">
-        {shown.map(({ library, label }) => (
+        {(open === null ? groups : [open]).map((group) => (
           <button
-            key={library.libCode}
+            key={group.label}
             type="button"
-            className="chip chip--sm chip--drop"
-            aria-label={`${label} 선택 해제`}
-            onClick={() => onChange(toggleOne(selected, library.libCode))}
+            className={group === open ? 'chip chip--sm chip--on' : 'chip chip--sm'}
+            aria-expanded={group === open}
+            aria-label={group === open ? `${group.label} 접고 지역 목록으로` : undefined}
+            onClick={() => setOpenLabel(group === open ? null : group.label)}
           >
-            {label}
+            {group.label}
+            <span className="muted"> {group.libraries.length}곳</span>
           </button>
         ))}
       </div>
+      {open !== null && (
+        /*
+          **펼친 지역은 바탕색으로 묶습니다.** 카드 테두리 안에 테두리 상자, 그 안에 테두리
+          칩이 들어가면 선이 세 겹이라 어디까지가 그 지역인지 오히려 안 보입니다. 도서관
+          줄(`.lib`)과 같은 방식입니다.
+        */
+        <div className="chosen__open">
+          <p className="chosen__label muted">
+            누르면 그 한 곳만 해제됩니다.{' '}
+            {/*
+              **지역 하나를 통째로 지우는 자리는 펼친 뒤에만 둡니다.** 묶음 칩에 × 를 달면
+              한 번 잘못 눌러 수백 곳이 사라지는데, 그것이 무엇이었는지도 보이지 않습니다.
+              펼친 상태에서는 지워질 이름이 바로 아래에 있습니다.
+            */}
+            <button
+              className="link-button"
+              onClick={() => {
+                const next = new Set(selected);
+                for (const { library } of open.libraries) next.delete(library.libCode);
+                onChange(next);
+                setOpenLabel(null);
+              }}
+            >
+              {open.label} 모두 해제
+            </button>
+          </p>
+          <ChosenChips items={open.libraries} onDrop={dropOne} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 고른 도서관 이름을 칩으로 늘어놓습니다. 이름 목록과 펼친 지역이 같은 모양을 씁니다. */
+function ChosenChips({
+  items,
+  onDrop,
+}: {
+  items: readonly ChosenLibrary[];
+  onDrop: (libCode: string) => void;
+}) {
+  return (
+    <div className="chips chosen__list">
+      {items.map(({ library, label }) => (
+        <button
+          key={library.libCode}
+          type="button"
+          className="chip chip--sm chip--drop"
+          aria-label={`${label} 선택 해제`}
+          onClick={() => onDrop(library.libCode)}
+        >
+          {label}
+        </button>
+      ))}
     </div>
   );
 }

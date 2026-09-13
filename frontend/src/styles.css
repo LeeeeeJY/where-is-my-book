@@ -342,6 +342,12 @@ body {
   목록이 찌그러져 칩이 잘립니다.
 */
 .chosen { flex: none; margin-top: 12px; }
+/*
+  **펼친 지역.** 고른 곳이 많으면 이름 대신 지역 묶음을 보여 주고 누른 지역만 폅니다.
+  어디까지가 그 지역인지 테두리가 아니라 바탕색으로 묶습니다. 카드 테두리 안에 테두리
+  상자, 그 안에 테두리 칩이 들어가면 선이 세 겹이라 오히려 안 보입니다(`.lib` 과 같습니다).
+*/
+.chosen__open { margin-top: 10px; padding: 8px 10px; background: var(--tile); border-radius: 8px; }
 .chosen__label { margin: 0; font-size: 12px; line-height: 1.5; }
 /* 문장 속의 「n곳 더 보기」가 둘레 글자보다 커지지 않게 합니다. */
 .chosen__label .link-button { font-size: inherit; }
