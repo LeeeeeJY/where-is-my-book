@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Library, UserPosition } from '../domain/types';
 import {
   buildRegionTree,
+  chosenLibraries,
   groupState,
   haversineKm,
   nearbyLibraries,
@@ -81,6 +82,7 @@ export function LibraryPicker({
 
       {selected.size > 0 && (
         <>
+          <ChosenList libraries={libraries} selected={selected} onChange={onChange} />
           <p className="picker__note muted">
             선택은 이 브라우저에 저장되고 주소에도 담깁니다. 주소를 그대로 보내면 상대방
             화면에서도 같은 선택으로 열립니다.
@@ -95,6 +97,86 @@ export function LibraryPicker({
         </>
       )}
     </section>
+  );
+}
+
+/**
+ * 접어 둔 상태에서 보여 줄 개수.
+ *
+ * <p>여섯 곳이면 선택 칸 폭에서 두세 줄입니다. 넓은 화면에서 이 칸은 화면 높이에 매인
+ * 붙박이라 목록이 길어진 만큼 위쪽의 도서관 목록이 눌리므로, 나머지는 눌러서 펼치게 합니다.
+ */
+const CHOSEN_PREVIEW = 6;
+
+/**
+ * 고른 도서관을 이름으로 늘어놓고, 누르면 그 한 곳만 해제합니다.
+ *
+ * <p>**「n곳 선택됨」이라는 숫자만으로는 무엇을 골랐는지 알 수 없습니다.** 지역 계층은
+ * 접혀 있어서 이미 고른 도서관을 다시 찾으려면 시도와 시군구를 차례로 펼쳐야 하고, 그
+ * 도서관이 어느 시군구였는지 기억나지 않으면 찾을 방법이 없습니다. 그래서 한 곳만 빼고
+ * 싶을 때도 전체를 해제하고 처음부터 다시 고르게 됩니다. 고른 것을 여기 모아 두면 그
+ * 자리에서 지울 수 있습니다.
+ *
+ * <p>**목록만 스크롤하는 칸(`.picker__body`) 밖에 둡니다.** 어느 탭에 있든 고른 것은
+ * 그대로 보여야 하고, 지역 계층을 훑어 내리는 동안에도 사라지면 안 됩니다.
+ */
+function ChosenList({
+  libraries,
+  selected,
+  onChange,
+}: {
+  libraries: Library[];
+  selected: Set<string>;
+  onChange: (next: Set<string>) => void;
+}) {
+  const chosen = useMemo(() => chosenLibraries(libraries, selected), [libraries, selected]);
+  const [expanded, setExpanded] = useState(false);
+  const rest = chosen.length - CHOSEN_PREVIEW;
+  const shown = expanded || rest <= 0 ? chosen : chosen.slice(0, CHOSEN_PREVIEW);
+
+  // 도서관 목록이 아직 도착하지 않았으면 부호만 있고 이름이 없습니다. 부호를 늘어놓아 봐야
+  // 어느 도서관인지 알 수 없으므로 아무것도 그리지 않습니다.
+  if (chosen.length === 0) return null;
+
+  return (
+    <div className="chosen">
+      {/*
+        **누르면 해제된다는 것을 글로 적습니다.** 칩이 × 를 달고 있어도 처음 보는 사람은
+        그것이 지우는 자리인지 그 도서관으로 가는 자리인지 알 수 없습니다. 다른 칩들이
+        실제로 도서관으로 가는 링크라 더 그렇습니다.
+      */}
+      <p className="chosen__label muted">
+        고른 도서관입니다. 누르면 그 한 곳만 해제됩니다.{' '}
+        {rest > 0 && (
+          /*
+            **펼치고 접는 단추는 목록 밖에 둡니다.** 목록 끝에 두었더니 시도 하나를 통째로
+            고른 사람이 펼친 뒤 접으려고 이백 줄을 끝까지 내려야 했습니다. 문장 속에 있는
+            자리라 칩이 아니라 밑줄 버튼입니다. 칩을 넣으면 줄 높이가 튀어 문장이 읽히지
+            않습니다.
+          */
+          <button
+            className="link-button"
+            aria-expanded={expanded}
+            onClick={() => setExpanded((prev) => !prev)}
+          >
+            {expanded ? '접기' : `${rest}곳 더 보기`}
+          </button>
+        )}
+      </p>
+      <div className="chips chosen__list">
+        {shown.map(({ library, label }) => (
+          <button
+            key={library.libCode}
+            type="button"
+            className="chip chip--sm chip--drop"
+            aria-label={`${label} 선택 해제`}
+            onClick={() => onChange(toggleOne(selected, library.libCode))}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
 
