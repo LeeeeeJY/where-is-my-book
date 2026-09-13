@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildRegionTree,
+  chosenLibraries,
   groupState,
   haversineKm,
   nearbyLibraries,
@@ -41,6 +42,49 @@ describe('세 상태 체크박스', () => {
 
   it('구성원이 없는 묶음은 미선택이다', () => {
     expect(groupState(new Set(['011001']), [])).toBe('none');
+  });
+});
+
+describe('고른 도서관 목록', () => {
+  it('고른 것만 이름순으로 늘어놓는다', () => {
+    const chosen = chosenLibraries(ALL, new Set(['141053', '011001']));
+    expect(chosen.map((c) => c.label)).toEqual(['국립중앙도서관', '성남시중원도서관']);
+  });
+
+  it('고르지 않으면 빈 목록이다', () => {
+    expect(chosenLibraries(ALL, new Set())).toEqual([]);
+  });
+
+  it('목록에 없는 도서관부호는 이름을 알 수 없으므로 나오지 않는다', () => {
+    expect(chosenLibraries(ALL, new Set(['999999']))).toEqual([]);
+  });
+
+  it('이름이 겹치는 곳에만 지역을 덧붙인다', () => {
+    // 「고양시립」 두 곳처럼 같은 이름이 여러 지역에 있으면 이름만으로는 어느 것을
+    // 지워야 하는지 알 수 없습니다. 겹치지 않는 이름까지 달면 줄만 길어집니다.
+    const goyang = lib('141234', 4, '경기도', '고양시', '시립도서관');
+    const suwon = lib('141235', 5, '경기도', '수원시', '시립도서관');
+    const chosen = chosenLibraries([...ALL, goyang, suwon], new Set(['141234', '141235', '011001']));
+    expect(chosen.map((c) => c.label)).toEqual([
+      '국립중앙도서관',
+      '시립도서관 (고양시)',
+      '시립도서관 (수원시)',
+    ]);
+  });
+
+  it('지역을 모르는 도서관은 이름만 쓴다', () => {
+    // 주소를 해석하지 못한 도서관입니다. 덧붙일 것이 없다고 목록에서 빼면
+    // 고른 개수와 목록 길이가 어긋나 사용자가 나머지 한 곳을 찾지 못합니다.
+    const unknown = lib('141236', 6, null, null, '시립도서관');
+    const suwon = lib('141235', 5, '경기도', '수원시', '시립도서관');
+    const chosen = chosenLibraries([unknown, suwon], new Set(['141236', '141235']));
+    expect(chosen.map((c) => c.label)).toEqual(['시립도서관', '시립도서관 (수원시)']);
+  });
+
+  it('고른 도서관과 짝이 그대로 따라온다', () => {
+    // 화면이 이 부호로 해제하므로 라벨과 도서관이 어긋나면 엉뚱한 곳이 지워집니다.
+    const chosen = chosenLibraries(ALL, new Set(['011002']));
+    expect(chosen[0].library.libCode).toBe('011002');
   });
 });
 

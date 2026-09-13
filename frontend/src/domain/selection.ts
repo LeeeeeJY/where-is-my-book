@@ -41,6 +41,44 @@ export function toggleOne(selected: ReadonlySet<string>, libCode: string): Set<s
   return next;
 }
 
+/** 고른 도서관 한 곳. `label` 은 목록 안에서 서로 구별되게 다듬은 이름입니다. */
+export type ChosenLibrary = { library: Library; label: string };
+
+/**
+ * 고른 도서관을 화면에 늘어놓기 좋게 이름순으로 정리합니다.
+ *
+ * <p>**이름이 겹치는 곳에는 지역을 덧붙입니다.** 「중앙도서관」이나 「고양시립」처럼 같은
+ * 이름이 여러 지역에 있는데, 목록에 이름만 늘어놓으면 어느 것을 지워야 하는지 알 수
+ * 없습니다. 겹치지 않는 이름까지 지역을 달면 줄이 길어지기만 하므로 겹칠 때만 답니다.
+ *
+ * <p>목록에 없는 도서관부호는 이름을 알 수 없으므로 여기에 나오지 않습니다. 주소로 받은
+ * 선택은 `App` 이 목록과 대조해 걸러 두므로 실제로는 어긋나지 않습니다.
+ */
+export function chosenLibraries(
+  libraries: readonly Library[],
+  selected: ReadonlySet<string>,
+): ChosenLibrary[] {
+  const chosen = libraries.filter((library) => selected.has(library.libCode));
+  const sameName = new Map<string, number>();
+  for (const library of chosen) {
+    sameName.set(library.name, (sameName.get(library.name) ?? 0) + 1);
+  }
+  return chosen
+    .map((library) => {
+      const where = library.sigungu ?? library.sido;
+      const ambiguous = (sameName.get(library.name) ?? 0) > 1;
+      return {
+        library,
+        label: ambiguous && where !== null ? `${library.name} (${where})` : library.name,
+      };
+    })
+    .sort(
+      (a, b) =>
+        a.library.name.localeCompare(b.library.name, 'ko') ||
+        a.label.localeCompare(b.label, 'ko'),
+    );
+}
+
 /** 시도 > 시군구 > 도서관 3단계 목록을 만듭니다. */
 export type RegionTree = {
   sido: string;
