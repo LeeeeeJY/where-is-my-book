@@ -43,6 +43,28 @@ describe('선택 상태의 URL 표현', () => {
     expect(encodeSelection(twenty)!.value.length).toBeLessThan(100);
   });
 
+  /*
+    **여기까지의 예시는 번호가 1부터 촘촘하다고 보고 있습니다.** 실제로 서버가 주는
+    `shortId` 는 도서관부호 그대로라 5만부터 1,470만까지 흩어져 있어서, 비트맵으로
+    만들면 가장 큰 번호만큼 자리를 잡습니다. 그 차이를 아래 두 가지가 붙듭니다.
+  */
+  it('번호가 흩어져 있으면 비트맵으로 가지 않는다', () => {
+    // 서울 359곳을 고른 상태입니다. 비트맵으로 만들면 1.4MB 라 주소에 실을 수 없고,
+    // 그것을 `replaceState` 가 체크 한 번마다 받아 가면서 화면이 0.6초씩 멈췄습니다.
+    const seoul = Array.from({ length: 359 }, (_, i) => 111001 + i * 31_000);
+    const encoded = encodeSelection(seoul)!;
+    expect(encoded.key).toBe(LIST_PARAM);
+    expect(encoded.value.length).toBeLessThan(4_000);
+    expect(roundTrip(seoul)).toEqual(seoul);
+  });
+
+  it('전국을 골라도 주소가 감당할 만하다', () => {
+    const nationwide = Array.from({ length: 1_619 }, (_, i) => 50_001 + i * 9_050);
+    const encoded = encodeSelection(nationwide)!;
+    expect(encoded.value.length).toBeLessThan(16_000);
+    expect(roundTrip(nationwide)).toEqual(nationwide);
+  });
+
   it('아무것도 안 고르면 파라미터를 만들지 않는다', () => {
     expect(encodeSelection([])).toBeNull();
   });
