@@ -9,6 +9,7 @@ import {
   haversineKm,
   nearbyLibraries,
   NEARBY_RADIUS_KM,
+  sameSelection,
   toggleGroup,
   toggleOne,
 } from '../selection';
@@ -282,5 +283,33 @@ describe('내 주변', () => {
     const result = nearbyLibraries([], HERE.lat, HERE.lon);
     expect(result.libraries).toEqual([]);
     expect(result.widened).toBe(false);
+  });
+});
+
+describe('되돌리기가 아직 유효한지', () => {
+  /*
+    지역 묶음 하나를 × 로 지우면 수백 곳이 한 번에 사라지므로 되돌릴 자리를 함께 둡니다.
+    그 자리는 **지운 직후 그대로일 때만** 살아 있어야 합니다. 그 사이에 사용자가 다른
+    것을 건드렸는데도 남겨 두면, 되돌리는 순간 그 조작까지 함께 지워져 **누른 적 없는
+    해제**가 일어납니다.
+  */
+  it('같은 선택이면 되돌릴 수 있다', () => {
+    expect(sameSelection(new Set(['a', 'b']), new Set(['b', 'a']))).toBe(true);
+  });
+
+  it('한 곳이라도 더 고르면 되돌리기를 거둔다', () => {
+    expect(sameSelection(new Set(['a', 'b']), new Set(['a', 'b', 'c']))).toBe(false);
+  });
+
+  it('한 곳을 빼도 거둔다', () => {
+    expect(sameSelection(new Set(['a', 'b']), new Set(['a']))).toBe(false);
+  });
+
+  it('개수가 같아도 내용이 다르면 거둔다', () => {
+    expect(sameSelection(new Set(['a', 'b']), new Set(['a', 'c']))).toBe(false);
+  });
+
+  it('둘 다 비어 있으면 같다', () => {
+    expect(sameSelection(new Set(), new Set())).toBe(true);
   });
 });

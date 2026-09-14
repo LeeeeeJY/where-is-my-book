@@ -379,6 +379,98 @@ body {
 @media (min-width: 860px) {
   .chosen__list { max-height: 30vh; }
 }
+
+/*
+  **지역 묶음과 펼친 지역을 함께 담는 창.**
+
+  예전에는 한 지역을 펼치면 나머지 지역 칩을 지웠습니다. 목록 둘이 저마다 제 높이를
+  가져서 위아래로 쌓이면 **고르는 자리가 0px 이 되었기** 때문입니다. 창 하나에 함께
+  담으면 높이가 늘 한 창 분량이라 그 이유가 없어지고, 지역을 여럿 고른 사람이 하나를
+  펼쳐도 나머지가 그대로 보입니다.
+
+  그래서 **안쪽 목록은 각자 창을 만들지 않습니다.** 그대로 두면 창 안에 창이 생겨
+  스크롤이 두 겹이 되고, 바깥은 움직이지 않는데 안쪽만 움직여 어디를 밀고 있는지
+  알 수 없어집니다.
+*/
+.chosen__scroll {
+  margin: 6px 0 0;
+  max-height: 40vh;
+  overflow-y: auto;
+  /* 스크롤이 생겼을 때 칩의 초점 테두리와 그림자가 잘리지 않을 만큼만 띄웁니다. */
+  padding: 3px;
+  margin-left: -3px;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--chip-line) transparent;
+}
+@media (min-width: 860px) {
+  .chosen__scroll { max-height: 30vh; }
+}
+.chosen__scroll .chosen__list {
+  max-height: none;
+  overflow: visible;
+  padding: 0;
+  margin-left: 0;
+  scrollbar-gutter: auto;
+}
+/* 창 안에서는 첫 목록이 위 여백을 따로 가질 이유가 없습니다. */
+.chosen__scroll > .chips { margin-top: 0; }
+
+/*
+  **한 칩처럼 보이지만 단추가 둘인 지역 묶음.**
+
+  묶음 하나가 수백 곳이라 **펼치는 자리와 지우는 자리가 같으면 안 됩니다.** 한 번
+  잘못 눌러 서울 359곳이 사라지는데 그것이 무엇이었는지조차 보이지 않습니다. 그래서
+  본문은 펼치고 × 만 지우며, 지운 뒤에는 되돌릴 자리를 함께 띄웁니다.
+
+  테두리와 그림자는 바깥이 한 번만 그립니다. 단추마다 그리면 한 칩 안에 선이 두 겹입니다.
+*/
+.groupchip {
+  display: inline-flex; align-items: stretch;
+  max-width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--chip-line); border-radius: 999px;
+  box-shadow: var(--lift);
+  transition: border-color 0.12s ease;
+}
+.groupchip:hover { border-color: #bcb6ad; }
+.groupchip--on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.groupchip--on .groupchip__open { color: var(--accent-deep); }
+.groupchip__open,
+.groupchip__drop {
+  appearance: none;
+  font: inherit; font-size: 12px; font-weight: 600; line-height: 1.3;
+  color: var(--text); background: none; border: 0;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+.groupchip__open {
+  min-width: 0;
+  padding: 4px 8px 4px 12px; min-height: 30px;
+  text-align: left; word-break: keep-all;
+  border-radius: 999px 0 0 999px;
+}
+/*
+  **지우는 단추는 눌릴 자리를 제 몫으로 가집니다.** 좁은 화면에서 손가락으로 누르는
+  자리라 글자 폭에 맞춰 두면 옆의 펼치기가 눌립니다.
+*/
+.groupchip__drop {
+  flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px;
+  color: var(--muted);
+  border-left: 1px solid var(--chip-line);
+  border-radius: 0 999px 999px 0;
+}
+/*
+  **× 를 글자로 적지 않습니다.** `.chip--drop` 과 같은 이유입니다. 자리마다 손으로
+  적으면 언젠가 한쪽이 빠지고, 스크린 리더가 단추의 이름에 더해 그 글자까지 읽습니다.
+*/
+.groupchip__drop::after { content: '×'; font-size: 14px; line-height: 1; }
+.groupchip__drop:hover { color: var(--text); background: var(--bg); }
+.groupchip__open:hover { background: var(--bg); }
+.groupchip__open:focus-visible,
+.groupchip__drop:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .recheck { margin: 0 0 12px; }
 
 /* 저자·출판사·ISBN 칸. 좁은 화면에서는 세로로 쌓입니다. */

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Library, UserPosition } from '../domain/types';
-import type { ChosenLibrary } from '../domain/selection';
+import type { ChosenGroup, ChosenLibrary } from '../domain/selection';
 import {
   buildRegionTree,
   chosenGroups,
@@ -10,6 +10,7 @@ import {
   haversineKm,
   nearbyLibraries,
   NEARBY_RADIUS_KM,
+  sameSelection,
   toggleGroup,
   toggleOne,
 } from '../domain/selection';
@@ -83,9 +84,15 @@ export function LibraryPicker({
         )}
       </div>
 
+      {/*
+        **고른 것이 없어도 그려 봅니다.** 선택이 0이면 되돌릴 자리까지 함께 걷어 내게
+        되는데, 하필 그때가 되돌리기가 가장 필요한 자리입니다. 보여 줄 것이 없으면
+        `ChosenList` 가 스스로 비우므로 여기서 가릴 이유가 없습니다.
+      */}
+      <ChosenList libraries={libraries} selected={selected} onChange={onChange} />
+
       {selected.size > 0 && (
         <>
-          <ChosenList libraries={libraries} selected={selected} onChange={onChange} />
           <p className="picker__note muted">
             선택은 이 브라우저에 저장되고 주소에도 담깁니다. 주소를 그대로 보내면 상대방
             화면에서도 같은 선택으로 열립니다.
@@ -131,12 +138,53 @@ function ChosenList({
   const chosen = useMemo(() => chosenLibraries(libraries, selected), [libraries, selected]);
   const groups = useMemo(() => chosenGroups(chosen), [chosen]);
   const [openLabel, setOpenLabel] = useState<string | null>(null);
+  /**
+   * 방금 지운 지역. 묶음 칩의 × 하나로 수백 곳이 사라지므로 되돌릴 자리를 함께 둡니다.
+   * `after` 는 지운 직후의 선택이라, 그 뒤에 사용자가 다른 것을 건드리면 감춥니다.
+   */
+  const [undo, setUndo] = useState<
+    { label: string; count: number; before: Set<string>; after: Set<string> } | null
+  >(null);
 
   const dropOne = (libCode: string) => onChange(toggleOne(selected, libCode));
 
+  const dropGroup = (group: ChosenGroup) => {
+    const next = new Set(selected);
+    for (const { library } of group.libraries) next.delete(library.libCode);
+    setUndo({
+      label: group.label,
+      count: group.libraries.length,
+      before: new Set(selected),
+      after: next,
+    });
+    if (openLabel === group.label) setOpenLabel(null);
+    onChange(next);
+  };
+
+  // 되돌리기는 **지운 직후 그대로일 때만** 유효합니다. 그 사이에 다른 것을 건드렸다면
+  // 되돌려 놓는 순간 그 조작까지 함께 지워져 누른 적 없는 해제가 일어납니다.
+  const undoable = undo !== null && sameSelection(undo.after, selected) ? undo : null;
+  const undoRow = undoable && (
+    <p className="chosen__label muted">
+      {undoable.label} {undoable.count}곳을 해제했습니다.{' '}
+      <button
+        className="link-button"
+        onClick={() => {
+          onChange(undoable.before);
+          setUndo(null);
+        }}
+      >
+        되돌리기
+      </button>
+    </p>
+  );
+
   // 도서관 목록이 아직 도착하지 않았으면 부호만 있고 이름이 없습니다. 부호를 늘어놓아 봐야
   // 어느 도서관인지 알 수 없으므로 아무것도 그리지 않습니다.
-  if (chosen.length === 0) return null;
+  // **다만 되돌릴 것이 남아 있으면 그것만은 남깁니다.** 지금은 묶음이 둘 이상일 때만 × 가
+  // 나오므로 × 로 선택이 0이 되지는 않지만, 그 조건이 바뀌는 날 되돌릴 자리가 조용히
+  // 사라집니다. 하필 되돌리기가 가장 필요한 자리입니다.
+  if (chosen.length === 0) return undoRow ? <div className="chosen">{undoRow}</div> : null;
 
   // 묶어도 줄어들지 않으면 이름을 그대로 늘어놓습니다. 판단은 `groupsWorthShowing` 에
   // 모아 두었습니다.
@@ -150,6 +198,7 @@ function ChosenList({
         */}
         <p className="chosen__label muted">고른 도서관입니다. 누르면 그 한 곳만 해제됩니다.</p>
         <ChosenChips items={chosen} onDrop={dropOne} />
+        {undoRow}
       </div>
     );
   }
@@ -159,65 +208,66 @@ function ChosenList({
   return (
     <div className="chosen">
       <p className="chosen__label muted">
-        {/*
-          펼친 뒤에는 어느 지역인지 아래 칩이 켜진 채로 말하고 있고 전체 개수는 카드
-          머리말에 있으므로, 여기서는 돌아가는 길만 알려 줍니다. 셋을 다 적으면 12px
-          두 줄이 되어 정작 목록이 밀립니다.
-        */}
         {open === null
           ? `고른 도서관 ${chosen.length}곳입니다. 지역을 누르면 그 안을 봅니다.`
-          : '지역을 다시 누르면 목록으로 돌아갑니다.'}
+          : '지역을 다시 누르면 접힙니다. × 는 그 지역을 통째로 해제합니다.'}
       </p>
       {/*
-        **지역을 펼치면 그 지역 칩만 남깁니다.** 지역 목록과 그 안의 이름을 함께 두면 두
-        목록이 위아래로 쌓여 **고르는 자리가 0px 이 됩니다.** 실제로 서울 전체(359곳)에서
-        구 하나를 펼치자 위쪽 도서관 목록이 통째로 사라졌습니다. 한 번에 한 목록만 두면
-        높이가 늘 한 목록 분량이고, 켜진 칩을 다시 누르는 것이 곧 돌아가는 길입니다.
+        **펼쳐도 다른 지역이 그대로 보입니다.** 예전에는 한 지역을 펼치면 나머지 지역 칩을
+        지웠습니다. 두 목록이 위아래로 쌓여 **고르는 자리가 0px 이 되었기** 때문인데, 그때는
+        목록마다 제 높이를 가져서 합이 그대로 늘었습니다. 지금은 **둘을 창 하나에 담아**
+        높이가 늘 한 창 분량이므로 그 이유가 없어졌습니다. 지역을 여럿 고른 사람에게는
+        하나를 펼칠 때마다 나머지가 사라지는 편이 훨씬 나쁩니다. 어디까지 봤는지 잃고,
+        옆 지역으로 건너가려면 매번 접어야 합니다.
       */}
-      <div className="chips chosen__list">
-        {(open === null ? groups : [open]).map((group) => (
-          <button
-            key={group.label}
-            type="button"
-            className={group === open ? 'chip chip--sm chip--on' : 'chip chip--sm'}
-            aria-expanded={group === open}
-            aria-label={group === open ? `${group.label} 접고 지역 목록으로` : undefined}
-            onClick={() => setOpenLabel(group === open ? null : group.label)}
-          >
-            {group.label}
-            <span className="muted"> {group.libraries.length}곳</span>
-          </button>
-        ))}
-      </div>
-      {open !== null && (
-        /*
-          **펼친 지역은 바탕색으로 묶습니다.** 카드 테두리 안에 테두리 상자, 그 안에 테두리
-          칩이 들어가면 선이 세 겹이라 어디까지가 그 지역인지 오히려 안 보입니다. 도서관
-          줄(`.lib`)과 같은 방식입니다.
-        */
-        <div className="chosen__open">
-          <p className="chosen__label muted">
-            누르면 그 한 곳만 해제됩니다.{' '}
-            {/*
-              **지역 하나를 통째로 지우는 자리는 펼친 뒤에만 둡니다.** 묶음 칩에 × 를 달면
-              한 번 잘못 눌러 수백 곳이 사라지는데, 그것이 무엇이었는지도 보이지 않습니다.
-              펼친 상태에서는 지워질 이름이 바로 아래에 있습니다.
-            */}
-            <button
-              className="link-button"
-              onClick={() => {
-                const next = new Set(selected);
-                for (const { library } of open.libraries) next.delete(library.libCode);
-                onChange(next);
-                setOpenLabel(null);
-              }}
+      <div className="chosen__scroll">
+        <div className="chips">
+          {groups.map((group) => (
+            /*
+              **펼치는 자리와 지우는 자리를 가릅니다.** 한 칩으로 보이지만 단추가 둘입니다.
+              묶음 하나가 수백 곳이라 지우는 것과 펼치는 것이 같은 자리에 있으면 안 됩니다.
+            */
+            <span
+              key={group.label}
+              className={group === open ? 'groupchip groupchip--on' : 'groupchip'}
             >
-              {open.label} 모두 해제
-            </button>
-          </p>
-          <ChosenChips items={open.libraries} onDrop={dropOne} />
+              <button
+                type="button"
+                className="groupchip__open"
+                aria-expanded={group === open}
+                onClick={() => setOpenLabel(group === open ? null : group.label)}
+              >
+                {group.label}
+                <span className="muted"> {group.libraries.length}곳</span>
+              </button>
+              {/*
+                **× 를 글자로 적지 않습니다.** `.chip--drop` 과 같은 이유입니다. 자리마다
+                손으로 적으면 언젠가 한쪽이 빠지고, 스크린 리더가 그 글자까지 읽습니다.
+              */}
+              <button
+                type="button"
+                className="groupchip__drop"
+                aria-label={`${group.label} ${group.libraries.length}곳 모두 해제`}
+                onClick={() => dropGroup(group)}
+              />
+            </span>
+          ))}
         </div>
-      )}
+        {open !== null && (
+          /*
+            **펼친 지역은 바탕색으로 묶습니다.** 카드 테두리 안에 테두리 상자, 그 안에 테두리
+            칩이 들어가면 선이 세 겹이라 어디까지가 그 지역인지 오히려 안 보입니다. 도서관
+            줄(`.lib`)과 같은 방식입니다.
+          */
+          <div className="chosen__open">
+            <p className="chosen__label muted">
+              {open.label}에서 고른 곳입니다. 누르면 그 한 곳만 해제됩니다.
+            </p>
+            <ChosenChips items={open.libraries} onDrop={dropOne} />
+          </div>
+        )}
+      </div>
+      {undoRow}
     </div>
   );
 }

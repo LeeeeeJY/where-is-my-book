@@ -41,6 +41,20 @@ export function toggleOne(selected: ReadonlySet<string>, libCode: string): Set<s
   return next;
 }
 
+/**
+ * 두 선택이 같은지.
+ *
+ * <p>**「방금 지운 것을 되돌리기」가 아직 유효한지 판단하는 데 씁니다.** 지역 묶음 하나를
+ * 지우면 수백 곳이 한 번에 사라지므로 되돌릴 자리를 함께 두는데, 그 자리는 사용자가 다른
+ * 것을 건드리는 순간 사라져야 합니다. 남겨 두면 그 사이에 새로 고른 것까지 함께 되돌려
+ * **누른 적 없는 해제**가 일어납니다.
+ */
+export function sameSelection(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
+  if (a.size !== b.size) return false;
+  for (const code of a) if (!b.has(code)) return false;
+  return true;
+}
+
 /** 고른 도서관 한 곳. `label` 은 목록 안에서 서로 구별되게 다듬은 이름입니다. */
 export type ChosenLibrary = { library: Library; label: string };
 
