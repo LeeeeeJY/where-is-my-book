@@ -336,3 +336,17 @@
 141018,ISBN_SEARCH,UTF-8,https://www.goyanglib.or.kr/MB/program/searchResultList.do?searchType=SIMPLE&searchManageCodeArr=MB&searchTab=ALL&mainSearchCondition=book&searchKeyword={isbn13}
 141126,ISBN_SEARCH,UTF-8,https://www.goyanglib.or.kr/MH/program/searchResultList.do?searchType=SIMPLE&searchManageCodeArr=MH&searchTab=ALL&mainSearchCondition=book&searchKeyword={isbn13}
 141072,ISBN_SEARCH,UTF-8,https://www.goyanglib.or.kr/ME/program/searchResultList.do?searchType=SIMPLE&searchManageCodeArr=ME&searchTab=ALL&mainSearchCondition=book&searchKeyword={isbn13}
+
+# 서울 강서구립 8곳. 노원과 같은 형태(`/KeywordSearchResult/{isbn13}`)입니다.
+# 2026-09-18 에 사람이 브라우저로 세 겹을 확인했습니다. 데미안(9788937460449) 이 나오고,
+# 9799999999999 로는 목록이 비고, 그 주소를 쿠키 없는 새 창에 붙여도 그대로 열립니다.
+# 도서관을 고르는 것은 이 시스템이 자바스크립트로 따로 조회해서 주소에 남지 않으므로
+# 전체 검색으로 둡니다. 결과 화면에 꿈자람책놀이터·도란도란쉼터·가양이 함께 나옵니다.
+111453,ISBN_SEARCH,UTF-8,https://lib.gangseo.seoul.kr/KeywordSearchResult/{isbn13}
+111378,ISBN_SEARCH,UTF-8,https://lib.gangseo.seoul.kr/KeywordSearchResult/{isbn13}
+111067,ISBN_SEARCH,UTF-8,https://lib.gangseo.seoul.kr/KeywordSearchResult/{isbn13}
+111098,ISBN_SEARCH,UTF-8,https://lib.gangseo.seoul.kr/KeywordSearchResult/{isbn13}
+111309,ISBN_SEARCH,UTF-8,https://lib.gangseo.seoul.kr/KeywordSearchResult/{isbn13}
+111118,ISBN_SEARCH,UTF-8,https://lib.gangseo.seoul.kr/KeywordSearchResult/{isbn13}
+111097,ISBN_SEARCH,UTF-8,https://lib.gangseo.seoul.kr/KeywordSearchResult/{isbn13}
+111373,ISBN_SEARCH,UTF-8,https://lib.gangseo.seoul.kr/KeywordSearchResult/{isbn13}
