@@ -223,4 +223,20 @@ class RateLimitTest {
         assertEquals(RateLimitInterceptor.costOf("GET", "/api/version"),
                 RateLimitInterceptor.costOf("GET", "/api/status"));
     }
+
+    /**
+     * <b>서가는 보는 것과 세우는 것의 값이 완전히 다릅니다.</b> 그 사이에 찾기가 있습니다.
+     * 정보나루를 부르지는 않지만 자료실 색인을 통째로 훑으므로, 조각 하나를 흘려보내는
+     * 것보다는 비쌉니다.
+     */
+    @Test
+    @DisplayName("서가는 세우기 · 찾기 · 보기 순으로 무겁다")
+    void buildingAShelfCostsMoreThanFindingInItWhichCostsMoreThanReadingAChunk() {
+        int build = RateLimitInterceptor.costOf("POST", "/api/shelf/141321/8");
+        int find = RateLimitInterceptor.costOf("GET", "/api/shelf/141321/8/r0/find");
+        int chunk = RateLimitInterceptor.costOf("GET", "/api/shelf/141321/8/r0/0");
+
+        assertTrue(build > find, "세우는 것이 수백 회입니다");
+        assertTrue(find > chunk, "찾기는 색인을 통째로 훑습니다");
+    }
 }

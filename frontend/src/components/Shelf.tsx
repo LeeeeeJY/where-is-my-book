@@ -13,6 +13,7 @@ import { COLS, chunksFor, locate, rowCount, scrollToRow, visibleRows } from '../
 import { ShelfCover } from './ShelfCover';
 import { ShelfNearby } from './ShelfNearby';
 import { ShelfOpening } from './ShelfOpening';
+import { ShelfSearch } from './ShelfSearch';
 
 /** 오른쪽 색인에 세우는 초성. 서버의 {@code Chosung.INDEX} 와 같은 열넷입니다. */
 const CHOSUNG = ['ㄱ', 'ㄴ', 'ㄷ', 'ㄹ', 'ㅁ', 'ㅂ', 'ㅅ', 'ㅇ', 'ㅈ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ'];
@@ -38,6 +39,10 @@ const GAP = 10;
  *
  * <p>찾는 책이 있는 사람은 검색 탭으로 갑니다. 여기는 <b>무엇을 읽을지 아직 정하지
  * 않은 사람</b>이 서가 사이를 걷는 자리입니다.
+ *
+ * <p>머리말의 「책 찾기」는 그 규칙의 예외가 아닙니다. 돌려주는 것이 <b>이 서가의 자리
+ * 번호</b>뿐이라 소장도 대출도 말하지 않고, 하는 일은 수천 권짜리 서가를 가로질러 그
+ * 앞에 서는 것입니다. 자세한 것은 {@link ShelfSearch} 에 적어 두었습니다.
  *
  * <h2>서가는 열 때 세웁니다</h2>
  *
@@ -252,8 +257,9 @@ function ShelfView({
   onLeave: () => void;
 }) {
   const shelfBox = useRef<HTMLDivElement | null>(null);
+  const headBox = useRef<HTMLElement | null>(null);
   const [roomSlug, setRoomSlug] = useState<string | null>(null);
-  const [size, setSize] = useState({ rowHeight: 0, viewport: 0, top: 0 });
+  const [size, setSize] = useState({ rowHeight: 0, viewport: 0, top: 0, head: 0 });
   const [scrollTop, setScrollTop] = useState(0);
   const [chunks, setChunks] = useState<Map<string, ShelfBook[]>>(new Map());
   const [picked, setPicked] = useState<string | null>(null);
@@ -262,6 +268,18 @@ function ShelfView({
     기억하면 같은 책이 복본으로 두 자리에 있을 때 어느 자리에서 눌렀는지를 잃습니다.
   */
   const [nearby, setNearby] = useState<number | null>(null);
+  /*
+    **찾아간 자리를 표시해 둡니다.** 스무 권이 한 화면에 서 있어서, 그 자리로 옮겨만
+    놓으면 <b>어느 것을 찾은 것인지 알 수 없습니다.</b> 표지에는 글자가 없어서 더
+    그렇습니다. 자료실을 바꾸면 번호의 뜻이 달라지므로 그때 버립니다.
+  */
+  const [found, setFound] = useState<number | null>(null);
+  /*
+    **찾기를 펼쳤는지를 여기서 들고 있습니다.** 펼치면 머리말이 그만큼 높아지고,
+    서가가 시작하는 자리도 함께 내려갑니다. 그 자리로 몇 번째 줄인지를 세므로 다시
+    재지 않으면 줄이 어긋납니다. 접힘과 같은 이유라 같은 자리에서 함께 다시 잽니다.
+  */
+  const [finding, setFinding] = useState(false);
 
   /*
     **가장 큰 자료실을 먼저 엽니다.** 서가를 보러 온 사람이 보고 싶은 것은 대개
@@ -288,6 +306,10 @@ function ShelfView({
     제 스크롤 칸을 주면 브라우저 스크롤바가 하나 더 생겨 따로 놉니다. 이 저장소가 예전에
     두 칸을 각자 스크롤하게 두었다가 같은 이유로 걷어냈습니다. 대신 「페이지를 얼마나
     내렸는가」에서 「서가가 어디서 시작하는가」를 빼야 몇 번째 줄인지 알 수 있습니다.
+
+    머리말 높이를 함께 재는 것은 <b>머리말이 화면 위에 붙어 그만큼을 덮기 때문</b>입니다.
+    빼지 않으면 초성이나 찾기로 간 책이 머리말 뒤에 반쯤 가린 채 섭니다. 실측으로 표지
+    106px 가운데 42px 이 가려졌습니다.
   */
   const measure = useCallback(() => {
     const element = shelfBox.current;
@@ -300,12 +322,14 @@ function ShelfView({
       rowHeight: Math.round(slot * COVER_RATIO) + PLANK,
       viewport: window.innerHeight,
       top: Math.round(element.getBoundingClientRect().top + window.scrollY),
+      head: Math.round(headBox.current?.getBoundingClientRect().height ?? 0),
     };
     // 같은 값을 다시 넣지 않습니다. 넣으면 그릴 때마다 상태가 바뀌어 헛돕니다.
     setSize((before) =>
       before.rowHeight === next.rowHeight &&
       before.viewport === next.viewport &&
-      before.top === next.top
+      before.top === next.top &&
+      before.head === next.head
         ? before
         : next,
     );
@@ -385,19 +409,47 @@ function ShelfView({
     [chunks, meta.chunkSize, room],
   );
 
+  /**
+   * 그 자리가 있는 줄로 옮겨 갑니다. <b>초성 색인과 찾기가 같은 계산을 씁니다.</b>
+   * 갈리면 한쪽만 머리말 뒤에 가려 서는데, 어느 쪽이 그런지는 눌러 본 사람만 압니다.
+   */
+  const scrollToIndex = useCallback(
+    (index: number) => {
+      if (size.rowHeight <= 0) return;
+      window.scrollTo({
+        // 서가가 시작하는 자리에서 그 줄만큼 더 내려가되, 머리말이 덮는 만큼은 뺍니다.
+        top:
+          size.top +
+          scrollToRow(Math.floor(index / COLS), size.rowHeight, size.viewport, size.head),
+        behavior: 'smooth',
+      });
+    },
+    [size.head, size.rowHeight, size.top, size.viewport],
+  );
+
   /** 초성을 누르면 그 자리로 갑니다. 없는 초성은 누를 수 없습니다. */
   const jump = useCallback(
     (chosung: string) => {
       const index = room?.chosungAt[chosung];
-      if (index === undefined || size.rowHeight <= 0) return;
+      if (index === undefined) return;
       setPicked((before) => (before === chosung ? null : chosung));
-      window.scrollTo({
-        // 서가가 시작하는 자리에서 그 줄만큼 더 내려갑니다.
-        top: size.top + scrollToRow(Math.floor(index / COLS), size.rowHeight, size.viewport),
-        behavior: 'smooth',
-      });
+      scrollToIndex(index);
     },
-    [room, size.rowHeight, size.viewport, size.top],
+    [room, scrollToIndex],
+  );
+
+  /**
+   * 찾은 자리로 옮겨 갑니다. 초성 색인이 뛰는 것과 같은 계산이되, 초성은 줄을 알고
+   * 여기는 자리를 압니다.
+   */
+  const goTo = useCallback(
+    (at: number) => {
+      setFound(at);
+      // 초성으로 걸러 둔 것을 풉니다. 그러지 않으면 찾아간 책이 흐리게 그려집니다.
+      setPicked(null);
+      scrollToIndex(at);
+    },
+    [scrollToIndex],
   );
 
   const heading = useHeading(bookAt(range.from * COLS), subject.label);
@@ -423,7 +475,7 @@ function ShelfView({
   */
   useLayoutEffect(() => {
     measure();
-  }, [collapsed, measure]);
+  }, [collapsed, finding, measure]);
 
   if (!room) {
     return (
@@ -440,11 +492,30 @@ function ShelfView({
 
   return (
     <>
-      <header className="shelf-head" data-collapsed={collapsed ? '' : undefined}>
+      <header
+        className="shelf-head"
+        ref={headBox}
+        data-collapsed={collapsed ? '' : undefined}
+      >
         <div className="shelf-head__bar">
           <button type="button" className="chip chip--sm" onClick={onLeave}>
             서가 바꾸기
           </button>
+          {/*
+            **찾기 색인이 없는 서가에는 단추를 내지 않습니다.** 색인은 세울 때 함께
+            적으므로 색인이 생기기 전에 세운 서가에는 없는데, 눌러 봐야 실패하는 단추를
+            두면 사람은 자기가 뭘 잘못했나 싶어집니다. 서버가 그런 서가를 낡은 것으로
+            보고 뒤에서 다시 세우므로 다음에 열면 단추가 있습니다.
+          */}
+          {meta.findable && (
+            <ShelfSearch
+              meta={meta}
+              room={room}
+              open={finding}
+              onOpen={setFinding}
+              onGo={goTo}
+            />
+          )}
           {/* 접혔을 때만 보이는 작은 제목. 큰 제목이 사라진 자리를 대신합니다. */}
           <span className="shelf-head__small">{heading}</span>
         </div>
@@ -461,7 +532,16 @@ function ShelfView({
             <h1 className="shelf-head__title">{heading}</h1>
             <p className="shelf-head__meta">
               <span className="shelf-head__lib">{libraryName}</span>
-              <RoomPick rooms={meta.rooms} current={room} onPick={setRoomSlug} />
+              <RoomPick
+                rooms={meta.rooms}
+                current={room}
+                onPick={(slug) => {
+                  // 자리 번호는 자료실 안에서만 뜻이 있습니다. 그대로 두면 다른
+                  // 자료실의 엉뚱한 자리가 표시됩니다.
+                  setFound(null);
+                  setRoomSlug(slug);
+                }}
+              />
               {room.firstCall && room.lastCall && (
                 <span className="shelf-head__range">
                   {room.firstCall} – {room.lastCall}
@@ -519,7 +599,10 @@ function ShelfView({
                           key={book.isbn + index}
                           book={book}
                           dimmed={picked !== null && book.chosung !== picked}
-                          lifted={picked !== null && book.chosung === picked}
+                          lifted={
+                            index === found || (picked !== null && book.chosung === picked)
+                          }
+                          found={index === found}
                           onPick={() => setNearby(index)}
                         />
                       );

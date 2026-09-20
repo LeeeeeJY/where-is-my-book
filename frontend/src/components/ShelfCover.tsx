@@ -28,6 +28,7 @@ export function ShelfCover({
   book,
   dimmed,
   lifted,
+  found,
   onPick,
 }: {
   book: ShelfBook;
@@ -35,6 +36,14 @@ export function ShelfCover({
   dimmed: boolean;
   /** 고른 초성의 저자일 때. 서가에서 살짝 앞으로 나옵니다. */
   lifted: boolean;
+  /**
+   * 「책 찾기」로 찾아간 바로 그 한 권일 때.
+   *
+   * <p><b>자리로 옮겨만 놓으면 어느 것을 찾은 것인지 알 수 없습니다.</b> 한 화면에
+   * 스무 권이 서 있고 표지에는 글자가 없어서, 그 앞에 세워 주고 끝내면 사람이 다시
+   * 하나씩 눌러 보게 됩니다.
+   */
+  found?: boolean;
   onPick: () => void;
 }) {
   const [failed, setFailed] = useState(false);
@@ -46,6 +55,7 @@ export function ShelfCover({
       className="cover"
       data-dim={dimmed ? '' : undefined}
       data-lift={lifted ? '' : undefined}
+      data-found={found ? '' : undefined}
       onClick={onPick}
       aria-label={describe(book)}
     >

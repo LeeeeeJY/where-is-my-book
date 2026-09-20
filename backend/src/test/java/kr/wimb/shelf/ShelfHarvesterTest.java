@@ -213,6 +213,55 @@ class ShelfHarvesterTest {
         assertTrue(store.meta("141321", Kdc.HISTORY).isEmpty(), "다른 대주제는 따로입니다");
     }
 
+    /**
+     * <b>찾기 색인은 서가와 줄 수가 같고 차례도 같아야 합니다.</b> 줄 번호가 곧 자리
+     * 번호라, 한 줄만 어긋나도 화면은 아무 이상 없이 <b>옆 책</b>을 보여 줍니다.
+     */
+    @Test
+    @DisplayName("찾기 색인을 서가와 같은 차례로 함께 적는다")
+    void writesAFindIndexInTheSameOrderAsTheShelf(@TempDir Path dir) throws IOException {
+        harvest(dir, List.of(
+                book("아몬드", "9788936434267", "813.7", "손66ㅇ", "종합자료실"),
+                book("토지", "9788937437267", "813.6", "박14ㅌ", "종합자료실"),
+                book("코스모스", "9788983711892", "443.1", "세69ㅋ", "종합자료실")));
+
+        List<String> lines = Files.readAllLines(
+                shelfDir(dir, "141321").resolve("r0").resolve("find.txt"), StandardCharsets.UTF_8);
+
+        assertEquals(3, lines.size(), "서가에 선 권수와 같아야 합니다");
+        assertEquals(List.of("코스모스", "토지", "아몬드"),
+                lines.stream().map(line -> line.split("\t", -1)[0]).toList());
+        assertEquals("443.1 세69ㅋ", lines.get(0).split("\t", -1)[2]);
+    }
+
+    /**
+     * 찾기는 <b>세워 둔 파일만 읽습니다.</b> 화면 쪽 통로로 실제로 찾아 봅니다.
+     */
+    @Test
+    @DisplayName("세워 둔 서가에서 자리 번호를 찾는다")
+    void findsAPositionInTheShelfItJustBuilt(@TempDir Path dir) throws IOException {
+        harvest(dir, List.of(
+                book("아몬드", "9788936434267", "813.7", "손66ㅇ", "종합자료실"),
+                book("토지", "9788937437267", "813.6", "박14ㅌ", "종합자료실"),
+                book("코스모스", "9788983711892", "443.1", "세69ㅋ", "종합자료실")));
+        var store = new ShelfStore(dir);
+
+        var found = store.find("141321", Kdc.LITERATURE, "r0", "토지", ShelfFind.LIMIT);
+
+        assertTrue(found.isPresent());
+        assertEquals(1, found.get().total());
+        assertEquals(1, found.get().hits().get(0).at(), "서가에서 둘째 자리입니다");
+
+        // 차림표가 「찾을 수 있다」고 말해야 화면이 단추를 냅니다.
+        assertTrue(metaOf(dir, "141321").get("findable").asBoolean());
+
+        // 주소로 받은 값이 그대로 경로가 되는 것은 여기서도 같습니다.
+        assertTrue(store.find("141321", Kdc.LITERATURE, "../..", "토지", 20).isEmpty());
+        // 아직 세우지 않은 서가는 **「없음」이 아니라 「못 찾음」**입니다. 물어보지 못한
+        // 것을 없다고 답하면 실제로 꽂혀 있는 책을 없다고 말하게 됩니다.
+        assertTrue(store.find("141321", Kdc.HISTORY, "r0", "토지", 20).isEmpty());
+    }
+
     // ── 거들기 ────────────────────────────────────────────────────────────
 
     private static String book(String title, String isbn, String classNo,

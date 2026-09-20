@@ -168,7 +168,8 @@ public class ShelfHarvester {
         // 판 번호는 그대로 둡니다. 여기서 고치는 것은 「확인한 날」뿐이고, 순서를
         // 다시 적은 것이 아닙니다. 올려 버리면 예전 순서인 서가가 최신인 척합니다.
         ShelfMeta updated = new ShelfMeta(meta.libCode(), meta.kdc(), meta.asOf(), checkedAt,
-                meta.chunkSize(), meta.count(), meta.reported(), meta.keyVersion(), meta.rooms());
+                meta.chunkSize(), meta.count(), meta.reported(), meta.keyVersion(),
+                meta.findable(), meta.rooms());
         Files.writeString(dataDir.resolve(libCode).resolve(kdc.slug()).resolve("meta.json"),
                 ShelfJson.meta(updated), StandardCharsets.UTF_8);
     }
@@ -268,12 +269,20 @@ public class ShelfHarvester {
                 nullToEmpty(item.chosung()),
                 nullToEmpty(item.roomName()),
                 nullToEmpty(item.callText()),
+                ShelfFind.line(item),
                 ShelfJson.item(item));
     }
 
-    /** 눌러 담은 조각의 자리. 이름을 붙여 두어야 숫자를 잘못 세지 않습니다. */
+    /**
+     * 눌러 담은 조각의 자리. 이름을 붙여 두어야 숫자를 잘못 세지 않습니다.
+     *
+     * <p>{@code FIND} 는 <b>표제와 저자를 한 번 더 들고 다니는 자리</b>입니다. JSON
+     * 조각에도 같은 글자가 들어 있지만, 그것을 다시 꺼내려면 여기서 JSON 을 읽어야
+     * 합니다. 한 권에 여든 바이트쯤 더 드는데 서가 하나가 10만 권이라도 8MB 라,
+     * 파싱하는 코드를 한 벌 더 두는 값보다 쌉니다.
+     */
     private static final int SORT_KEY = 0, ROOM_CODE = 1, CHOSUNG = 2,
-            ROOM_NAME = 3, CALL_TEXT = 4, JSON = 5;
+            ROOM_NAME = 3, CALL_TEXT = 4, FIND = 5, JSON = 6;
 
     // ── 파일로 적기 ──────────────────────────────────────────────────────
 
@@ -299,7 +308,7 @@ public class ShelfHarvester {
 
         String today = today().toString();
         ShelfMeta meta = new ShelfMeta(libCode, kdc.code(), today, today, CHUNK, packed.size(),
-                reported, ShelfSortKey.VERSION, List.copyOf(rooms));
+                reported, ShelfSortKey.VERSION, true, List.copyOf(rooms));
         Files.writeString(staging.resolve("meta.json"), ShelfJson.meta(meta),
                 StandardCharsets.UTF_8);
 
@@ -323,6 +332,21 @@ public class ShelfHarvester {
             // **첫 자리만 담습니다.** 색인을 눌렀을 때 가는 곳이라 그 초성이 처음
             // 나오는 자리 하나면 충분합니다.
             if (!chosung.isEmpty()) chosungAt.putIfAbsent(chosung, i);
+        }
+
+        /*
+          **찾기 색인을 조각과 함께 적습니다.** 한 줄이 서가의 한 자리이고 줄 번호가
+          곧 자리 번호라, 나중에 찾을 때는 이 파일 한 번 훑기로 끝납니다. 조각을 읽을
+          필요도 JSON 을 되읽을 필요도 없습니다. **빈 줄도 한 줄입니다.** 표제도 저자도
+          없는 자료의 줄을 건너뛰면 그 뒤의 자리 번호가 전부 한 칸씩 밀리는데, 화면은
+          그 번호로 조각을 찾아가므로 엉뚱한 책 앞에 서게 됩니다.
+        */
+        try (Writer out = Files.newBufferedWriter(
+                dir.resolve(ShelfFind.FILE), StandardCharsets.UTF_8)) {
+            for (String row : rows) {
+                out.write(field(row, FIND));
+                out.write('\n');
+            }
         }
 
         int chunks = 0;

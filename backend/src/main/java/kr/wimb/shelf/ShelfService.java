@@ -217,11 +217,12 @@ public class ShelfService {
      *
      * <p><b>뒤엣것이 없으면 정렬 규칙을 고쳐도 서가가 영영 예전 순서로 남습니다.</b>
      * 권수는 그대로일 테니 여기서 늘 건너뛰기 때문입니다. 화면에는 아무 이상이 없어
-     * 보여서, 규칙을 고친 사람은 고쳐졌다고 믿습니다.
+     * 보여서, 규칙을 고친 사람은 고쳐졌다고 믿습니다. 찾기 색인이 빠진 서가도
+     * 마찬가지라 {@link #outOfDate} 가 둘을 함께 봅니다.
      */
     private boolean canSkipRebuild(String libCode, Kdc kdc) {
         Optional<ShelfMeta> meta = readMeta(libCode, kdc);
-        if (meta.isEmpty() || meta.get().keyVersion() != ShelfSortKey.VERSION) return false;
+        if (meta.isEmpty() || outOfDate(meta.get())) return false;
         try {
             return harvester.countOf(libCode, kdc) == meta.get().reported();
         } catch (RuntimeException e) {
@@ -241,16 +242,32 @@ public class ShelfService {
     // ── 거들기 ───────────────────────────────────────────────────────────
 
     private boolean isStale(ShelfMeta meta) {
-        // **순서를 적은 규칙이 바뀌었으면 날짜와 상관없이 낡은 것입니다.** 순서는
-        // 수집할 때 계산해 파일에 적어 두므로, 규칙만 고쳐서는 이미 세워 둔 서가가
-        // 예전 순서 그대로 남습니다.
-        if (meta.keyVersion() != ShelfSortKey.VERSION) return true;
+        if (outOfDate(meta)) return true;
         try {
             return meta.checkedOn().plusDays(refreshDays).isBefore(today());
         } catch (RuntimeException e) {
             // 날짜를 못 읽으면 낡은 것으로 봅니다. 모를 때는 다시 세우는 쪽입니다.
             return true;
         }
+    }
+
+    /**
+     * 날짜와 상관없이 <b>다시 세워야 하는</b> 서가인지.
+     *
+     * <p>둘 다 수집할 때 한 번 적히고 그 뒤로는 파일에 그대로 남는 것이라, 코드만
+     * 고쳐서는 이미 세워 둔 서가가 <b>영영 예전 모양으로 남습니다.</b> 게다가 권수가
+     * 그대로면 갱신도 건너뛰므로 아무도 손대지 않으면 영영입니다.
+     *
+     * <ul>
+     *   <li><b>순서 규칙의 판 번호</b>가 다르면 서가가 예전 순서로 서 있습니다.
+     *       화면에는 아무 이상이 없어 보입니다</li>
+     *   <li><b>찾기 색인</b>이 없으면 그 서가에서는 찾기를 쓸 수 없습니다. 화면은
+     *       단추를 내지 않아 사람이 막다른 길을 만나지는 않지만, 다시 세우기 전에는
+     *       그 상태가 이어집니다</li>
+     * </ul>
+     */
+    private boolean outOfDate(ShelfMeta meta) {
+        return meta.keyVersion() != ShelfSortKey.VERSION || !meta.findable();
     }
 
     private void touchChecked(String libCode, Kdc kdc) {
