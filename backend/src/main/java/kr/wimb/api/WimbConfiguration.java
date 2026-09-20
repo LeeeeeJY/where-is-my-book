@@ -6,6 +6,7 @@ import kr.wimb.holdings.HoldingsLookup;
 import kr.wimb.ingest.ApiBudget;
 import kr.wimb.ingest.InMemoryApiBudget;
 import kr.wimb.shelf.ShelfHarvester;
+import kr.wimb.shelf.ShelfService;
 import kr.wimb.shelf.ShelfStore;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -210,6 +211,20 @@ public class WimbConfiguration implements WebMvcConfigurer {
     public ShelfHarvester shelfHarvester(Data4LibraryClient client,
                                          @Value("${wimb.shelf.data-dir:data/shelf}") String dataDir) {
         return new ShelfHarvester(client, Path.of(dataDir), Clock.systemUTC());
+    }
+
+    /**
+     * 서가를 <b>언제 세울지</b> 정하는 곳. 미리 세워 두지 않고 사람이 여는 것만 세웁니다.
+     * 전국 1,619곳을 미리 받으면 48만 회에 디스크 65GB 라 이 기계에 들어가지 않습니다.
+     */
+    @Bean
+    public ShelfService shelfService(
+            ShelfStore store, ShelfHarvester harvester, ApiBudget budget,
+            @Value("${wimb.shelf.refresh-days:14}") int refreshDays,
+            @Value("${wimb.shelf.max-concurrent-builds:2}") int maxConcurrentBuilds,
+            @Value("${wimb.shelf.reserve-calls:5000}") int reserveCalls) {
+        return new ShelfService(store, harvester, budget, refreshDays, maxConcurrentBuilds,
+                reserveCalls, Clock.systemUTC());
     }
 
     @Bean

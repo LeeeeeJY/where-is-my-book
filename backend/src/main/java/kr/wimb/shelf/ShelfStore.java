@@ -45,42 +45,49 @@ public class ShelfStore {
         this.dataDir = dataDir;
     }
 
-    /** 서가가 적혀 있는 도서관부호. 아직 수집하지 않았으면 비어 있습니다. */
-    public List<String> libraries() {
-        if (!Files.isDirectory(dataDir)) return List.of();
-        try (Stream<Path> dirs = Files.list(dataDir)) {
-            List<String> out = new ArrayList<>();
-            for (Path dir : dirs.toList()) {
-                String name = dir.getFileName().toString();
-                // 수집 중에 생기는 임시 자리(.new, .old)는 모양이 맞지 않아 걸러집니다.
-                if (LIB_CODE.matcher(name).matches() && Files.isReadable(dir.resolve("meta.json"))) {
-                    out.add(name);
-                }
-            }
-            out.sort(null);
-            return out;
-        } catch (IOException e) {
-            return List.of();
+    /**
+     * 그 도서관에 이미 세워 둔 대주제. <b>없는 것은 아직 아무도 열지 않은 것입니다.</b>
+     * 고장이 아니므로 화면이 그렇게 말합니다.
+     */
+    public List<String> builtSubjects(String libCode) {
+        if (!LIB_CODE.matcher(libCode).matches()) return List.of();
+        Path dir = dataDir.resolve(libCode);
+        if (!Files.isDirectory(dir)) return List.of();
+
+        List<String> out = new ArrayList<>();
+        for (Kdc kdc : Kdc.all()) {
+            if (Files.isReadable(dir.resolve(kdc.slug()).resolve("meta.json"))) out.add(kdc.code());
         }
+        return out;
     }
 
-    /** 차림표. 그 도서관 서가를 아직 적지 않았으면 비어 있습니다. */
-    public Optional<byte[]> meta(String libCode) {
+    /** 차림표. 그 서가를 아직 세우지 않았으면 비어 있습니다. */
+    public Optional<byte[]> meta(String libCode, Kdc kdc) {
         if (!LIB_CODE.matcher(libCode).matches()) return Optional.empty();
-        return read(dataDir.resolve(libCode).resolve("meta.json"));
+        return read(dataDir.resolve(libCode).resolve(kdc.slug()).resolve("meta.json"));
     }
 
     /** 조각 하나. 화면이 스크롤하면서 받아 가는 것입니다. */
-    public Optional<byte[]> chunk(String libCode, String roomSlug, int index) {
+    public Optional<byte[]> chunk(String libCode, Kdc kdc, String roomSlug, int index) {
         if (!LIB_CODE.matcher(libCode).matches()) return Optional.empty();
         if (!ROOM_SLUG.matcher(roomSlug).matches()) return Optional.empty();
         if (index < 0) return Optional.empty();
-        return read(dataDir.resolve(libCode).resolve(roomSlug).resolve(index + ".json"));
+        return read(dataDir.resolve(libCode).resolve(kdc.slug())
+                .resolve(roomSlug).resolve(index + ".json"));
     }
 
     /** {@code /api/status} 가 내보냅니다. 배포 뒤에 서가를 잃지 않았는지 봅니다. */
     public int size() {
-        return libraries().size();
+        if (!Files.isDirectory(dataDir)) return 0;
+        try (Stream<Path> dirs = Files.list(dataDir)) {
+            int total = 0;
+            for (Path dir : dirs.toList()) {
+                total += builtSubjects(dir.getFileName().toString()).size();
+            }
+            return total;
+        } catch (IOException e) {
+            return 0;
+        }
     }
 
     private Optional<byte[]> read(Path path) {

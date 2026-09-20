@@ -8,11 +8,20 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
 
 /**
- * 서가 수집을 <b>사람이 부르는 명령</b>으로 돌립니다.
+ * 서가를 <b>미리 세워 두고 싶을 때</b> 쓰는 명령.
+ *
+ * <p>평소에는 필요 없습니다. {@link ShelfService} 가 사람이 여는 서가를 그때그때
+ * 세우므로 아무것도 미리 할 것이 없습니다. <b>이 명령은 「첫 사람을 기다리게 하고
+ * 싶지 않은 서가」를 미리 데워 두는 용도입니다.</b> 자주 쓰는 도서관의 문학 서가처럼
+ * 누가 열 것이 뻔한 자리가 그렇습니다.
  *
  * <pre>{@code
+ * # 도서관 141321 의 문학(8) 서가를 미리 세웁니다
  * docker run --rm -v wimb-data:/data -e D4L_AUTH_KEY=... \
- *     ghcr.io/…/wimb:latest --wimb.shelf.harvest=141321
+ *     ghcr.io/…/wimb:latest --wimb.shelf.harvest=141321:8
+ *
+ * # 여럿이면 쉼표로 잇습니다
+ * --wimb.shelf.harvest=141321:8,141321:9,141053:8
  * }</pre>
  *
  * <h2>왜 화면에서 부를 수 있게 하지 않나</h2>
@@ -46,10 +55,11 @@ public class ShelfHarvestRunner implements ApplicationRunner {
     private final ShelfHarvester harvester;
 
     /**
-     * 수집할 도서관부호를 쉼표로 이어 적습니다. 비어 있으면 아무 일도 하지 않습니다.
+     * 미리 세울 서가를 {@code 도서관부호:대주제} 로 적고 쉼표로 잇습니다. 비어 있으면
+     * 아무 일도 하지 않습니다.
      *
-     * <p>명령줄({@code --wimb.shelf.harvest=141321})로도 환경
-     * 변수({@code WIMB_SHELF_HARVEST=141321})로도 줄 수 있습니다. 도커로 띄울 때는
+     * <p>명령줄({@code --wimb.shelf.harvest=141321:8})로도 환경
+     * 변수({@code WIMB_SHELF_HARVEST=141321:8})로도 줄 수 있습니다. 도커로 띄울 때는
      * 환경 변수가 편합니다.
      */
     private final String asked;
@@ -65,17 +75,30 @@ public class ShelfHarvestRunner implements ApplicationRunner {
         if (asked == null || asked.isBlank()) return;
 
         int failed = 0;
-        for (String libCode : asked.split(",")) {
-            String code = libCode.trim();
+        for (String one : asked.split(",")) {
+            String[] parts = one.trim().split(":", 2);
+            String code = parts[0].trim();
             if (code.isEmpty()) continue;
+
+            // **대주제를 빠뜨리면 무엇을 세울지 알 수 없습니다.** 예전에는 도서관
+            // 전체를 세웠지만 지금은 대주제가 서가의 단위입니다. 넘겨짚어 하나를
+            // 고르면 엉뚱한 서가를 수백 회 들여 세우게 됩니다.
+            Kdc kdc = parts.length == 2 ? Kdc.of(parts[1]).orElse(null) : null;
+            if (kdc == null) {
+                log.error("「도서관부호:대주제」로 적어 주세요(0 총류 ~ 9 역사). 받은 값: {}", one);
+                failed++;
+                continue;
+            }
+
             try {
-                ShelfMeta meta = harvester.harvest(code);
-                log.info("도서관 {}: 복본 {}권, 자료실 {}곳, 기준일 {}. 정보나루가 말한 장서는 {}건입니다.",
-                        code, meta.count(), meta.rooms().size(), meta.asOf(), meta.reported());
+                ShelfMeta meta = harvester.harvest(code, kdc);
+                log.info("도서관 {} {}: 복본 {}권, 자료실 {}곳, 기준일 {}. 정보나루가 말한 장서는 {}건입니다.",
+                        code, kdc.label(), meta.count(), meta.rooms().size(),
+                        meta.asOf(), meta.reported());
             } catch (Exception e) {
                 // **한 곳이 실패해도 나머지는 받습니다.** 다만 나갈 때 알립니다.
                 // 조용히 성공한 척하면 반쯤 만들어진 서가를 배포하게 됩니다.
-                log.error("도서관 {} 서가를 만들지 못했습니다: {}", code, e.toString());
+                log.error("도서관 {} 서가를 만들지 못했습니다: {}", one.trim(), e.toString());
                 failed++;
             }
         }

@@ -172,8 +172,8 @@ class ShelfHarvesterTest {
 
         assertEquals(List.of("토지", "아몬드"), titlesIn(dir, "141321", "r0", 0));
         // 임시 자리가 남아 있으면 다음 수집이 예전 찌꺼기 위에 적습니다.
-        assertFalse(Files.exists(dir.resolve("141321.new")));
-        assertFalse(Files.exists(dir.resolve("141321.old")));
+        assertFalse(Files.exists(dir.resolve("141321").resolve(Kdc.LITERATURE.slug() + ".new")));
+        assertFalse(Files.exists(dir.resolve("141321").resolve(Kdc.LITERATURE.slug() + ".old")));
     }
 
     @Test
@@ -200,16 +200,17 @@ class ShelfHarvesterTest {
         harvest(dir, List.of(book("토지", "9788937437267", "813.6", "박14ㅌ", "종합자료실")));
         var store = new ShelfStore(dir);
 
-        assertEquals(List.of("141321"), store.libraries());
-        assertTrue(store.meta("141321").isPresent());
-        assertTrue(store.chunk("141321", "r0", 0).isPresent());
+        assertEquals(List.of("8"), store.builtSubjects("141321"));
+        assertTrue(store.meta("141321", Kdc.LITERATURE).isPresent());
+        assertTrue(store.chunk("141321", Kdc.LITERATURE, "r0", 0).isPresent());
 
         // 도서관부호와 자리 이름이 그대로 파일 경로가 되므로 모양이 맞는 것만 받습니다.
-        assertTrue(store.meta("../../etc").isEmpty());
-        assertTrue(store.chunk("141321", "../..", 0).isEmpty());
-        assertTrue(store.chunk("141321", "r0", -1).isEmpty());
-        // 아직 수집하지 않은 도서관은 비어 있습니다. 고장이 아닙니다.
-        assertTrue(store.meta("111001").isEmpty());
+        assertTrue(store.meta("../../etc", Kdc.LITERATURE).isEmpty());
+        assertTrue(store.chunk("141321", Kdc.LITERATURE, "../..", 0).isEmpty());
+        assertTrue(store.chunk("141321", Kdc.LITERATURE, "r0", -1).isEmpty());
+        // 아직 세우지 않은 서가는 비어 있습니다. 고장이 아닙니다.
+        assertTrue(store.meta("111001", Kdc.LITERATURE).isEmpty());
+        assertTrue(store.meta("141321", Kdc.HISTORY).isEmpty(), "다른 대주제는 따로입니다");
     }
 
     // ── 거들기 ────────────────────────────────────────────────────────────
@@ -240,18 +241,24 @@ class ShelfHarvesterTest {
     private static ShelfMeta harvestXml(Path dir, String xml) throws IOException {
         var budget = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 10_000), NOON);
         var client = new Data4LibraryClient(new OnePageTransport(xml), "테스트키", budget);
-        return new ShelfHarvester(client, dir, NOON).harvest("141321");
+        return new ShelfHarvester(client, dir, NOON).harvest("141321", Kdc.LITERATURE);
     }
 
     private static JsonNode metaOf(Path dir, String libCode) throws IOException {
         return JSON.readTree(Files.readString(
-                dir.resolve(libCode).resolve("meta.json"), StandardCharsets.UTF_8));
+                shelfDir(dir, libCode).resolve("meta.json"), StandardCharsets.UTF_8));
+    }
+
+    /** 서가는 (도서관 × 대주제)마다 하나입니다. */
+    private static Path shelfDir(Path dir, String libCode) {
+        return dir.resolve(libCode).resolve(Kdc.LITERATURE.slug());
     }
 
     private static List<String> titlesIn(Path dir, String libCode, String slug, int chunk)
             throws IOException {
         JsonNode rows = JSON.readTree(Files.readString(
-                dir.resolve(libCode).resolve(slug).resolve(chunk + ".json"), StandardCharsets.UTF_8));
+                shelfDir(dir, libCode).resolve(slug).resolve(chunk + ".json"),
+                StandardCharsets.UTF_8));
         List<String> titles = new ArrayList<>();
         for (JsonNode row : rows) titles.add(row.get("title").asText());
         return titles;

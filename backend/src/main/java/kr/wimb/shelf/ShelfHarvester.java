@@ -24,17 +24,25 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 /**
- * 도서관 장서 전체를 받아 <b>서가 순서로 정렬해 파일로 적어 둡니다.</b>
+ * 도서관의 대주제 하나를 받아 <b>서가 순서로 정렬해 파일로 적어 둡니다.</b>
  *
- * <h2>왜 미리 받아 두나</h2>
+ * <h2>왜 그때그때 받지 못하나</h2>
  *
  * <p>서가를 청구기호 순으로 보여 주려면 전체를 한 줄로 세워야 하는데, 정보나루는 두
  * 가지를 해 주지 않습니다. <b>정렬해서 주지 않고</b>({@code itemSrch} 에 정렬 항목이
- * 없습니다), <b>한 번에 몇백 권씩만 줍니다.</b> 20만 권이면 수백~수천 번을 불러야 하고
- * 한 번이 3초쯤 걸립니다. 화면을 열 때마다 그럴 수는 없습니다.
+ * 없습니다), <b>한 번에 몇백 권씩만 줍니다.</b> 그래서 받아 온 한 쪽은 그 갈래 안에서
+ * 아무렇게나 뽑힌 500권이고, 그것만 정렬하면 한 줄에 서로 다른 서가의 책이 섭니다.
+ * 「813.6 다음에 무엇이 꽂혀 있나」는 그 갈래를 다 보고 나서야 답할 수 있습니다.
  *
- * <p>그래서 사람이 한 번 돌려 두면, 그 뒤로 서가를 몇 명이 몇 번을 열든 <b>정보나루
+ * <p>그래서 한 번 세워 두면, 그 뒤로 그 서가를 몇 명이 몇 번을 열든 <b>정보나루
  * 호출이 한 건도 나가지 않습니다.</b>
+ *
+ * <h2>대주제 하나씩 세웁니다</h2>
+ *
+ * <p>도서관 전체는 15만~40만 권이라 한 번에 300회를 부르고, 전국 1,619곳이면 48만
+ * 회입니다. 하루 한도가 25,000이라 스무 날이 걸리고 디스크도 65GB 라 들어가지
+ * 않습니다. <b>대주제로 자르고 사람이 여는 것만 세우면</b> 그 둘이 함께 풀립니다.
+ * 자세한 것은 {@link Kdc} 에 적어 두었습니다.
  *
  * <h2>등록된 IP 에서만 돌립니다</h2>
  *
@@ -105,26 +113,78 @@ public class ShelfHarvester {
      *
      * @return 적어 둔 서가의 요약
      */
-    public ShelfMeta harvest(String libCode) throws IOException {
+    public ShelfMeta harvest(String libCode, Kdc kdc) throws IOException {
+        return harvest(libCode, kdc, new Progress());
+    }
+
+    /**
+     * @param progress 화면이 「서가를 세우는 중입니다 60%」를 그릴 수 있게 진행 상황을
+     *                 여기에 적습니다. <b>진행률이 없으면 멈춘 것과 구별되지 않아</b>
+     *                 사람이 새로 고치고, 그러면 같은 일을 다시 시작하게 됩니다
+     */
+    public ShelfMeta harvest(String libCode, Kdc kdc, Progress progress) throws IOException {
         long startedAt = System.nanoTime();
 
-        int pageSize = probePageSize(libCode);
-        int total = client.catalogCount(libCode, null, ApiBudget.Priority.BACKGROUND);
+        int pageSize = probePageSize(libCode, kdc);
+        int total = countOf(libCode, kdc);
         if (total <= 0) throw new IOException("장서 건수를 받지 못했습니다: 도서관 " + libCode);
 
         int pages = (total + pageSize - 1) / pageSize;
-        log.info("서가 수집을 시작합니다. 도서관 {}, 장서 {}건, 쪽 크기 {}, {}쪽",
-                libCode, total, pageSize, pages);
+        progress.pages = pages;
+        log.info("서가 수집을 시작합니다. 도서관 {}, {}, 장서 {}건, 쪽 크기 {}, {}쪽",
+                libCode, kdc.label(), total, pageSize, pages);
 
-        List<String> packed = collect(libCode, pages, pageSize);
+        List<String> packed = collect(libCode, kdc, pages, pageSize, progress);
         // 서가 순서는 열쇠의 글자 순서 그대로입니다. 여기서 한 번만 세웁니다.
         packed.sort(null);
 
-        ShelfMeta meta = write(libCode, packed, total);
-        log.info("서가 수집을 마쳤습니다. 도서관 {}, 복본 {}권, 자료실 {}곳, {}초",
-                libCode, meta.count(), meta.rooms().size(),
+        ShelfMeta meta = write(libCode, kdc, packed, total);
+        log.info("서가 수집을 마쳤습니다. 도서관 {}, {}, 복본 {}권, 자료실 {}곳, {}초",
+                libCode, kdc.label(), meta.count(), meta.rooms().size(),
                 (System.nanoTime() - startedAt) / 1_000_000_000L);
         return meta;
+    }
+
+    /**
+     * 그 서가에 몇 권이 있는지만 물어봅니다. <b>한 번이면 됩니다.</b>
+     *
+     * <p>다시 세울 때가 되었는지 볼 때 먼저 부릅니다. 권수가 그대로면 다시 세우지
+     * 않아 40회를 아낍니다. 신착과 폐기가 같은 수만큼 일어나면 못 잡지만, 그 경우는
+     * 기한이 다 차면 어차피 다시 세웁니다.
+     */
+    public int countOf(String libCode, Kdc kdc) {
+        return client.catalogCount(libCode, kdc.code(), ApiBudget.Priority.BACKGROUND);
+    }
+
+    /**
+     * 차림표의 <b>확인한 날짜만</b> 고쳐 씁니다. 책은 그대로 둡니다.
+     *
+     * <p>권수를 물어봤더니 그대로였을 때 쓰는 길입니다. 다시 세우지 않고 이 날짜만
+     * 올려 두면 기한이 다시 차기 전까지 묻지 않습니다. <b>기준일({@code asOf})은
+     * 건드리지 않습니다.</b> 받아 온 적 없는 날짜를 받아 온 것처럼 말하게 됩니다.
+     */
+    public void rewriteCheckedAt(String libCode, Kdc kdc, ShelfMeta meta, String checkedAt)
+            throws IOException {
+        ShelfMeta updated = new ShelfMeta(meta.libCode(), meta.kdc(), meta.asOf(), checkedAt,
+                meta.chunkSize(), meta.count(), meta.reported(), meta.rooms());
+        Files.writeString(dataDir.resolve(libCode).resolve(kdc.slug()).resolve("meta.json"),
+                ShelfJson.meta(updated), StandardCharsets.UTF_8);
+    }
+
+    /** 서가를 세우는 동안의 진행 상황. 화면이 이것으로 막대를 그립니다. */
+    public static final class Progress {
+        private volatile int pages;
+        private volatile int donePages;
+        private volatile int books;
+
+        public int pages() { return pages; }
+        public int donePages() { return donePages; }
+        public int books() { return books; }
+
+        /** 0~100. 쪽 수를 아직 모르면 0 입니다. */
+        public int percent() {
+            return pages <= 0 ? 0 : Math.min(100, donePages * 100 / pages);
+        }
     }
 
     // ── 받아 오기 ────────────────────────────────────────────────────────
@@ -133,8 +193,8 @@ public class ShelfHarvester {
      * 쪽 크기를 실제로 재 봅니다. <b>달라는 대로 준다고 믿지 않습니다.</b>
      * 첫 쪽을 크게 물어보고 몇 건이 왔는지 셉니다.
      */
-    private int probePageSize(String libCode) {
-        List<BookInfo> first = client.catalogPage(libCode, null, 1, WANTED_PAGE_SIZE,
+    private int probePageSize(String libCode, Kdc kdc) {
+        List<BookInfo> first = client.catalogPage(libCode, kdc.code(), 1, WANTED_PAGE_SIZE,
                 ApiBudget.Priority.BACKGROUND);
         int got = first.size();
         if (got >= WANTED_PAGE_SIZE) return WANTED_PAGE_SIZE;
@@ -144,20 +204,23 @@ public class ShelfHarvester {
         return got;
     }
 
-    private List<String> collect(String libCode, int pages, int pageSize) throws IOException {
+    private List<String> collect(String libCode, Kdc kdc, int pages, int pageSize,
+                                 Progress progress) throws IOException {
         List<String> packed = new ArrayList<>();
         try (var pool = Executors.newVirtualThreadPerTaskExecutor()) {
             for (int from = 1; from <= pages; from += PAGES_IN_FLIGHT) {
                 List<Future<List<BookInfo>>> batch = new ArrayList<>();
                 for (int page = from; page < from + PAGES_IN_FLIGHT && page <= pages; page++) {
                     int at = page;
-                    batch.add(pool.submit(() -> client.catalogPage(libCode, null, at, pageSize,
-                            ApiBudget.Priority.BACKGROUND)));
+                    batch.add(pool.submit(() -> client.catalogPage(libCode, kdc.code(), at,
+                            pageSize, ApiBudget.Priority.BACKGROUND)));
                 }
                 for (Future<List<BookInfo>> future : batch) {
                     for (BookInfo book : get(future)) {
                         for (ShelfItem item : ShelfItem.of(book)) packed.add(pack(item));
                     }
+                    progress.donePages++;
+                    progress.books = packed.size();
                 }
                 if ((from / PAGES_IN_FLIGHT) % 20 == 0) {
                     log.info("  {}/{}쪽, 지금까지 {}권", Math.min(from + PAGES_IN_FLIGHT - 1, pages),
@@ -212,9 +275,12 @@ public class ShelfHarvester {
 
     // ── 파일로 적기 ──────────────────────────────────────────────────────
 
-    private ShelfMeta write(String libCode, List<String> packed, int reported) throws IOException {
-        Path target = dataDir.resolve(libCode);
-        Path staging = dataDir.resolve(libCode + ".new");
+    private ShelfMeta write(String libCode, Kdc kdc, List<String> packed, int reported)
+            throws IOException {
+        Path shelfDir = dataDir.resolve(libCode);
+        Files.createDirectories(shelfDir);
+        Path target = shelfDir.resolve(kdc.slug());
+        Path staging = shelfDir.resolve(kdc.slug() + ".new");
         deleteTree(staging);
         Files.createDirectories(staging);
 
@@ -229,13 +295,14 @@ public class ShelfHarvester {
             at = end;
         }
 
-        ShelfMeta meta = new ShelfMeta(libCode, today().toString(), CHUNK, packed.size(),
+        String today = today().toString();
+        ShelfMeta meta = new ShelfMeta(libCode, kdc.code(), today, today, CHUNK, packed.size(),
                 reported, List.copyOf(rooms));
         Files.writeString(staging.resolve("meta.json"), ShelfJson.meta(meta),
                 StandardCharsets.UTF_8);
 
         // 마지막 한 걸음만 갈아 끼웁니다. 그 전까지는 예전 서가가 그대로 답합니다.
-        Path retired = dataDir.resolve(libCode + ".old");
+        Path retired = shelfDir.resolve(kdc.slug() + ".old");
         deleteTree(retired);
         if (Files.exists(target)) Files.move(target, retired, StandardCopyOption.ATOMIC_MOVE);
         Files.move(staging, target, StandardCopyOption.ATOMIC_MOVE);

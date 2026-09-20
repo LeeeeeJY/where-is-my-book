@@ -58,7 +58,9 @@ final class ShelfJson {
     static String meta(ShelfMeta meta) {
         StringBuilder out = new StringBuilder(1024).append('{');
         next(out, "libCode", meta.libCode());
+        next(out, "kdc", meta.kdc());
         next(out, "asOf", meta.asOf());
+        next(out, "checkedAt", meta.checkedAt());
         num(out, "chunkSize", meta.chunkSize());
         num(out, "count", meta.count());
         num(out, "reported", meta.reported());

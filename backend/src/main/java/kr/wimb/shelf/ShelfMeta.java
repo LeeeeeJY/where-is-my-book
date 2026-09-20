@@ -8,10 +8,16 @@ import java.util.Map;
  * 이것뿐입니다. 책은 조각 파일에 있고 필요할 때만 읽습니다.
  *
  * @param libCode   도서관부호
+ * @param kdc       이 서가의 대주제. 도서관 하나가 대주제마다 서가 하나씩 갖습니다
  * @param asOf      <b>장서 데이터 기준일.</b> 수집을 끝낸 한국 날짜입니다.
  *                  책마다 오는 등록일자({@code reg_date})와 다릅니다. 그쪽은 그 책이
  *                  들어온 날이고, 이것은 우리가 받아 온 날입니다. 화면 머리에 그대로
  *                  나가며, <b>실시간이 아니라는 것을 숨기지 않으려는 표시입니다</b>
+ * @param checkedAt 마지막으로 <b>바뀌었는지 확인한</b> 날. {@link #asOf} 와 다릅니다.
+ *                  권수만 물어봐서(1회) 그대로였으면 다시 세우지 않고 이 날짜만
+ *                  올립니다. 그때 {@code asOf} 를 함께 올리면 <b>받아 온 적 없는
+ *                  날짜를 받아 온 것처럼 말하게 됩니다.</b> 화면에 나가는 것은
+ *                  {@code asOf} 이고, 다시 세울 때가 되었는지는 이 값으로 셉니다
  * @param chunkSize 조각 하나에 든 권수
  * @param count     서가에 세운 복본 수. 책 수가 아닙니다
  * @param reported  정보나루가 말한 장서 건수({@code numFound}).
@@ -22,7 +28,9 @@ import java.util.Map;
  */
 public record ShelfMeta(
         String libCode,
+        String kdc,
         String asOf,
+        String checkedAt,
         int chunkSize,
         int count,
         int reported,
@@ -57,4 +65,10 @@ public record ShelfMeta(
             String lastCall,
             Map<String, Integer> chosungAt
     ) {}
+
+    /** 확인한 지 며칠 지났는지 셉니다. 확인한 적이 없으면 수집일부터 셉니다. */
+    public java.time.LocalDate checkedOn() {
+        String at = checkedAt == null || checkedAt.isBlank() ? asOf : checkedAt;
+        return java.time.LocalDate.parse(at);
+    }
 }
