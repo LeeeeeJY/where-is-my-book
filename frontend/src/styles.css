@@ -1512,7 +1512,11 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
 .nearby__facts dt { font-size: 11px; color: var(--muted); }
 .nearby__facts dd { margin: 0; font-weight: 600; }
 .nearby__call { font-family: var(--display); letter-spacing: 0.02em; }
-.nearby__go { margin: 14px 0 0; }
+/*
+  대출 확인과 도서관 링크가 나란히 섭니다. `.chips` 가 줄바꿈까지 맡으므로 좁은 화면에서는
+  아래로 떨어집니다. 답(`.loan`)이 단추 자리에 그대로 들어오므로 가운데로 맞춥니다.
+*/
+.nearby__go { margin: 14px 0 0; align-items: center; }
 
 /*
   좌우 단추. 손가락으로 넘길 수 있지만 **그것만으로는 넘길 수 있다는 것을 모릅니다.**

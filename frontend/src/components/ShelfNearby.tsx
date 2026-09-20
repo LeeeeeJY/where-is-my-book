@@ -4,6 +4,7 @@ import type { Library } from '../domain/types';
 import { coverPaper } from '../domain/coverPaper';
 import { linkBadge, linkLabel } from '../domain/opacLink';
 import { locate } from '../domain/shelfLayout';
+import { LoanCheck } from './LoanCheck';
 
 /**
  * 고른 책을 가운데 두고 <b>그 양옆에 실제로 꽂혀 있는 책</b>을 보여 줍니다.
@@ -227,7 +228,17 @@ export function ShelfNearby({
               없는 도서관은 홈페이지로 내려앉고, 그 사실은 `linkLabel` 이 밝힙니다.
               조용히 강등하면 사용자는 검색 결과 자체가 틀렸다고 생각합니다.
             */}
-            <p className="nearby__go">
+            {/*
+              **여기서는 ISBN 하나만 물어봅니다.** 「저작에 묶인 판본을 전부 물어보라」는
+              규칙은 <b>그 도서관이 어느 판을 가졌는지 모를 때</b>의 규칙인데, 서가에 선
+              이 책은 정보나루가 <b>그 도서관의 장서로 알려 준 바로 그 ISBN</b> 입니다.
+              청구기호까지 함께 온 그 한 권을 지금 눈앞에서 보고 있는 것이라, 다른 판을
+              끼워 물으면 <b>옆 서가에 있는 다른 책의 대출 상태를 이 책의 것으로</b>
+              보여 주게 됩니다. 소장 조회를 이 화면에 붙이게 되면 이 예외도 함께
+              거둬들여야 합니다.
+            */}
+            <p className="nearby__go chips">
+              <LoanCheck libCode={meta.libCode} isbn13List={[center.isbn]} />
               <a
                 className="chip chip--strong chip--go chip--wrap"
                 href={libraryLink(meta.libCode, [center.isbn], center.title)}
