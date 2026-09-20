@@ -378,11 +378,13 @@ public final class Data4LibraryClient {
     }
 
     /**
-     * 장서의 한 쪽. 청구기호까지 붙여 돌려줍니다.
+     * 장서의 한 쪽. <b>복본마다의 청구기호 조각까지 붙여 돌려줍니다.</b>
      *
      * <p>청구기호는 {@code callNumbers > callNumber} 로 한 겹 더 들어가 있어
      * {@link Data4LibraryResponse#items} 가 걸러 냅니다. 그래서 항목마다 따로 읽습니다.
-     * <b>서가에서 책을 찾을 때 실제로 쓰는 값</b>이라 버리면 안 됩니다.
+     * <b>자리로 맞추지 않고 {@code doc} 안쪽만 봅니다.</b> 복본이 둘인 책 하나 때문에
+     * 그 뒤가 전부 밀리면 엉뚱한 책의 청구기호가 붙는데, 그건 서가에서 헛걸음하게
+     * 만드는 값입니다.
      */
     public List<BookInfo> catalogPage(String libCode, String kdc, int pageNo, int pageSize,
                                       ApiBudget.Priority priority) {
@@ -398,32 +400,15 @@ public final class Data4LibraryClient {
                 .map(BookInfo::from)
                 .toList();
 
-        // 청구기호는 doc 안에 한 겹 더 들어가 있습니다. **자리로 맞추지 않고 doc 안쪽만
-        // 봅니다.** 복본이 둘인 책 하나 때문에 그 뒤가 전부 밀리면 엉뚱한 책의 청구기호가
-        // 붙는데, 그건 서가에서 헛걸음하게 만드는 값입니다.
         List<List<Map<String, String>>> perBook = Data4LibraryResponse.nested(xml, "doc", "callNumber");
         if (perBook.size() != books.size()) return books;
 
         List<BookInfo> out = new ArrayList<>(books.size());
         for (int i = 0; i < books.size(); i++) {
-            out.add(books.get(i).withCallNumber(firstCallNumber(perBook.get(i))));
+            out.add(books.get(i).withCallNumbers(
+                    perBook.get(i).stream().map(CallNumber::from).toList()));
         }
         return out;
-    }
-
-    /**
-     * 복본 가운데 첫 청구기호. <b>읽을 수 있을 때만 돌려줍니다.</b>
-     *
-     * <p>매뉴얼로는 {@code callNumber} 가 잎인지 상자인지 알 수 없습니다. 잎이면 그
-     * 글자가 곧 청구기호입니다. 상자로 온다면 별치·배가·도서·복본 기호를 어떤 순서로
-     * 이어 붙여야 하는지 <b>우리가 정할 근거가 없으므로 지어내지 않고 비웁니다.</b>
-     * 화면은 청구기호가 없는 경우를 이미 다루고, 없는 것보다 틀린 청구기호가 나쁩니다.
-     * 실제 응답을 본 뒤에 여기를 다시 보세요.
-     */
-    private static String firstCallNumber(List<Map<String, String>> copies) {
-        if (copies.isEmpty()) return null;
-        String own = copies.get(0).get("");
-        return own == null || own.isBlank() ? null : own;
     }
 
     /** {@link HoldingsLookup} 이 쓰는 형태로 감쌉니다. */
