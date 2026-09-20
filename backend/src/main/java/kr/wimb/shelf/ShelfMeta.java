@@ -25,6 +25,12 @@ import java.util.Map;
  *                  서가에 세우지 않고, 복본이 있는 책은 여러 줄이 됩니다. 두 숫자를
  *                  함께 두는 이유는 <b>차이가 갑자기 벌어졌을 때 알아채기 위해서</b>입니다.
  *                  하나만 있으면 수집이 반쯤 되다 말았는지 원래 그런지 구별할 수 없습니다
+ * @param keyVersion 이 서가를 세울 때 쓴 <b>순서 규칙의 판 번호</b>
+ *                  ({@link ShelfSortKey#VERSION}). 순서는 수집할 때 계산해 파일에 적어
+ *                  두므로, 규칙을 고쳐도 이미 세워 둔 서가는 예전 순서 그대로입니다.
+ *                  번호가 다르면 서버가 낡은 것으로 보고 뒤에서 다시 세웁니다.
+ *                  <b>이 값이 없던 때에 만든 차림표는 0 으로 읽혀 다시 세워집니다.</b>
+ *                  의도한 동작입니다
  */
 public record ShelfMeta(
         String libCode,
@@ -34,6 +40,7 @@ public record ShelfMeta(
         int chunkSize,
         int count,
         int reported,
+        int keyVersion,
         List<Room> rooms
 ) {
 

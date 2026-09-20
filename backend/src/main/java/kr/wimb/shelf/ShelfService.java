@@ -186,7 +186,7 @@ public class ShelfService {
             }
 
             try {
-                if (refresh && unchanged(libCode, kdc)) {
+                if (refresh && canSkipRebuild(libCode, kdc)) {
                     // 권수가 그대로면 다시 세우지 않고 확인한 날짜만 올립니다. 호출
                     // 한 번으로 수십~수백 번을 아낍니다. **기준일은 건드리지 않습니다.**
                     // 받아 온 적 없는 날짜를 받아 온 것처럼 말하게 됩니다.
@@ -208,16 +208,22 @@ public class ShelfService {
     }
 
     /**
-     * 권수가 그대로인지 한 번 물어봅니다.
+     * 다시 세우지 않고 <b>확인한 날짜만 올려도 되는지.</b>
      *
-     * <p>신착과 폐기가 같은 수만큼 일어나면 못 잡습니다. 그래도 값이 있는 이유는
-     * <b>대부분의 날에는 아무것도 안 바뀌기 때문</b>이고, 못 잡은 경우도 기한이 다시
-     * 차면 어차피 세우게 됩니다. 한 번으로 수백 번을 아끼는 쪽을 고릅니다.
+     * <p>둘을 함께 봅니다. <b>책이 그대로인가</b>와 <b>순서를 적은 규칙이 그대로인가</b>
+     * 입니다. 권수는 한 번 물어보면 알 수 있어서 수십~수백 번을 아낍니다. 신착과 폐기가
+     * 같은 수만큼 일어나면 못 잡지만, 대부분의 날에는 아무것도 안 바뀌고 못 잡은 것도
+     * 기한이 다시 차면 어차피 세우게 됩니다.
+     *
+     * <p><b>뒤엣것이 없으면 정렬 규칙을 고쳐도 서가가 영영 예전 순서로 남습니다.</b>
+     * 권수는 그대로일 테니 여기서 늘 건너뛰기 때문입니다. 화면에는 아무 이상이 없어
+     * 보여서, 규칙을 고친 사람은 고쳐졌다고 믿습니다.
      */
-    private boolean unchanged(String libCode, Kdc kdc) {
+    private boolean canSkipRebuild(String libCode, Kdc kdc) {
+        Optional<ShelfMeta> meta = readMeta(libCode, kdc);
+        if (meta.isEmpty() || meta.get().keyVersion() != ShelfSortKey.VERSION) return false;
         try {
-            Optional<ShelfMeta> meta = readMeta(libCode, kdc);
-            return meta.isPresent() && harvester.countOf(libCode, kdc) == meta.get().reported();
+            return harvester.countOf(libCode, kdc) == meta.get().reported();
         } catch (RuntimeException e) {
             // 물어보지 못했으면 그대로인지 알 수 없습니다. 모를 때는 세우는 쪽입니다.
             return false;
@@ -235,6 +241,10 @@ public class ShelfService {
     // ── 거들기 ───────────────────────────────────────────────────────────
 
     private boolean isStale(ShelfMeta meta) {
+        // **순서를 적은 규칙이 바뀌었으면 날짜와 상관없이 낡은 것입니다.** 순서는
+        // 수집할 때 계산해 파일에 적어 두므로, 규칙만 고쳐서는 이미 세워 둔 서가가
+        // 예전 순서 그대로 남습니다.
+        if (meta.keyVersion() != ShelfSortKey.VERSION) return true;
         try {
             return meta.checkedOn().plusDays(refreshDays).isBefore(today());
         } catch (RuntimeException e) {

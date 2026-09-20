@@ -165,8 +165,10 @@ public class ShelfHarvester {
      */
     public void rewriteCheckedAt(String libCode, Kdc kdc, ShelfMeta meta, String checkedAt)
             throws IOException {
+        // 판 번호는 그대로 둡니다. 여기서 고치는 것은 「확인한 날」뿐이고, 순서를
+        // 다시 적은 것이 아닙니다. 올려 버리면 예전 순서인 서가가 최신인 척합니다.
         ShelfMeta updated = new ShelfMeta(meta.libCode(), meta.kdc(), meta.asOf(), checkedAt,
-                meta.chunkSize(), meta.count(), meta.reported(), meta.rooms());
+                meta.chunkSize(), meta.count(), meta.reported(), meta.keyVersion(), meta.rooms());
         Files.writeString(dataDir.resolve(libCode).resolve(kdc.slug()).resolve("meta.json"),
                 ShelfJson.meta(updated), StandardCharsets.UTF_8);
     }
@@ -297,7 +299,7 @@ public class ShelfHarvester {
 
         String today = today().toString();
         ShelfMeta meta = new ShelfMeta(libCode, kdc.code(), today, today, CHUNK, packed.size(),
-                reported, List.copyOf(rooms));
+                reported, ShelfSortKey.VERSION, List.copyOf(rooms));
         Files.writeString(staging.resolve("meta.json"), ShelfJson.meta(meta),
                 StandardCharsets.UTF_8);
 
