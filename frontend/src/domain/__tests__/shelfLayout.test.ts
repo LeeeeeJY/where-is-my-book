@@ -5,7 +5,9 @@ import {
   chunksFor,
   locate,
   rowCount,
+  rowAtTop,
   scrollToRow,
+  scrollToSection,
   visibleRows,
 } from '../shelfLayout';
 
@@ -127,5 +129,34 @@ describe('초성을 눌렀을 때 가는 자리', () => {
 
   it('머리말이 아무리 커도 문서 위로는 올라가지 않는다', () => {
     expect(scrollToRow(1, 200, 800, 9999)).toBe(0);
+  });
+
+  /**
+   * **갈래로 갈 때는 위를 남기지 않습니다.** 남기면 화면 맨 위가 앞 갈래의 끝이
+   * 되는데, 그러면 큰 제목과 갈래 목록이 방금 고른 것이 아니라 앞 갈래를 말해서
+   * 누른 것이 먹히지 않은 것처럼 보입니다.
+   */
+  it('갈래로 갈 때는 그 줄이 머리말 바로 아래 온다', () => {
+    expect(scrollToSection(10, 200, 60)).toBe(10 * 200 - 60);
+    // 초성과 찾기는 반대로 위를 남깁니다. 둘이 같아지면 안 됩니다.
+    expect(scrollToSection(10, 200, 60)).toBeGreaterThan(scrollToRow(10, 200, 800, 60));
+  });
+
+  it('갈래로 가도 문서 위로는 올라가지 않는다', () => {
+    expect(scrollToSection(0, 200, 60)).toBe(0);
+  });
+
+  /**
+   * 큰 제목은 **보이는 줄**을 말해야 합니다. 그려 둔 줄의 첫 줄로 세면 화면에 없는
+   * 갈래를 말하게 됩니다.
+   */
+  it('맨 위에 보이는 줄을 센다', () => {
+    expect(rowAtTop(0, 200, 50)).toBe(0);
+    expect(rowAtTop(199, 200, 50)).toBe(0);
+    expect(rowAtTop(200, 200, 50)).toBe(1);
+    // 서가 위로 올라가 있거나 끝을 넘어가도 있는 줄만 가리킵니다.
+    expect(rowAtTop(-500, 200, 50)).toBe(0);
+    expect(rowAtTop(999_999, 200, 50)).toBe(49);
+    expect(rowAtTop(100, 0, 50)).toBe(0);
   });
 });

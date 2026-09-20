@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { fetchShelfChunk, libraryLink, type ShelfBook, type ShelfMeta, type ShelfRoom } from '../api';
+import {
+  SHELF_SHAPE_FINDABLE,
+  fetchShelfChunk,
+  libraryLink,
+  type ShelfBook,
+  type ShelfMeta,
+  type ShelfRoom,
+} from '../api';
 import type { Library } from '../domain/types';
 import { coverPaper } from '../domain/coverPaper';
 import { linkBadge, linkLabel } from '../domain/opacLink';
@@ -39,9 +46,7 @@ export function ShelfNearby({
   onMove: (index: number) => void;
 }) {
   const [chunks, setChunks] = useState<Map<number, ShelfBook[]>>(new Map());
-  const [dragging, setDragging] = useState(false);
   const [finding, setFinding] = useState(false);
-  const ruler = useRef<HTMLDivElement>(null);
 
   /*
     가운데 책과 양옆 둘씩이면 다섯 칸입니다. 조각 경계에 걸치면 이웃 조각도 받아야
@@ -102,25 +107,6 @@ export function ShelfNearby({
     [index, room.count, onMove],
   );
 
-  /**
-   * 눈금을 손으로 끌어 자리를 옮깁니다.
-   *
-   * <p>좌우로 한 권씩 넘기는 것만으로는 **수천 권짜리 서가를 가로지를 수 없습니다.**
-   * 눈금이 이미 「전체에서 어디쯤인가」를 말하고 있으므로, 그것을 끌 수 있게 하면 그
-   * 자리로 바로 갑니다. 서가 앞에서 옆으로 걸어가는 것과 통째로 자리를 옮기는 것은
-   * 다른 동작입니다.
-   */
-  const seek = useCallback(
-    (clientX: number) => {
-      const box = ruler.current?.getBoundingClientRect();
-      if (!box || box.width <= 0 || room.count <= 0) return;
-      const ratio = Math.min(1, Math.max(0, (clientX - box.left) / box.width));
-      const next = Math.round(ratio * (room.count - 1));
-      if (next !== index) onMove(next);
-    },
-    [index, onMove, room.count],
-  );
-
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'ArrowLeft') step(-1);
@@ -158,7 +144,7 @@ export function ShelfNearby({
         <button type="button" className="nearby__close chip chip--sm" onClick={onClose}>
           서가로 돌아가기
         </button>
-        {meta.findable && (
+        {(meta.shapeVersion ?? 0) >= SHELF_SHAPE_FINDABLE && (
           <ShelfSearch
             meta={meta}
             room={room}
@@ -232,40 +218,20 @@ export function ShelfNearby({
       <div className="nearby__plank" aria-hidden="true" />
 
       {/*
-        **눈금.** 이 서가 전체에서 지금 어디쯤인지를 말합니다. 좌우로 넘기다 보면
-        어디까지 왔는지를 잃는데, 숫자만으로는 감이 오지 않고 막대가 있으면 한눈에
-        들어옵니다.
+        **눈금은 읽는 것이지 끄는 것이 아닙니다.** 이 서가 전체에서 지금 어디쯤인지를
+        말합니다. 좌우로 넘기다 보면 어디까지 왔는지를 잃는데, 숫자만으로는 감이 오지
+        않고 막대가 있으면 한눈에 들어옵니다.
+
+        **한때 손으로 끌 수 있었는데 걷어냈습니다.** 수천 권짜리 서가를 가로지르는
+        길이 필요해서 붙였던 것인데, 「책 찾기」가 그 일을 훨씬 정확하게 합니다. 끌기는
+        「대충 3분의 2쯤」밖에 못 하고, 그러자고 치르던 값이 작지 않았습니다. 손가락이
+        집을 수 있게 누르는 자리를 44px 로 잡아 무대를 그만큼 밀어냈고, 바깥 상자의
+        좌우 스와이프와 부딪혀 한 번 끌 때 자리가 두 번 움직이지 않도록 따로 막아야
+        했습니다. **읽는 일만 남기면 그 둘이 함께 사라집니다.**
+
+        자리를 읽어 주는 것은 바로 아래 「n / 전체」가 이미 하므로 여기는 감춥니다.
       */}
-      <div
-        className="nearby__ruler"
-        ref={ruler}
-        data-dragging={dragging ? '' : undefined}
-        role="slider"
-        tabIndex={0}
-        aria-label="서가에서 볼 자리"
-        aria-valuemin={1}
-        aria-valuemax={room.count}
-        aria-valuenow={index + 1}
-        aria-valuetext={
-          center?.call ? `${index + 1}번째, ${center.call}` : `${index + 1}번째`
-        }
-        onPointerDown={(event) => {
-          event.currentTarget.setPointerCapture(event.pointerId);
-          setDragging(true);
-          seek(event.clientX);
-        }}
-        onPointerMove={(event) => {
-          if (event.currentTarget.hasPointerCapture(event.pointerId)) seek(event.clientX);
-        }}
-        onPointerUp={() => setDragging(false)}
-        onPointerCancel={() => setDragging(false)}
-        /*
-          **끄는 것을 넘기는 것으로 읽지 않게 막습니다.** 바깥 상자가 좌우 스와이프를
-          듣고 있어서, 여기서 멈추지 않으면 눈금을 한 번 끌 때 자리가 두 번 움직입니다.
-        */
-        onTouchStart={(event) => event.stopPropagation()}
-        onTouchEnd={(event) => event.stopPropagation()}
-      >
+      <div className="nearby__ruler" aria-hidden="true">
         <span style={{ left: `${(index / Math.max(1, room.count - 1)) * 100}%` }} />
       </div>
       <p className="nearby__where muted">

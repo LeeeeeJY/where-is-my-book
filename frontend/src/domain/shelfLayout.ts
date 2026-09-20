@@ -113,6 +113,35 @@ export function locate(index: number, chunkSize: number): { chunk: number; at: n
  *   같은 크기로 움직이니 서로 지워져, 펼친 채로 계산하든 접힌 채로 계산하든 책이
  *   서는 자리가 같아집니다.
  */
+/**
+ * 그 줄이 <b>머리말 바로 아래</b> 오도록 하는 스크롤 자리.
+ *
+ * <p>갈래를 골라 옮겨 갈 때 씁니다. {@link scrollToRow} 처럼 위를 남겨 두면 화면 맨
+ * 위가 <b>앞 갈래의 끝</b>이 되는데, 그러면 서가의 큰 제목과 갈래 고르는 목록이 방금
+ * 고른 것이 아니라 앞 갈래를 말합니다. 실측으로 영미소설(2,880번 자리)을 골랐더니 맨
+ * 위에 2,876번 수필이 서서 목록이 「한국문학 · 수필」로 되돌아갔습니다. <b>누른 것이
+ * 먹히지 않은 것처럼 보입니다.</b>
+ *
+ * <p>초성이나 찾기는 그렇지 않습니다. 그쪽은 「여기부터」를 짚는 일이라 앞이 조금
+ * 보이는 편이 낫고, 찾은 책은 표시가 따로 붙어 있어 머리말에 바짝 붙으면 오히려
+ * 가려집니다.
+ */
+export function scrollToSection(row: number, rowHeight: number, headHeight = 0): number {
+  return Math.max(0, row * rowHeight - Math.max(0, headHeight));
+}
+
+/**
+ * 화면 맨 위에 <b>실제로 보이는</b> 줄. 머리말이 덮는 만큼은 지나간 것으로 셉니다.
+ *
+ * <p>서가의 큰 제목이 이것으로 「지금 어느 갈래 앞인가」를 말합니다. <b>그려 둔 줄의
+ * 첫 줄로 세면 안 됩니다.</b> 보이는 줄보다 몇 줄 위까지 미리 그려 두기 때문에, 그쪽을
+ * 쓰면 제목이 늘 조금 뒤처져 화면에 없는 갈래를 말하게 됩니다.
+ */
+export function rowAtTop(past: number, rowHeight: number, rows: number): number {
+  if (rowHeight <= 0 || rows <= 0) return 0;
+  return Math.min(rows - 1, Math.max(0, Math.floor(past / rowHeight)));
+}
+
 export function scrollToRow(
   row: number,
   rowHeight: number,

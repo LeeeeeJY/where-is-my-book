@@ -1,15 +1,27 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
+  SHELF_SHAPE_FINDABLE,
   fetchShelfChunk,
   fetchShelfMeta,
   fetchShelfSubjects,
   type ShelfBook,
   type ShelfMeta,
   type ShelfRoom,
+  type ShelfSection,
   type ShelfSubject,
 } from '../api';
 import type { Library } from '../domain/types';
-import { COLS, chunksFor, locate, rowCount, scrollToRow, visibleRows } from '../domain/shelfLayout';
+import {
+  COLS,
+  chunksFor,
+  locate,
+  rowAtTop,
+  rowCount,
+  scrollToRow,
+  scrollToSection,
+  visibleRows,
+} from '../domain/shelfLayout';
+import { sectionLabel } from '../domain/shelfSection';
 import { ShelfCover } from './ShelfCover';
 import { ShelfNearby } from './ShelfNearby';
 import { ShelfOpening } from './ShelfOpening';
@@ -414,13 +426,18 @@ function ShelfView({
    * 갈리면 한쪽만 머리말 뒤에 가려 서는데, 어느 쪽이 그런지는 눌러 본 사람만 압니다.
    */
   const scrollToIndex = useCallback(
-    (index: number) => {
+    (index: number, snug = false) => {
       if (size.rowHeight <= 0) return;
+      const row = Math.floor(index / COLS);
       window.scrollTo({
         // 서가가 시작하는 자리에서 그 줄만큼 더 내려가되, 머리말이 덮는 만큼은 뺍니다.
+        // 갈래로 갈 때만 위를 남기지 않습니다. 남기면 화면 맨 위가 앞 갈래의 끝이 되어
+        // 큰 제목과 갈래 목록이 방금 고른 것이 아니라 앞 갈래를 말합니다.
         top:
           size.top +
-          scrollToRow(Math.floor(index / COLS), size.rowHeight, size.viewport, size.head),
+          (snug
+            ? scrollToSection(row, size.rowHeight, size.head)
+            : scrollToRow(row, size.rowHeight, size.viewport, size.head)),
         behavior: 'smooth',
       });
     },
@@ -452,7 +469,15 @@ function ShelfView({
     [scrollToIndex],
   );
 
-  const heading = useHeading(bookAt(range.from * COLS), subject.label);
+  /*
+    **큰 제목은 보이는 줄을 말합니다.** 그려 둔 줄의 첫 줄(`range.from`)로 세면 보이는
+    곳보다 몇 줄 위를 가리켜, 화면에 없는 갈래를 말하게 됩니다. 갈래 고르는 목록이 이
+    값을 그대로 쓰므로 여기서 어긋나면 목록도 함께 어긋납니다.
+  */
+  const heading = useHeading(
+    bookAt(rowAtTop(scrollTop - size.top + size.head, size.rowHeight, rows) * COLS),
+    subject.label,
+  );
 
   /*
     **접는 기준과 펴는 기준을 벌려 둡니다. 한 값으로 되돌리지 마세요.**
@@ -507,7 +532,7 @@ function ShelfView({
             두면 사람은 자기가 뭘 잘못했나 싶어집니다. 서버가 그런 서가를 낡은 것으로
             보고 뒤에서 다시 세우므로 다음에 열면 단추가 있습니다.
           */}
-          {meta.findable && (
+          {(meta.shapeVersion ?? 0) >= SHELF_SHAPE_FINDABLE && (
             <ShelfSearch
               meta={meta}
               room={room}
@@ -541,6 +566,11 @@ function ShelfView({
                   setFound(null);
                   setRoomSlug(slug);
                 }}
+              />
+              <SectionPick
+                sections={room.sections}
+                here={heading}
+                onGo={(at) => scrollToIndex(at, true)}
               />
               {room.firstCall && room.lastCall && (
                 <span className="shelf-head__range">
@@ -680,6 +710,61 @@ function useHeading(book: ShelfBook | null, fallback: string): string {
     if (book?.classNm) setHeading(book.classNm);
   }, [book?.classNm]);
   return heading;
+}
+
+/**
+ * 갈래 고르기. <b>거르는 것이 아니라 걸어가는 것입니다.</b>
+ *
+ * <p>서가가 청구기호 순이고 분류번호가 그 앞자리를 정하므로, 같은 갈래의 책은 서가에서
+ * 한 덩어리로 붙어 있습니다. 그래서 갈래를 고르는 것이 곧 그 구역 앞에 서는 일이 됩니다.
+ * 초성 색인이 도서기호 첫 글자로 데려다주는 것과 같은 장치이고, 값이 이미 조각에 실려
+ * 있어 <b>정보나루 호출이 한 건도 늘지 않습니다.</b>
+ *
+ * <p><b>지금 서 있는 갈래를 그대로 보여 줍니다.</b> 고르고 나면 값이 남는 목록은 스크롤해
+ * 다른 데로 간 뒤에도 예전 것을 말하게 되는데, 서가의 큰 제목이 이미 「지금 어느 갈래
+ * 앞인가」를 말하고 있으므로 그 값을 그대로 씁니다. 그러면 목록이 한 번도 거짓말을 하지
+ * 않고, 고른 뒤 비워 두는 어색함도 없습니다.
+ *
+ * <p><b>칩으로 늘어놓지 않습니다.</b> 실측으로 한 자료실에 갈래가 스물여덟 가지였습니다.
+ * 칩이면 좁은 화면에서 서너 줄을 차지해 머리말이 그만큼 두꺼워지고, 그 높이는 서가가
+ * 시작하는 자리를 밀어냅니다. 목록은 높이를 쓰지 않으면서 권수까지 함께 보여 줍니다.
+ */
+function SectionPick({
+  sections,
+  here,
+  onGo,
+}: {
+  sections: ShelfSection[] | undefined;
+  /** 지금 화면 맨 위에 선 책의 분류명. 서가의 큰 제목과 같은 값입니다. */
+  here: string;
+  onGo: (at: number) => void;
+}) {
+  // 갈래가 하나뿐이면 고를 것이 없습니다. 갈래 구간이 생기기 전에 세운 서가도 여깁니다.
+  if (!sections || sections.length <= 1) return null;
+
+  const standing = sections.find((one) => one.name === here);
+  return (
+    <select
+      className="shelf-head__pick shelf-head__pick--section"
+      aria-label="갈래"
+      value={standing?.name ?? ''}
+      onChange={(event) => {
+        const picked = sections.find((one) => one.name === event.target.value);
+        if (picked) onGo(picked.at);
+      }}
+    >
+      {/*
+        아직 어느 갈래에 선 것인지 모르는 순간이 있습니다. 조각을 받기 전이 그렇습니다.
+        그때 첫 갈래가 골라진 것처럼 보이면 안 되므로 빈 자리를 둡니다.
+      */}
+      {!standing && <option value="">갈래</option>}
+      {sections.map((one) => (
+        <option key={one.name + one.at} value={one.name}>
+          {`${sectionLabel(one.name)} (${one.count.toLocaleString('ko-KR')}권)`}
+        </option>
+      ))}
+    </select>
+  );
 }
 
 /** 자료실 고르기. 층이 다르면 아예 다른 서가라 이어 붙이지 않고 갈라 둡니다. */

@@ -252,14 +252,86 @@ class ShelfHarvesterTest {
         assertEquals(1, found.get().total());
         assertEquals(1, found.get().hits().get(0).at(), "서가에서 둘째 자리입니다");
 
-        // 차림표가 「찾을 수 있다」고 말해야 화면이 단추를 냅니다.
-        assertTrue(metaOf(dir, "141321").get("findable").asBoolean());
+        // 차림표에 적힌 모양 판 번호가 지금 것이어야 화면이 단추를 냅니다.
+        assertEquals(ShelfMeta.SHAPE_VERSION,
+                metaOf(dir, "141321").get("shapeVersion").asInt());
 
         // 주소로 받은 값이 그대로 경로가 되는 것은 여기서도 같습니다.
         assertTrue(store.find("141321", Kdc.LITERATURE, "../..", "토지", 20).isEmpty());
         // 아직 세우지 않은 서가는 **「없음」이 아니라 「못 찾음」**입니다. 물어보지 못한
         // 것을 없다고 답하면 실제로 꽂혀 있는 책을 없다고 말하게 됩니다.
         assertTrue(store.find("141321", Kdc.HISTORY, "r0", "토지", 20).isEmpty());
+    }
+
+    /**
+     * 갈래는 서가에서 한 덩어리로 붙어 있으므로 <b>이어지는 구간</b>으로 셉니다.
+     * 정보나루를 한 번도 더 부르지 않습니다.
+     */
+    @Test
+    @DisplayName("갈래가 서 있는 자리를 서가 차례로 적는다")
+    void writesWhereEachSectionStands(@TempDir Path dir) throws IOException {
+        harvest(dir, List.of(
+                classified("바람의 노래", "9788900000015", "811.7", "ㅂ11ㅂ", "문학 > 한국문학 > 시"),
+                classified("겨울 해바라기", "9788900000022", "811.7", "ㅅ51ㄱ", "문학 > 한국문학 > 시"),
+                classified("토지", "9788900000039", "813.6", "ㅂ172ㅌ", "문학 > 한국문학 > 소설"),
+                classified("아몬드", "9788900000046", "813.7", "ㅅ66ㅇ", "문학 > 한국문학 > 소설")));
+
+        JsonNode sections = metaOf(dir, "141321").get("rooms").get(0).get("sections");
+
+        assertEquals(2, sections.size());
+        // 서가에 선 차례 그대로입니다. 811 이 813 보다 앞입니다.
+        assertEquals("문학 > 한국문학 > 시", sections.get(0).get("name").asText());
+        assertEquals(0, sections.get(0).get("at").asInt());
+        assertEquals(2, sections.get(0).get("count").asInt());
+        assertEquals("문학 > 한국문학 > 소설", sections.get(1).get("name").asText());
+        assertEquals(2, sections.get(1).get("at").asInt());
+        assertEquals(2, sections.get(1).get("count").asInt());
+    }
+
+    /**
+     * <b>한 갈래가 여러 군데로 갈립니다.</b> 별치기호가 분류번호보다 앞에서 갈라기
+     * 때문입니다. 실측으로 부천 어느 자료실의 「영미문학 &gt; 소설」이 별치
+     * 구역({@code Y서(아)})과 보통 서가({@code 843}) 두 군데에 나뉘어 있었습니다.
+     * <b>처음 나오는 자리를 적으면 작은 구석으로 데려다줍니다.</b>
+     */
+    @Test
+    @DisplayName("갈래가 갈리면 큰 덩어리로 보내고 권수는 합한다")
+    void sendsToTheBiggestRunButCountsThemAll(@TempDir Path dir) throws IOException {
+        // 별치기호가 없는 쪽이 앞에 섭니다. 그래서 서가 차례는 아래 적은 차례 그대로이고,
+        // 소설은 0번 자리에 한 권, 2~3번 자리에 두 권으로 갈립니다.
+        harvest(dir, List.of(
+                classified("토지", "9788900000015", "813.6", "ㅂ172ㅌ", "문학 > 한국문학 > 소설"),
+                separated("[큰글자책] 겨울 해바라기", "9788900000022", "Y큰", "811.7", "ㅅ51ㄱ",
+                        "문학 > 한국문학 > 시"),
+                separated("[큰글자책] 김약국의 딸들", "9788900000039", "Y큰", "813.6", "ㅂ172ㄱ",
+                        "문학 > 한국문학 > 소설"),
+                separated("[큰글자책] 아몬드", "9788900000046", "Y큰", "813.7", "ㅅ66ㅇ",
+                        "문학 > 한국문학 > 소설")));
+
+        JsonNode sections = metaOf(dir, "141321").get("rooms").get(0).get("sections");
+        JsonNode novels = sections.get(sections.size() - 1);
+
+        assertEquals("문학 > 한국문학 > 소설", novels.get("name").asText());
+        assertEquals(2, novels.get("at").asInt(),
+                "한 권짜리 앞 덩어리가 아니라 두 권이 붙어 있는 쪽으로 보냅니다");
+        assertEquals(3, novels.get("count").asInt(), "흩어진 것까지 셉니다");
+    }
+
+    /**
+     * 분류명이 없는 자료는 갈래로 세우지 않습니다. <b>「(없음)」 같은 말을 우리가
+     * 지어내면 정보나루가 주지 않은 갈래가 생깁니다.</b>
+     */
+    @Test
+    @DisplayName("분류명이 없는 자료는 갈래를 만들지 않는다")
+    void booksWithoutAClassNameMakeNoSection(@TempDir Path dir) throws IOException {
+        harvest(dir, List.of(
+                classified("토지", "9788900000015", "813.6", "ㅂ172ㅌ", ""),
+                classified("아몬드", "9788900000022", "813.7", "ㅅ66ㅇ", "문학 > 한국문학 > 소설")));
+
+        JsonNode sections = metaOf(dir, "141321").get("rooms").get(0).get("sections");
+
+        assertEquals(1, sections.size());
+        assertEquals("문학 > 한국문학 > 소설", sections.get(0).get("name").asText());
     }
 
     // ── 거들기 ────────────────────────────────────────────────────────────
@@ -273,6 +345,25 @@ class ShelfHarvesterTest {
                 <shelf_loc_code>%s</shelf_loc_code>
                 <shelf_loc_name>%s</shelf_loc_name></callNumber></callNumbers></doc>
             """.formatted(escape(title), isbn, classNo, bookCode, room, room);
+    }
+
+    /** 분류명을 골라 붙입니다. 갈래 구간을 볼 때 씁니다. */
+    private static String classified(String title, String isbn, String classNo,
+                                     String bookCode, String classNm) {
+        return separated(title, isbn, "", classNo, bookCode, classNm);
+    }
+
+    /** 별치기호까지 붙입니다. 별치는 분류번호보다 앞에서 서가를 가릅니다. */
+    private static String separated(String title, String isbn, String separate, String classNo,
+                                    String bookCode, String classNm) {
+        return """
+            <doc><bookname><![CDATA[%s]]></bookname><isbn13>%s</isbn13>
+              <class_no>%s</class_no><class_nm><![CDATA[%s]]></class_nm>
+              <callNumbers><callNumber><book_code>%s</book_code>
+                <separate_shelf_code>%s</separate_shelf_code>
+                <shelf_loc_code>A</shelf_loc_code>
+                <shelf_loc_name>종합자료실</shelf_loc_name></callNumber></callNumbers></doc>
+            """.formatted(escape(title), isbn, classNo, escape(classNm), bookCode, separate);
     }
 
     /** CDATA 안이라 {@code ]]>} 만 아니면 그대로 실립니다. */
