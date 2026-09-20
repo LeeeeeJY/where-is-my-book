@@ -1673,12 +1673,78 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
   /*
     **서가 위로 덮이는 것이라 그렇게 보여야 합니다.** 한 번에 나타나면 화면이 갈아
     끼워진 것처럼 읽히는데, 이 화면은 서가를 떠난 것이 아니라 그 앞에 선 것입니다.
-    바탕이 옅게 깔리면서 선반이 살짝 다가오면 덮였다는 것이 그대로 보입니다.
+
+    **여기는 어둠만 깔립니다.** 예전에는 화면 전체를 한 덩어리로 흐리게 띄우면서 살짝
+    줄였는데, 그러면 라벨도 선반도 책도 시트도 **같은 순간에 같은 방식으로** 나타나서
+    슬라이드가 넘어간 것처럼 보였습니다. 층마다 제 속도로 들어와야 깊이가 생깁니다.
+    아래의 `nearby-*` 들이 그 층입니다.
+
+    **바깥을 줄이지 마세요.** `transform` 을 여기에 걸면 안쪽 책이 제 `transform` 과
+    곱해져 층이 서로를 밀어냅니다. 여기는 투명도만 만집니다.
+
+    **그리고 200ms 인 것에 이유가 있습니다.** 어둠이 덜 깔린 그 잠깐 동안 **밑에서
+    방금 누른 책이 기우는 것이 비쳐 보입니다.** 표지의 기울기가 160ms 라 어둠이 닫히는
+    동안 끝나서, 서가에서 뽑힌 책이 그대로 이 화면의 가운데로 이어집니다. 더 빠르게
+    잡으면 그 연결이 끊기고 화면이 툭 갈립니다.
   */
-  animation: nearby-open 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: nearby-open 200ms ease-out both;
 }
 @keyframes nearby-open {
-  from { opacity: 0; transform: scale(1.012); }
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/*
+  **층마다 제 시간에 들어옵니다.** 순서는 눈이 좇는 순서입니다. 선반 라벨과 판이 먼저
+  자리를 잡고(여기가 어디인지), 가운데 책이 조금 아래에서 커지며 올라오고(무엇을 뽑았는지),
+  옆 책이 뒤따라 서고, 시트와 머리 줄이 마지막에 조용히 붙습니다. 전부 감속 곡선이라
+  **도착할 때 멈추는 것이 아니라 내려앉습니다.**
+
+  **다 합쳐 480ms 를 넘기지 마세요.** 층을 나누는 것은 깊이를 만들려는 것이지 느리게
+  하려는 것이 아닙니다. 넘어가면 누른 뒤 화면이 굼뜨다고 읽힙니다.
+*/
+.nearby__label,
+.nearby__plank,
+.nearby__sheet,
+.nearby__bar,
+.nearby__slot > * {
+  animation-duration: 380ms;
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  animation-fill-mode: both;
+}
+.nearby__label { animation-name: nearby-drop; animation-delay: 60ms; }
+.nearby__plank { animation-name: nearby-plank; animation-duration: 340ms; animation-delay: 40ms; }
+.nearby__sheet { animation-name: nearby-rise; animation-duration: 360ms; animation-delay: 120ms; }
+.nearby__bar { animation-name: nearby-drop; animation-duration: 280ms; animation-delay: 180ms; }
+
+/*
+  **책에 거는 것은 칸이 아니라 그 안의 단추입니다.** 칸(`.nearby__slot`)은 옆 책을
+  흐리게 하는 `opacity` 를 들고 있는데, 거기에 `both` 로 채우는 애니메이션을 걸면
+  **마지막 칸의 값이 그 흐림을 덮어씁니다.** 옆 책이 가운데 책과 같은 진하기로 서서
+  무엇을 보고 있는지가 흐려집니다. 안쪽에 걸면 두 값이 곱해져 흐림이 그대로 남습니다.
+*/
+.nearby__slot[data-spot='0'] > * {
+  animation-name: nearby-pull; animation-duration: 440ms; animation-delay: 40ms;
+}
+.nearby__slot[data-spot='1'] > * { animation-name: nearby-rise; animation-delay: 120ms; }
+.nearby__slot[data-spot='2'] > * { animation-name: nearby-rise; animation-delay: 170ms; }
+
+/* 뽑아 든 책. 조금 아래에서, 조금 작게 시작해 제자리로 커집니다. */
+@keyframes nearby-pull {
+  from { opacity: 0; transform: translateY(20px) scale(0.94); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes nearby-rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes nearby-drop {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: none; }
+}
+/* 선반 판은 가운데에서 폭이 벌어지며 놓입니다. */
+@keyframes nearby-plank {
+  from { opacity: 0; transform: scaleX(0.92); }
   to { opacity: 1; transform: none; }
 }
 
@@ -1829,7 +1895,12 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
 @media (prefers-reduced-motion: reduce) {
   .cover[data-found] .cover__body,
   .cover__mark,
-  .nearby {
+  .nearby,
+  .nearby__label,
+  .nearby__plank,
+  .nearby__sheet,
+  .nearby__bar,
+  .nearby__slot > * {
     animation: none;
   }
   .nearby__ruler > span,
