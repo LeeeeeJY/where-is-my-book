@@ -1297,14 +1297,24 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
 
 /* ── 표지 ─────────────────────────────────────────────────────────── */
 
-/* 서표를 책 위에 띄워 두려면 표지 단추가 기준이 되어야 합니다. */
-.cover { position: relative; }
+/*
+  **바깥 칸이고 단추가 아닙니다.** 표지와 서표가 저마다 누르는 자리라 그 둘을 담는
+  칸이 필요합니다. 칸까지 단추로 두면 **단추 안에 단추**가 들어가는데, 그것은 없는
+  구조라 화면을 읽어 주는 쪽에서 안쪽 것을 잃습니다.
+
+  칸이 기울기와 자리를 맡는 것도 그래서입니다. **서표가 책과 함께 기울어야** 그 책에
+  꽂힌 것으로 보입니다. 서표만 똑바로 서 있으면 옆 책의 것처럼 읽힙니다.
+*/
 .cover {
-  appearance: none; padding: 0; border: 0; background: none;
-  display: block; width: 100%; cursor: pointer;
+  position: relative; display: block; width: 100%;
   transition: transform 0.16s ease, opacity 0.16s ease;
 }
-.cover:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+/* 표지를 누르는 자리. 짚어 둔 책이든 아니든 늘 짚으면서 엽니다. */
+.cover__open {
+  appearance: none; padding: 0; border: 0; background: none;
+  display: block; width: 100%; cursor: pointer;
+}
+.cover__open:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 
 /*
   표지 한 장. 실제 책처럼 보이게 하는 것이 넷입니다.
@@ -1502,6 +1512,26 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
   width: clamp(13px, 16%, 21px);
   height: clamp(36px, 46%, 62px);
   top: clamp(-20px, -12%, -12px);
+  appearance: none; padding: 0; border: 0; background: none; cursor: pointer;
+}
+/*
+  **누르는 자리를 띠 밖으로 벌립니다.** 띠는 412px 화면에서 15px 폭이라 손가락이
+  집을 수 없습니다. 보이는 것은 그대로 두고 빈 사각형만 넓히면 됩니다.
+
+  **이 일을 `.cover__mark-art` 에 시킬 수는 없습니다.** 거기에는 `clip-path` 가
+  걸려 있고, 잘라낸 바깥은 그려지지 않을 뿐 아니라 **누름도 받지 않습니다.**
+  넓히려고 붙인 것이 통째로 잘려 나갑니다. 그래서 자르지 않는 단추가 바깥에 있습니다.
+*/
+.cover__mark::before {
+  content: ''; position: absolute;
+  top: -8px; bottom: -8px;
+  left: 50%; width: max(100%, 44px); transform: translateX(-50%);
+}
+.cover__mark:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* 보이는 띠. 놋쇠 빛이 위에서 아래로 어두워지고 아래 끝이 제비꼬리입니다. */
+.cover__mark-art {
+  position: absolute; inset: 0;
   background: linear-gradient(180deg, #d9b678 0%, var(--brass) 45%, #7d5f28 100%);
   border-radius: 2px 2px 0 0;
   clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 74%, 0 100%);
@@ -1519,7 +1549,22 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
   from { transform: translateY(-14px) scaleY(0.4); opacity: 0; }
   to { transform: none; opacity: 1; }
 }
-.cover[data-lift] .cover__body {
+/*
+  **떠오른 책과 짚은 책이 부딪치는 자리입니다.** 짚은 책은 초성으로 고른 책들과 함께
+  떠오르기도 하므로 `data-found` 와 `data-lift` 를 동시에 답니다. 그런데 두 규칙의
+  명시도가 같아서 **뒤에 적힌 이 얇은 테두리가 이겼습니다.**
+
+  평소에는 드러나지 않습니다. 피어나는 애니메이션이 `both` 로 채워져 <b>끝난 뒤에도
+  굵은 테두리를 덮어쓰고 있기 때문</b>입니다. 그래서 **움직임을 줄여 달라고 해서
+  애니메이션이 꺼진 사람에게만** 짚은 책이 얇은 테두리로 나왔습니다. 두 번이나
+  「잘 안 보인다」는 말을 듣고 굵힌 그 테두리를, 정작 표시가 더 필요한 쪽이 못 본
+  것입니다.
+
+  `:not([data-found])` 로 둘을 갈라 놓으면 순서와 상관없이 **한 번에 하나만**
+  적용됩니다. 자리를 옮겨 푸는 것보다 낫습니다. 규칙이 늘어나 순서가 바뀌어도
+  같은 일이 되풀이되지 않습니다.
+*/
+.cover[data-lift]:not([data-found]) .cover__body {
   box-shadow:
     0 2px 2px rgba(43, 27, 13, 0.5),
     0 12px 18px -8px rgba(43, 27, 13, 0.6),
@@ -1894,7 +1939,7 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
 */
 @media (prefers-reduced-motion: reduce) {
   .cover[data-found] .cover__body,
-  .cover__mark,
+  .cover__mark-art,
   .nearby,
   .nearby__label,
   .nearby__plank,
