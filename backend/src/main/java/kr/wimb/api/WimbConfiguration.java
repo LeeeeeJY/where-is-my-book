@@ -233,9 +233,42 @@ public class WimbConfiguration implements WebMvcConfigurer {
         return new HoldingsLookup(cache, HoldingsLookup.RegionModeStore.documented());
     }
 
+    /**
+     * 어느 주소에서 온 화면이 이 API 를 부를 수 있는지.
+     *
+     * <h2>{@code allowedOrigins} 가 아니라 {@code allowedOriginPatterns} 입니다</h2>
+     *
+     * <p>앞엣것은 <b>글자가 그대로 같아야</b> 통과시킵니다. 그런데 Vercel 은 프리뷰
+     * 배포마다 주소를 새로 만듭니다({@code where-is-my-book-<해시>-<계정>.vercel.app}).
+     * 그래서 운영 주소만 적어 두면 <b>프리뷰에서는 API 가 통째로 막힙니다.</b> 화면에는
+     * 「API 서버에 연결하지 못했습니다」로 보이는데, 서버는 멀쩡하고 주소도 맞습니다.
+     * 문 앞에서 돌려보내는 것이라 <b>우리가 줄곧 갈라 놓으려는 「서버가 없다」와
+     * 「서버는 있는데 물어보지 못했다」가 여기서도 뒤바뀝니다.</b>
+     *
+     * <p>고치려고 프리뷰 주소를 그때그때 환경 변수에 더할 수는 없습니다. 배포할 때마다
+     * 바뀌므로 사람이 따라갈 수 없습니다. 별표를 쓰려면 패턴 쪽이어야 합니다.
+     *
+     * <h2>별표를 여는 것이 왜 괜찮은가</h2>
+     *
+     * <p>CORS 가 막는 것은 <b>「남의 사이트가 방문자의 자격으로 우리 API 를 읽는 것」</b>
+     * 입니다. 그런데 이 API 는 <b>인증도 쿠키도 세션도 없습니다.</b> 훔쳐 갈 자격 자체가
+     * 없으므로, 별표를 열어서 새로 생기는 위험은 「남이 우리 몫의 호출 한도를 쓴다」
+     * 하나입니다. 그리고 그것은 <b>CORS 로는 원래 못 막습니다.</b> 브라우저 밖에서
+     * 부르면 CORS 는 아예 관여하지 않기 때문입니다.
+     *
+     * <p>그 위험을 막는 것은 주소별 호출 제한({@link RateLimit})이고, 이 저장소는
+     * 「주소를 감추는 것은 답이 아니다」로 이미 그렇게 정해 두었습니다. <b>CORS 를 접근
+     * 통제로 쓰지 마세요.</b> 그 일을 하는 물건이 아닙니다.
+     *
+     * <p>다만 <b>패턴을 {@code https://*.vercel.app} 처럼 넓히지는 마세요.</b> 남는 위험은
+     * 없다시피 하지만, 목록을 보는 사람이 「누가 부를 수 있는지」를 한눈에 알 수 있어야
+     * 합니다. 프로젝트 이름까지는 적어 둡니다.
+     */
     @Override
     public void addCorsMappings(CorsRegistry registry) {
-        registry.addMapping("/api/**").allowedOrigins(allowedOrigins).allowedMethods("GET", "POST");
+        registry.addMapping("/api/**")
+                .allowedOriginPatterns(allowedOrigins)
+                .allowedMethods("GET", "POST");
     }
 
     /**
