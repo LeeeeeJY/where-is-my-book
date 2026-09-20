@@ -1325,9 +1325,19 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
 .cover__art {
   display: block; width: 100%; height: auto; border-radius: inherit;
   aspect-ratio: auto 1 / 1.45;
-  opacity: 0; transition: opacity 0.22s ease;
 }
-.cover__art[data-loaded] { opacity: 1; }
+
+/*
+  **표지를 서서히 나타나게 하지 마세요.** 한 번 넣었다가 뺐습니다.
+
+  보이는 줄만 그리므로 스크롤하면 표지가 끊임없이 새로 붙습니다. 나타나는 효과는
+  붙을 때마다 투명도가 0 에서 시작하므로, **줄이 지나갈 때마다 네 권이 한꺼번에
+  깜빡입니다.** 빠르게 밀면 화면 전체가 반짝거립니다. 실제로 「반짝거리는 현상이 너무
+  많이 보인다」는 말을 들었습니다.
+
+  자리는 위의 `aspect-ratio` 가 이미 잡아 두므로 배치는 흔들리지 않습니다. 붙는 것이
+  눈에 띄는 것과 화면이 반짝거리는 것은 다릅니다.
+*/
 
 /*
   **대체 표지.** 없다고 빈 자리로 두면 서가에 구멍이 뚫려 「여기 뭔가 잘못됐다」로
