@@ -209,6 +209,31 @@ class ShelfServiceTest {
                 "다시 세운 뒤에는 색인이 있어야 합니다");
     }
 
+    /**
+     * <b>이름을 바꾸면 이미 적어 둔 파일은 그대로 남습니다.</b> 옮겨 읽지 않으면 그
+     * 서가는 실제로 가지고 있는 것을 없는 것으로 답하고, 화면은 그 단추를 내립니다.
+     * 실제로 {@code findable} 을 판 번호로 합치면서 이 길을 만들지 않아, 찾기 색인이
+     * 멀쩡히 있는 서가가 다시 세우기 전까지 「책 찾기」를 잃었습니다.
+     */
+    @Test
+    @DisplayName("예전 이름으로 적힌 findable 을 판 번호로 옮겨 읽는다")
+    void readsTheOldFindableFlagAsAShapeVersion(@TempDir Path dir) throws Exception {
+        var fixture = new Fixture(dir);
+        fixture.writeLegacyFindableShelf("141321", "2026-09-20", 3);
+
+        // 갈래 구간이 없으니 낡은 것은 맞습니다. 다시 세우기는 합니다.
+        assertTrue(fixture.service.status("141321", SUBJECT).stale());
+        fixture.awaitIdle();
+
+        // 다시 세우기 전에도 「찾기를 쓸 수 있다」로 읽혀야 합니다.
+        var meta = ShelfMetaReader.parse(("""
+            {"libCode":"141321","kdc":"8","asOf":"2026-09-20","checkedAt":"2026-09-20",\
+            "chunkSize":200,"count":1,"reported":3,"keyVersion":%d,"findable":true,\
+            "rooms":[]}""".formatted(ShelfSortKey.VERSION)).getBytes(StandardCharsets.UTF_8));
+        assertTrue(meta.isPresent());
+        assertEquals(1, meta.get().shapeVersion(), "찾기 색인이 있다는 뜻이었습니다");
+    }
+
     // ── 시험 거들기 ───────────────────────────────────────────────────────
 
     /** 2026-09-20 한국 시각 낮. */
@@ -323,6 +348,17 @@ class ShelfServiceTest {
                 throws Exception {
             writeShelf(libCode, asOf, checkedAt, reported, keyVersion,
                     ShelfMeta.SHAPE_VERSION);
+        }
+
+        /** 찾기 색인은 있는데 판 번호가 없던 때에 세운 서가를 흉내 냅니다. */
+        void writeLegacyFindableShelf(String libCode, String asOf, int reported)
+                throws Exception {
+            writeShelf(libCode, asOf, asOf, reported, ShelfSortKey.VERSION, 0);
+            Path meta = metaPath(libCode);
+            Files.writeString(meta,
+                    Files.readString(meta, StandardCharsets.UTF_8)
+                            .replace("\"shapeVersion\":0", "\"findable\":true"),
+                    StandardCharsets.UTF_8);
         }
 
         /** 적는 것이 늘어나기 전에 세운 서가를 흉내 냅니다. */

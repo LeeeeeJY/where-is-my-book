@@ -154,6 +154,11 @@ export function ShelfNearby({
           **뒤로 가기는 화살표 하나입니다.** 열었던 자리로 되돌아가는 것뿐이라 글자로
           설명할 것이 없고, 머리 줄의 자리도 아껴야 찾기가 제 줄을 씁니다. 눈으로
           보이지 않는 이름은 `aria-label` 이 답니다.
+
+          **글자 「←」를 쓰지 마세요.** 글꼴마다 그 글리프가 네모 안에서 앉는 높이가
+          달라서, 칸을 가운데로 맞춰도 <b>획이 위로 떠 보입니다.</b> 실제로 옆의
+          「책 찾기」보다 눈에 띄게 높이 붙어 있었습니다. 그려 넣으면 그 글꼴 사정이
+          사라지고 선 굵기도 칩 테두리와 맞출 수 있습니다.
         */}
         <button
           type="button"
@@ -162,7 +167,17 @@ export function ShelfNearby({
           aria-label="서가로 돌아가기"
           title="서가로 돌아가기"
         >
-          <span aria-hidden="true">←</span>
+          <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" focusable="false">
+            <path
+              d="M9.5 3.5 5 8l4.5 4.5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            <path d="M5.4 8H13" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+          </svg>
         </button>
         {(meta.shapeVersion ?? 0) >= SHELF_SHAPE_FINDABLE && (
           <ShelfSearch

@@ -59,6 +59,17 @@ export function ShelfCover({
       onClick={onPick}
       aria-label={describe(book)}
     >
+      {/*
+        **찾은 책에는 서표를 끼웁니다.** 테두리만으로는 찾은 것이 보이지 않습니다.
+        실제 서가에서 「토지」를 찾으면 **같은 표지가 열여덟 권 나란히** 서 있는데,
+        그 가운데 한 권에 두른 3px 선은 눈에 들어오지 않습니다. 표지가 없는 책은
+        분류번호로 칠한 종이라 옆 책과 색까지 비슷합니다.
+
+        서표는 책 위로 삐져나오므로 줄 안에서 혼자 튀어 보이고, 도서관 책에 실제로
+        꽂혀 있는 것이라 이 화면의 말과도 맞습니다. **자리는 차지하지 않습니다.**
+        띄워 두었으므로(`position: absolute`) 줄 높이가 변하지 않습니다.
+      */}
+      {found && <span className="cover__mark" aria-hidden="true" />}
       <span
         className="cover__body"
         style={showImage ? undefined : { backgroundImage: coverPaper(book) }}
