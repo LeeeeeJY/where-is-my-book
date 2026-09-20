@@ -1,28 +1,78 @@
 :root {
-  --bg: #fbfaf8;
-  --surface: #ffffff;
-  --line: #e3e0da;
-  --text: #23201c;
-  --muted: #77716a;
-  --accent: #2f6f4f;
-  /* 강조색의 옅은 바탕과 진한 쪽. 칩과 hover 가 색을 지어내지 않게 여기에 둡니다. */
-  --accent-soft: #e6f0ea;
-  --accent-deep: #245a3f;
-  /* 채운 칩의 테두리. 옅은 바탕만으로는 흰 바탕에서 경계가 사라집니다. */
-  --accent-line: #c2d8cb;
+  /*
+    **서재의 색입니다.** 예전 팔레트는 흰 바탕에 녹색 하나였는데, 그것은 「깨끗한 도구」의
+    색이지 「책이 있는 방」의 색이 아닙니다. 종이는 흰색이 아니라 누런빛이고, 서가의 책은
+    가죽과 천으로 묶여 있으며, 고급스러움을 만드는 것은 대개 놋쇠 한 점입니다.
+
+    **색을 늘리지는 않았습니다.** 종이·잉크·가죽·놋쇠 넷뿐이고, 자리마다 새 색을 지어내지
+    않도록 전부 여기에 두었습니다.
+  */
+
+  /* 종이. 책의 속지처럼 살짝 누렇습니다. */
+  --bg: #f3eee2;
+  --surface: #fdfaf3;
+  /* 나누는 선. 오래된 책의 괘선처럼 종이보다 조금 진한 정도입니다. */
+  --line: #ded4c1;
+  /* 잉크. 검정이 아니라 아주 짙은 갈색입니다. 검정은 종이 위에서 차갑게 보입니다. */
+  --text: #241d14;
+  --muted: #6e6354;
+
+  /*
+    가죽 장정의 녹색. 예전 녹색(#2f6f4f)보다 어둡고 덜 선명합니다. 밝은 녹색은
+    「새것」으로 보이고, 이 화면이 내려는 느낌은 오래 두고 쓴 것 쪽입니다.
+  */
+  --accent: #2a5741;
+  --accent-soft: #e5ece7;
+  --accent-deep: #1d3f2e;
+  /* 채운 칩의 테두리. 옅은 바탕만으로는 종이 위에서 경계가 사라집니다. */
+  --accent-line: #b7ccbf;
+
+  /*
+    **놋쇠.** 서가 라벨과 표지의 광택처럼 <b>아주 좁은 자리에만</b> 씁니다. 넓게 칠하면
+    금색이 되어 싸구려로 보입니다. 누르는 자리에는 쓰지 않습니다. 그 뜻은 녹색이 이미
+    맡고 있고, 색 하나가 두 가지를 뜻하면 두 화면에서 같은 말을 한다는 약속이 깨집니다.
+  */
+  --brass: #a4813f;
+  --brass-soft: #efe5cf;
+
   /*
     누르는 자리의 테두리. `--line` 은 카드 구분선이라 그 색을 칩에 쓰면 단추가 아니라 글자
     둘레의 얼룩처럼 보였습니다. 눌리는 것은 이것으로 두르고, 나누는 선은 `--line` 으로 긋습니다.
   */
-  --chip-line: #d4cfc7;
+  --chip-line: #d2c7b2;
   /*
     도서관 한 곳을 한 덩어리로 묶는 바탕. 테두리 대신 바탕색으로 묶습니다. 카드 안에 테두리
     상자, 그 안에 테두리 칩이 들어가면 선이 세 겹이 되어 전부 다닥다닥 붙어 보입니다.
   */
-  --tile: #f4f2ee;
-  --lift: 0 1px 2px rgba(35, 32, 28, 0.06);
-  --warn-bg: #fdf6e3;
-  --warn-line: #e6d9b0;
+  --tile: #eee7d8;
+  --lift: 0 1px 2px rgba(36, 29, 20, 0.08);
+  --warn-bg: #fbf2da;
+  --warn-line: #e2cd9c;
+
+  /*
+    **원목 서가.** 서가 화면이 쓰고, 여기 한 곳에만 둡니다. 나무는 한 색이 아니라 위아래로
+    밝기가 달라야 판처럼 보이므로 셋으로 나눕니다. 그림자는 색을 섞지 않고 이 값으로만
+    어둡게 합니다. 자리마다 rgba 를 손으로 적으면 어느 그림자가 어느 것인지 알 수 없어집니다.
+  */
+  --wood: #9c6d42;
+  --wood-light: #c69b6b;
+  --wood-dark: #6b452a;
+  --wood-edge: #83572f;
+  --shelf-shade: rgba(43, 27, 13, 0.34);
+
+  /*
+    **표시용 글꼴.** 웹폰트를 받아 오지 않습니다. 남의 도메인에서 글꼴을 받으면 방문자
+    주소가 그쪽으로 넘어가는데, 개인정보처리방침이 「저희 쪽으로 보내지 않습니다」라고
+    적어 둔 것과 어긋납니다. 한글 글꼴을 우리 쪽에 두는 방법도 있지만 명조체 한 벌이
+    1MB 를 넘어서, 휴대폰에서 서가를 여는 값으로는 비쌉니다.
+
+    대신 **로마자와 숫자만 세리프로** 두고 한글은 기기의 고딕을 그대로 씁니다. 앞의 셋에는
+    한글 글자가 없으므로 한글은 자연히 뒤로 넘어갑니다. 명조체가 깔린 기기에서는 한글도
+    세리프로 나옵니다. 없는 기기에서 깨지지 않는 것이 먼저입니다.
+  */
+  --display: 'Iowan Old Style', 'Palatino Linotype', Palatino, 'Book Antiqua', Georgia,
+    'Nanum Myeongjo', 'Apple SD Gothic Neo', 'Pretendard', 'Malgun Gothic', serif;
+
   color-scheme: light;
 }
 
@@ -38,22 +88,56 @@ a:hover { color: var(--accent-deep); }
 
 body {
   margin: 0;
-  background: var(--bg);
   color: var(--text);
-  font: 15px/1.6 -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Pretendard',
+  font: 15px/1.65 -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Pretendard',
     'Malgun Gothic', sans-serif;
+
+  /*
+    **종이결.** 한 색으로 칠하면 화면이 평평해서 종이로 읽히지 않습니다. 아주 옅은 결과
+    위에서 드는 빛을 겹쳐 두면 색을 하나 더 쓰지 않고도 면에 깊이가 생깁니다.
+
+    **결은 보이면 안 됩니다.** 처음에 흰 줄을 2px 폭에 불투명도 0.5 로 두었더니 종이결이
+    아니라 줄무늬 벽지가 되었습니다. 1px 에 0.16 이면 눈으로는 알아채지 못하고 면만
+    살아납니다. 결이 보이기 시작하면 그것이 곧 무늬라는 뜻이니 더 줄이세요.
+
+    **그림 파일을 쓰지 않습니다.** 배경 무늬 하나가 수십 KB 이고 서가 화면은 표지를
+    수백 장 받는 자리라, 첫 화면에 쓸 바이트를 여기에 쓸 이유가 없습니다.
+  */
+  background-color: var(--bg);
+  background-image:
+    repeating-linear-gradient(107deg,
+      rgba(255, 255, 255, 0.16) 0 1px, rgba(255, 255, 255, 0) 1px 9px),
+    radial-gradient(130% 80% at 50% -10%, rgba(255, 253, 247, 0.85), rgba(255, 253, 247, 0) 62%);
+  background-attachment: fixed;
 }
 
 .app { max-width: 1100px; margin: 0 auto; padding: 24px 16px 48px; }
-.app__head p { margin: 8px 0 0; }
+
+/*
+  **머리말을 속표지처럼 닫습니다.** 책의 속표지가 제목 아래에 가는 선 두 줄을 긋는 것과
+  같은 방식인데, 굵은 선 하나보다 조용하면서 「여기까지가 머리」라는 말을 확실히 합니다.
+  아래 선을 놋쇠로 두어 그 한 줄이 이 화면에서 가장 값비싼 자리가 되게 합니다.
+*/
+.app__head {
+  padding-bottom: 14px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--line);
+  box-shadow: 0 3px 0 -2px var(--brass);
+}
+/*
+  **`ch` 로 글줄 길이를 재지 마세요.** `ch` 는 숫자 「0」의 폭이라 한글 한 자의 절반쯤입니다.
+  62ch 로 두었더니 한글 서른세 자에서 줄이 바뀌어 「알려 줍니 / 다.」가 되었습니다.
+  영문 기준으로 익힌 값이 한글에서는 절반이 됩니다.
+*/
+.app__head p { margin: 10px 0 0; }
 
 .brand { display: flex; align-items: center; gap: 10px; }
 .brand__symbol { flex: none; display: block; }
 /* 책등 색을 CSS 에 두어, 강조색을 바꿀 때 고칠 곳이 여기 하나로 모이게 합니다. */
-.brand__spine { fill: #cdc6bb; }
+.brand__spine { fill: #c8b79a; }
 .brand__spine--found { fill: var(--accent); }
 /* 책장은 책등보다 진하게 둡니다. 같은 색이면 셋이 한 덩어리로 뭉쳐 보입니다. */
-.brand__shelf { fill: #a8a196; }
+.brand__shelf { fill: var(--wood-edge); }
 .brand__title {
   margin: 0;
   display: flex;
@@ -62,7 +146,11 @@ body {
   flex-wrap: wrap;
   font-weight: 600;
 }
-.brand__mark { font-size: 24px; letter-spacing: 0.03em; }
+/*
+  이름은 표시용 글꼴입니다. 로마자와 숫자만 세리프로 바뀌고 한글은 기기의 글꼴을 그대로
+  쓰는데, 자간을 조금 벌려 두면 그것만으로도 「책 이름」처럼 읽힙니다.
+*/
+.brand__mark { font-family: var(--display); font-size: 25px; letter-spacing: 0.02em; }
 .brand__name { font-size: 14px; font-weight: 500; color: var(--muted); letter-spacing: 0.01em; }
 .app__foot { margin-top: 32px; font-size: 13px; }
 .app__foot > div + div { margin-top: 6px; }
@@ -149,23 +237,44 @@ body {
   }
 }
 
+/*
+  **카드는 책상 위에 놓인 종이 한 장입니다.** 테두리 하나만으로는 배경과 같은 평면에
+  그려진 칸으로 보입니다. 위쪽에 밝은 선 한 줄을 넣어 종이가 빛을 받는 쪽을 만들고,
+  그림자를 두 겹으로 두어 가까운 것과 멀리 퍼지는 것을 갈라 놓습니다.
+
+  **모서리를 더 둥글게 하지 마세요.** 종이는 각이 져 있습니다. 많이 둥글릴수록 종이가
+  아니라 화면 속 상자로 보입니다.
+*/
 .picker, .results {
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 16px;
+  border-radius: 8px;
+  padding: 18px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 1px 2px rgba(36, 29, 20, 0.05),
+    0 8px 24px -12px rgba(36, 29, 20, 0.18);
 }
 
 .picker__head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.picker__head h2 { margin: 0; font-size: 16px; }
+.picker__head h2 { margin: 0; font-family: var(--display); font-size: 17px; letter-spacing: 0.01em; }
 .picker__count { font-size: 13px; color: var(--accent); font-weight: 600; }
 
 .tabs { display: flex; gap: 4px; margin: 12px 0; border-bottom: 1px solid var(--line); }
 .tab {
   appearance: none; background: none; border: 0; border-bottom: 2px solid transparent;
-  padding: 8px 10px; font: inherit; font-size: 14px; color: var(--muted); cursor: pointer;
+  padding: 9px 12px; font: inherit; font-size: 14px; color: var(--muted); cursor: pointer;
+  letter-spacing: 0.01em;
+  transition: color 0.12s ease, border-color 0.12s ease;
 }
-.tab--active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+.tab:hover { color: var(--text); }
+.tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 4px; }
+/*
+  **고른 탭은 놋쇠로 밑줄을 긋습니다.** 누르는 자리가 아니라 「지금 여기」를 가리키는
+  표시라, 녹색을 쓰면 단추와 같은 말을 하게 됩니다. 놋쇠는 이 화면에서 가리키는 일에만
+  쓰는 색입니다.
+*/
+.tab--active { color: var(--text); border-bottom-color: var(--brass); font-weight: 600; }
 
 .tree, .flat-list { list-style: none; margin: 0; padding: 0; }
 .tree--nested { padding-left: 22px; }
