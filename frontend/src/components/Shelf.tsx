@@ -282,9 +282,13 @@ function ShelfView({
   */
   const [nearby, setNearby] = useState<number | null>(null);
   /*
-    **찾아간 자리를 표시해 둡니다.** 스무 권이 한 화면에 서 있어서, 그 자리로 옮겨만
-    놓으면 <b>어느 것을 찾은 것인지 알 수 없습니다.</b> 표지에는 글자가 없어서 더
-    그렇습니다. 자료실을 바꾸면 번호의 뜻이 달라지므로 그때 버립니다.
+    **짚어 둔 자리.** 스무 권이 한 화면에 서 있어서, 그 자리로 옮겨만 놓으면 <b>어느
+    것을 찾은 것인지 알 수 없습니다.</b> 표지에는 글자가 없어서 더 그렇습니다.
+
+    **「책 찾기」로 찾아간 책과 손으로 누른 책이 둘 다 여기 들어옵니다.** 누르고
+    들어갔다 나오는 것이 이 화면에서 가장 흔한 동작인데, 그때 표시가 없으면 돌아온
+    사람이 어느 것을 봤는지 몰라 하나씩 다시 눌러 봅니다. 자료실을 바꾸면 번호의 뜻이
+    달라지므로 그때 버립니다.
   */
   const [found, setFound] = useState<number | null>(null);
   /*
@@ -558,8 +562,22 @@ function ShelfView({
               onGo={goTo}
             />
           )}
-          {/* 접혔을 때만 보이는 작은 제목. 큰 제목이 사라진 자리를 대신합니다. */}
-          <span className="shelf-head__small">{heading}</span>
+          {/*
+            **갈래 고르기는 접혀도 남아 있어야 합니다.** 큰 제목 쪽에 두었을 때는 이것이
+            <b>자기가 데려다준 자리에서 사라졌습니다.</b> 갈래를 고르면 수천 줄을 건너뛰는데,
+            그 순간 머리말이 접혀 고르는 자리가 함께 접혔습니다. 다른 갈래로 옮기려면
+            서가를 맨 위까지 되돌려야 했고, 그 거리가 방금 건너온 거리와 같습니다.
+
+            자리를 새로 내는 것이 아니라 <b>작은 제목이 쓰던 칸을 그대로 씁니다.</b> 접힌
+            머리말이 말하던 「지금 어느 갈래 앞인가」가 곧 이 고르개의 값이라, 읽기만 하던
+            것이 누를 수도 있게 된 것뿐입니다. 고를 갈래가 없는 서가에서는 예전처럼 작은
+            제목이 그 자리에 섭니다.
+          */}
+          <SectionPick
+            sections={room.sections}
+            here={heading}
+            onGo={(at) => scrollToIndex(at, true)}
+          />
         </div>
 
         <div className="shelf-head__big">
@@ -583,11 +601,6 @@ function ShelfView({
                   setFound(null);
                   setRoomSlug(slug);
                 }}
-              />
-              <SectionPick
-                sections={room.sections}
-                here={heading}
-                onGo={(at) => scrollToIndex(at, true)}
               />
               {room.firstCall && room.lastCall && (
                 <span className="shelf-head__range">
@@ -650,7 +663,22 @@ function ShelfView({
                             index === found || (picked !== null && book.chosung === picked)
                           }
                           found={index === found}
-                          onPick={() => setNearby(index)}
+                          /*
+                            **누른 자리를 짚어 두고 나서 엽니다.** 예전에는 열기만
+                            했는데, 돌아왔을 때 스무 권이 아무 표시 없이 그대로 서
+                            있어서 **어느 것을 열어 봤는지 알 수 없었습니다.** 표지에
+                            글자가 없어 더 그렇고, 결국 하나씩 다시 눌러 보게 됩니다.
+
+                            **여기서는 옮겨 가지 않습니다.** 누른 책은 이미 손가락
+                            아래에 있으므로, 「책 찾기」처럼 자리를 옮기면 덮개를 닫고
+                            돌아왔을 때 서가가 움직여 있습니다. 초성으로 걸러 둔 것도
+                            그대로 둡니다. 덮개 아래에서 서가가 바뀌면 돌아온 자리가
+                            떠난 자리와 달라집니다.
+                          */
+                          onPick={() => {
+                            setFound(index);
+                            setNearby(index);
+                          }}
                         />
                       );
                     })}
@@ -765,8 +793,14 @@ function SectionPick({
   here: string;
   onGo: (at: number) => void;
 }) {
-  // 갈래가 하나뿐이면 고를 것이 없습니다. 갈래 구간이 생기기 전에 세운 서가도 여깁니다.
-  if (!sections || sections.length <= 1) return null;
+  /*
+    **고를 것이 없으면 읽을 것만 내놓습니다. 빈자리로 두지 마세요.** 이 칸은 접힌
+    머리말이 「지금 어느 갈래 앞인가」를 말하던 자리라, 고르개를 못 내놓는다고 아무것도
+    두지 않으면 <b>그 서가에서는 접는 순간 자기가 어디 있는지를 잃습니다.</b> 갈래가
+    하나뿐인 서가와, 갈래 구간이 생기기 전에 세워 아직 다시 세우지 못한 서가가 여기에
+    해당합니다.
+  */
+  if (!sections || sections.length <= 1) return <Standing here={here} />;
 
   /*
     **작은 갈래는 목록에서 뺍니다.** 실측으로 한 자료실에 예순세 가지가 있었고 그중
@@ -776,7 +810,7 @@ function SectionPick({
   */
   const standing = sections.find((one) => one.name === here);
   const worth = sectionsWorthShowing(sections, here);
-  if (worth.length <= 1) return null;
+  if (worth.length <= 1) return <Standing here={here} />;
   return (
     <select
       className="shelf-head__pick shelf-head__pick--section"
@@ -799,6 +833,18 @@ function SectionPick({
       ))}
     </select>
   );
+}
+
+/**
+ * 고를 갈래가 없을 때 그 자리에 서는 작은 제목.
+ *
+ * <p><b>펼쳤을 때는 보이지 않습니다.</b> 그때는 바로 아래 큰 제목이 같은 말을 하고
+ * 있어서, 둘을 함께 띄우면 같은 문장이 두 줄로 겹쳐 보입니다. 고르개는 펼쳐도 남는데
+ * 이것은 접힐 때만 나오는 차이가 여기서 옵니다. 고르개는 누를 것이고 이것은 읽을
+ * 것이라, 읽을 것은 이미 읽히고 있으면 비켜서는 편이 맞습니다.
+ */
+function Standing({ here }: { here: string }) {
+  return <span className="shelf-head__small">{here}</span>;
 }
 
 /** 자료실 고르기. 층이 다르면 아예 다른 서가라 이어 붙이지 않고 갈라 둡니다. */
