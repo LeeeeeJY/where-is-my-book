@@ -59,7 +59,14 @@ export function ShelfCover({
       data-lift={lifted ? '' : undefined}
       data-found={found ? '' : undefined}
       onClick={onPick}
-      aria-label={describe(book)}
+      /*
+        **누르면 무슨 일이 일어나는지가 상태마다 다르므로 그것까지 읽어 줍니다.**
+        짚어 둔 책은 누르면 표시가 지워지고 나머지는 열립니다. 눈으로 보는 사람에게는
+        기울어 선 것이 그 차이를 말하지만, **화면을 읽어 주는 사람에게는 기울기가
+        아무 말도 하지 않습니다.** 글자를 감춘 만큼 여기에 실어야 한다는 규칙이
+        제목·저자·청구기호에만 적용되는 것이 아닙니다.
+      */
+      aria-label={found ? `${describe(book)}, 짚어 둔 책입니다. 누르면 표시를 지웁니다` : describe(book)}
     >
       {/*
         **찾은 책에는 서표를 끼웁니다.** 테두리만으로는 찾은 것이 보이지 않습니다.
