@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   SHELF_SHAPE_FINDABLE,
   fetchShelfChunk,
@@ -107,14 +107,75 @@ export function ShelfNearby({
     좌우여야 합니다. 손가락과 키보드 양쪽을 받습니다.
   */
   const touchFrom = useRef<number | null>(null);
+
+  /*
+    **넘어간 방향과 걸음 수.** 미끄러지는 것은 여기서 넘긴 걸음뿐입니다. 「책 찾기」로
+    수백 권을 건너뛰는 것(`onGo={onMove}`)은 옆으로 걸어간 것이 아니라 자리를 옮긴
+    것이라, 한 걸음짜리 미끄러짐을 붙이면 거리를 거짓말하게 됩니다.
+  */
+  const walked = useRef(0);
+  const stage = useRef<HTMLDivElement>(null);
+  const walking = useRef<Animation | null>(null);
+
   const step = useCallback(
     (by: number) => {
       const next = index + by;
       if (next < 0 || next >= room.count) return;
+      walked.current = by;
       onMove(next);
     },
     [index, room.count, onMove],
   );
+
+  /*
+    **옆으로 걸어가는 화면이라 줄이 미끄러져야 합니다.** 다섯 칸은 제자리에 있고
+    내용만 갈아 끼워지므로, 그냥 두면 <b>책이 뚝 끊기며 바뀝니다.</b> 서가 앞에서 한
+    걸음 옮긴 것이 아니라 화면이 갈린 것으로 읽힙니다.
+
+    그래서 <b>새 내용이 그려진 뒤에 줄을 방금 있던 자리로 되돌려 놓고 제자리까지
+    미끄러뜨립니다.</b> 가운데 책이 옆칸으로 옮겨 간 거리(칸 가운데 사이)가 한 걸음에
+    34%, 두 걸음에 52% 라 그만큼 어긋난 데서 시작합니다.
+
+    **CSS 애니메이션이 아니라 여기서 겁니다.** 칸도 요소도 그대로 남아 있어서 클래스로
+    다시 돌릴 방법이 없고, 열쇠를 갈면 표지가 다시 붙어 깜빡입니다. 그리고 **덮개가
+    열릴 때 도는 층별 애니메이션과 부딪히지 않아야 합니다.** 대본으로 건 것이 CSS
+    애니메이션보다 뒤에 놓이므로 걸음이 이깁니다.
+  */
+  useLayoutEffect(() => {
+    const by = walked.current;
+    walked.current = 0;
+    if (!by) return;
+
+    const el = stage.current;
+    if (!el?.animate) return;
+    // 움직임을 줄여 달라고 한 사람에게는 걸지 않습니다. 미끄러지는 화면이 멀미를
+    // 만드는 것은 스크롤과 여기가 다르지 않습니다.
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+
+    // 빠르게 여러 번 넘기면 앞엣것이 아직 돌고 있습니다. 겹치면 서로 밀어냅니다.
+    walking.current?.cancel();
+
+    const far = Math.min(Math.abs(by), 2);
+    const from = (by > 0 ? 1 : -1) * (far === 1 ? 34 : 52);
+    const ease = 'cubic-bezier(0.22, 1, 0.36, 1)';
+    walking.current = el.animate(
+      [{ transform: `translateX(${from}%)` }, { transform: 'none' }],
+      { duration: far === 1 ? 260 : 320, easing: ease },
+    );
+
+    // 집어 든 책만 살짝 올라옵니다. 줄이 미끄러지는 것만으로는 **어느 것이 손에 든
+    // 책인지**가 안 보입니다. 크게 하면 옆 책과 부딪히므로 3.5% 입니다.
+    el.querySelector('[data-spot="0"] .nearby__book')?.animate(
+      [{ transform: 'scale(0.965)' }, { transform: 'none' }],
+      { duration: 300, easing: ease },
+    );
+  }, [index]);
+
+  /*
+    **떠날 때 가던 것을 놓습니다.** 덮개를 닫는 순간 돌고 있던 걸음이 남아 있으면
+    없어진 요소를 붙들고 있게 됩니다.
+  */
+  useEffect(() => () => walking.current?.cancel(), []);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -201,7 +262,7 @@ export function ShelfNearby({
         </span>
       </p>
 
-      <div className="nearby__stage">
+      <div className="nearby__stage" ref={stage}>
         {[-2, -1, 0, 1, 2].map((offset) => {
           const book = bookAt(index + offset);
           const spot = Math.abs(offset);
