@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ApiUnavailable, fetchLibraries } from './api';
 import { BookSearch } from './components/BookSearch';
-import { Browse } from './components/Browse';
+import { Shelf } from './components/Shelf';
 import { BrandMark } from './components/Brand';
 import { MultiCheck } from './components/MultiCheck';
 import { LibraryPicker } from './components/LibraryPicker';
@@ -17,6 +17,16 @@ import type { Library, UserPosition } from './domain/types';
  * 복원되기도 전에 지워집니다.
  */
 const INITIAL_SEARCH = window.location.search;
+
+/**
+ * 화면 셋. **위의 탭과 서가의 아래 탭 바가 같은 목록을 씁니다.** 따로 적으면 탭을
+ * 하나 더할 때 한쪽에만 들어가고, 그 화면은 다른 쪽에서 갈 수 없는 곳이 됩니다.
+ */
+const MODES = [
+  ['single', '한 권 검색'],
+  ['multi', '여러 권 검색'],
+  ['shelf', '서가'],
+] as const;
 
 type Catalog =
   | { kind: 'loading' }
@@ -36,12 +46,10 @@ export default function App() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [restored, setRestored] = useState(false);
   /*
-   * **둘러보기를 셋째 탭에 둡니다.** 처음에는 한 권 검색의 빈 화면에 얹었는데,
-   * 실제로 띄워 보니 검색 칸 넷 아래에 오늘의 이야기와 스무 권짜리 목록과 안내
-   * 문단이 겹쳐 첫 화면이 복잡해졌습니다. 검색하러 온 사람에게는 검색 칸만
-   * 보이는 편이 낫고, 둘러보기는 자기 자리에서 길어져도 됩니다.
+   * **서가를 셋째 탭에 둡니다.** 검색하러 온 사람에게는 검색 칸만 보이는 편이 낫고,
+   * 서가는 애초에 다른 행동이라 들어오는 문을 따로 두는 것이 맞습니다.
    */
-  const [mode, setMode] = useState<'single' | 'multi' | 'browse'>('single');
+  const [mode, setMode] = useState<'single' | 'multi' | 'shelf'>('single');
   /**
    * 「내 주변」에서 잡은 위치. 도서관 선택 칸이 잡고 여러 권 검색이 거리를 재는 데 씁니다.
    * 한쪽 컴포넌트 안에 두면 다른 쪽이 볼 수 없어 여기에 올려 둡니다.
@@ -156,13 +164,7 @@ export default function App() {
             윗선이 맞습니다. 좁은 화면에서는 DOM 순서 그대로 선택 → 탭 → 내용으로 쌓입니다.
           */}
           <nav className="tabs tabs--mode" role="tablist">
-            {(
-              [
-                ['single', '한 권 검색'],
-                ['multi', '여러 권 검색'],
-                ['browse', '둘러보기'],
-              ] as const
-            ).map(([key, label]) => (
+            {MODES.map(([key, label]) => (
               <button
                 key={key}
                 role="tab"
@@ -180,8 +182,16 @@ export default function App() {
             {mode === 'multi' && (
               <MultiCheck libraries={libraries} selected={selected} position={position} />
             )}
-            {mode === 'browse' && <Browse libraries={libraries} selected={selected} />}
+            {/*
+              **서가도 다른 탭과 같은 자리에 그립니다.** 한때 화면을 통째로 덮고 아래
+              탭 바를 쓰게 했는데, 탭을 누르는 순간 예고 없이 배치가 바뀌어 다른 데로
+              온 것처럼 보였습니다. 탭이 제자리에 있으면 이동이 이동으로 읽힙니다.
 
+              **넓은 화면에서도 좁지 않습니다.** 1,100px 에서 도서관 선택 칸을 빼도
+              오른쪽이 780px 이라 한 줄에 네 권이면 표지가 180px 입니다. 휴대폰의
+              81px 보다 두 배 넓습니다.
+            */}
+            {mode === 'shelf' && <Shelf libraries={libraries} selected={selected} />}
           </div>
         </main>
       )}

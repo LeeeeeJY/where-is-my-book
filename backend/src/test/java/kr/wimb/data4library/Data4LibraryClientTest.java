@@ -473,96 +473,73 @@ class Data4LibraryClientTest {
     }
 
     /**
-     * 매뉴얼 15절의 응답은 <b>여섯 묶음이 전부 {@code book} 이라는 같은 이름</b>을 씁니다.
-     * 문서 전체를 훑어 읽으면 120권이 한 덩어리로 나오는데 <b>예외가 나지 않아</b>
-     * 눈으로는 알아채기 어렵습니다. 화면에는 「영유아 목록에 성인 책」으로 나갑니다.
+     * <b>같은 이름의 항목이 묶음마다 되풀이되는 응답</b>을 읽는 방법을 고정합니다.
+     *
+     * <p>매뉴얼 15절이 그런 모양이었습니다. 여섯 묶음이 전부 {@code book} 이라는 같은
+     * 이름을 써서, 문서 전체를 훑는 {@link Data4LibraryResponse#items} 로 읽으면 120권이
+     * 한 덩어리로 나옵니다. <b>그런데 예외가 나지 않습니다.</b> 그럴듯한 목록이 나오므로
+     * 눈으로는 알아채기 어렵고, 화면에는 「영유아 목록에 성인 책」으로 조용히 나갑니다.
+     *
+     * <p><b>15절을 부르는 화면은 없어졌지만 시험은 남깁니다.</b> {@code itemsUnder} 는
+     * 그대로 쓰이고 있고(2절의 {@code callNumbers} 안쪽도 같은 모양입니다), 같은 함정은
+     * 항목 이름이 겹치는 응답을 만날 때마다 되돌아옵니다. 잡아 주는 것이 없으면 다음에
+     * 또 같은 자리에서 틀립니다.
      */
-    private static final String POPULAR_XML = """
+    private static final String REPEATED_TAG_XML = """
         <?xml version="1.0" encoding="UTF-8"?>
         <response>
           <loanBooks>
-            <book><no>1</no><ranking>1</ranking><bookname><![CDATA[급류]]></bookname>
+            <book><no>1</no><bookname><![CDATA[급류]]></bookname>
               <authors><![CDATA[정대건 지음]]></authors><publisher><![CDATA[민음사]]></publisher>
-              <publication_year>2024</publication_year><isbn13>9788937473838</isbn13>
-              <class_no>813.7</class_no><class_nm><![CDATA[한국소설]]></class_nm>
-              <bookImageURL><![CDATA[https://example.test/1.jpg]]></bookImageURL>
-              <bookDtlUrl><![CDATA[https://data4library.kr/bookV?seq=1]]></bookDtlUrl></book>
+              <publication_year>2024</publication_year><isbn13>9788937473838</isbn13></book>
           </loanBooks>
           <age0Books>
-            <book><no>1</no><ranking>1</ranking><bookname><![CDATA[사과가 쿵!]]></bookname>
+            <book><no>1</no><bookname><![CDATA[사과가 쿵!]]></bookname>
               <authors><![CDATA[다다 히로시]]></authors><publisher><![CDATA[보림]]></publisher>
               <publication_year>1996</publication_year><isbn13>9788943302016</isbn13></book>
           </age0Books>
           <age6Books></age6Books>
           <age8Books>
-            <book><no>1</no><ranking>1</ranking><bookname><![CDATA[흔한남매 14]]></bookname>
+            <book><no>1</no><bookname><![CDATA[흔한남매 14]]></bookname>
               <authors><![CDATA[흔한남매]]></authors><publisher><![CDATA[아이스크림북스]]></publisher>
               <publication_year>2023</publication_year><isbn13>9791165341114</isbn13></book>
-            <book><no>2</no><ranking>2</ranking><bookname><![CDATA[전천당 1]]></bookname>
+            <book><no>2</no><bookname><![CDATA[전천당 1]]></bookname>
               <authors><![CDATA[히로시마 레이코]]></authors><publisher><![CDATA[길벗스쿨]]></publisher>
               <publication_year>2018</publication_year><isbn13>9791164060207</isbn13></book>
           </age8Books>
-          <age14Books>
-            <book><no>1</no><ranking>1</ranking><bookname><![CDATA[아몬드]]></bookname>
-              <authors><![CDATA[손원평 지음]]></authors><publisher><![CDATA[창비]]></publisher>
-              <publication_year>2017</publication_year><isbn13>9788936434267</isbn13></book>
-          </age14Books>
-          <age20Books>
-            <book><no>1</no><ranking>1</ranking><bookname><![CDATA[세이노의 가르침]]></bookname>
-              <authors><![CDATA[세이노 지음]]></authors><publisher><![CDATA[데이원]]></publisher>
-              <publication_year>2023</publication_year><isbn13>9788901270005</isbn13></book>
-          </age20Books>
         </response>""";
 
     @Test
-    @DisplayName("15절의 여섯 묶음이 같은 book 태그를 써도 섞이지 않는다")
-    void popularGroupsDoNotMix() {
-        var transport = new RecordingTransport();
-        transport.response = POPULAR_XML;
-
-        var groups = client(transport).popularByLibrary("111001", ApiBudget.Priority.USER);
-
-        // 문서 전체를 훑어 읽으면 여기가 6이 아니라 전부 같은 목록이 됩니다.
-        assertEquals(List.of("급류"), names(groups, Data4LibraryClient.AgeGroup.ALL));
-        assertEquals(List.of("사과가 쿵!"), names(groups, Data4LibraryClient.AgeGroup.INFANT));
-        assertEquals(List.of("흔한남매 14", "전천당 1"),
-                names(groups, Data4LibraryClient.AgeGroup.ELEMENTARY));
-        assertEquals(List.of("아몬드"), names(groups, Data4LibraryClient.AgeGroup.TEEN));
-        assertEquals(List.of("세이노의 가르침"), names(groups, Data4LibraryClient.AgeGroup.ADULT));
+    @DisplayName("같은 이름의 항목이 묶음마다 있어도 부모를 지정하면 섞이지 않는다")
+    void itemsUnderKeepsGroupsApart() {
+        assertEquals(List.of("급류"), namesUnder("loanBooks"));
+        assertEquals(List.of("사과가 쿵!"), namesUnder("age0Books"));
+        assertEquals(List.of("흔한남매 14", "전천당 1"), namesUnder("age8Books"));
     }
 
     @Test
-    @DisplayName("빈 묶음은 아예 담기지 않는다")
-    void emptyGroupIsOmitted() {
-        var transport = new RecordingTransport();
-        transport.response = POPULAR_XML;
-
-        var groups = client(transport).popularByLibrary("111001", ApiBudget.Priority.USER);
-
-        // 작은 도서관은 유아 목록이 비어서 옵니다. 그대로 그리면 눌렀는데 아무것도
-        // 안 나와 고장으로 읽힙니다.
-        assertFalse(groups.containsKey(Data4LibraryClient.AgeGroup.TODDLER));
-        assertEquals(5, groups.size());
+    @DisplayName("빈 묶음과 없는 묶음은 둘 다 빈 목록이다")
+    void itemsUnderTreatsEmptyAndMissingAlike() {
+        assertEquals(List.of(), namesUnder("age6Books"));
+        assertEquals(List.of(), namesUnder("age20Books"));
     }
 
+    /**
+     * <b>문서 전체를 훑어 읽으면 어떻게 되는지</b>를 함께 고정합니다. 이것이 없으면
+     * 위의 시험이 통과하는 이유가 「원래 안 섞이니까」인지 「부모를 지정했으니까」인지
+     * 구별되지 않습니다.
+     */
     @Test
-    @DisplayName("15절은 대출건수를 주지 않으므로 순위를 들어야 한다")
-    void popularCarriesRankingNotLoanCount() {
-        var transport = new RecordingTransport();
-        transport.response = POPULAR_XML;
-
-        var elementary = client(transport)
-                .popularByLibrary("111001", ApiBudget.Priority.USER)
-                .get(Data4LibraryClient.AgeGroup.ELEMENTARY);
-
-        assertNull(elementary.get(0).loanCount(), "매뉴얼 15절 응답에 loan_count 가 없습니다");
-        assertEquals(1, elementary.get(0).ranking());
-        assertEquals(2, elementary.get(1).ranking());
+    @DisplayName("부모를 지정하지 않으면 묶음이 한 덩어리로 섞인다")
+    void itemsWithoutParentMixesGroups() {
+        List<String> all = Data4LibraryResponse.items(REPEATED_TAG_XML, "book").stream()
+                .map(fields -> fields.get("bookname")).toList();
+        assertEquals(4, all.size(), "네 묶음의 책이 전부 한 덩어리로 나옵니다");
     }
 
-    private static List<String> names(Map<Data4LibraryClient.AgeGroup, List<BookInfo>> groups,
-                                      Data4LibraryClient.AgeGroup group) {
-        return groups.getOrDefault(group, List.of()).stream().map(BookInfo::bookname).toList();
+    private static List<String> namesUnder(String parentTag) {
+        return Data4LibraryResponse.itemsUnder(REPEATED_TAG_XML, parentTag, "book").stream()
+                .map(fields -> fields.get("bookname")).toList();
     }
 
     @Test

@@ -31,16 +31,18 @@ public final class RateLimitInterceptor implements HandlerInterceptor {
      * 50줄 상한에 줄마다 두세 번이면 백 번을 넘깁니다. 짧은 목록에는 과하게 매겨지지만,
      * 그 대가로 긴 목록을 되풀이해 던지는 것을 막습니다.
      */
-    static int costOf(String path) {
+    static int costOf(String method, String path) {
         if (path == null) return 1;
         if (path.startsWith("/api/check/resolve")) return 100;
         if (path.startsWith("/api/loan")) return 20;
         if (path.startsWith("/api/search")) return 8;
         if (path.startsWith("/api/holdings")) return 4;
-        // 둘러보기는 도서관마다 하루 한 번만 정보나루를 부르므로 대개 0회입니다. 다만
-        // 캐시가 빌 때는 장서 건수·장서 한 쪽·책 정보·인기 목록으로 여러 번 나가므로,
-        // 본문을 읽기 전에 정하는 값답게 상한에 가깝게 잡습니다.
-        if (path.startsWith("/api/browse")) return 6;
+        // **서가는 보는 것과 세우는 것의 값이 완전히 다릅니다.** 보는 요청은 미리 적어
+        // 둔 파일을 흘려보내는 것이라 정보나루를 한 번도 부르지 않습니다. 세우는 요청은
+        // 수백 번을 부릅니다. 무게를 하나로 매기면 어느 쪽에 맞춰도 틀립니다. 낮게
+        // 잡으면 아무나 수백 회를 태우고, 높게 잡으면 진행률을 몇 번 물어보다 막힙니다.
+        // 세우는 것은 POST 라 여기서 갈립니다.
+        if (path.startsWith("/api/shelf")) return "POST".equals(method) ? 120 : 1;
         // 진단은 열 때마다 정보나루를 한 번 씁니다. 자동으로 새로 고치면 안 되는 화면이라
         // 사람이 누르는 속도보다 빠르면 막습니다.
         if (path.startsWith("/api/diagnose")) return 5;
@@ -80,7 +82,7 @@ public final class RateLimitInterceptor implements HandlerInterceptor {
         if (CorsUtils.isPreFlightRequest(request)) return true;
 
         RateLimit.Decision decision =
-                limit.check(clientKey(request), costOf(request.getRequestURI()));
+                limit.check(clientKey(request), costOf(request.getMethod(), request.getRequestURI()));
         if (decision.allowed()) return true;
         throw new RateLimit.LimitExceededException(decision, messageFor(decision));
     }

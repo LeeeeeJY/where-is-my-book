@@ -227,53 +227,150 @@ export async function searchBooks(
 }
 
 /**
- * 둘러보기 화면이 쓰는 것. **오늘의 이야기 한 권과 그 도서관의 인기대출 목록**입니다.
+ * 서가에 꽂힌 책 한 권.
  *
- * <p>둘 다 서버가 도서관마다 하루에 한 번만 정보나루에 물어 두고 그날 내내 같은 답을
- * 돌려줍니다. 그래서 화면이 자주 불러도 호출이 늘지 않습니다.
+ * <p>서가를 **보는** 것은 서버가 미리 적어 둔 파일을 받는 것이라 정보나루를 한 번도
+ * 부르지 않습니다. 서가를 **세우는** 것만 부릅니다.
  */
-export type BrowseStory = {
+export type ShelfBook = {
+  isbn: string;
   title: string;
-  authors: string | null;
-  publisher: string | null;
-  publicationYear: string | null;
-  isbn13: string;
-  imageUrl: string | null;
+  author?: string;
+  publisher?: string;
+  year?: string;
+  /** 표지 주소. **없을 수 있습니다.** 그때는 화면이 제목과 저자로 대신 그립니다. */
+  cover?: string;
+  /** 조립한 청구기호. 「813.6 김56ㅁ」 */
+  call?: string;
+  /** 저자 초성. 도서기호 첫 글자에서 뽑은 것이고, 한글이 아니면 없습니다. */
+  chosung?: string;
   /**
-   * 청구기호. **없을 수 있습니다.** 정보나루 매뉴얼만으로는 이 값의 모양을 확정할 수
-   * 없어 서버가 확실히 읽히는 경우에만 채웁니다. 없는 것보다 틀린 청구기호가 나쁩니다.
+   * 분류명. 「문학 > 한국문학 > 소설」처럼 옵니다.
+   *
+   * <p>서가의 큰 제목이 이것입니다. 스크롤하면서 바뀌어 「지금 어느 갈래 앞에 서
+   * 있는가」를 말합니다. **정보나루가 준 값이고 우리가 분류번호로 지어내지 않습니다.**
    */
-  callNumber: string | null;
-  /** 정보나루 책 정보. 못 받으면 null 이고, 그때는 링크를 그리지 않습니다. */
-  detailUrl: string | null;
-  classNm: string | null;
-  /** 그 도서관 문학 장서가 몇 건인지. 어디서 뽑았는지를 화면이 밝힙니다. */
-  poolSize: number;
-  /** 이 이야기가 어느 날 것인지(한국 날짜). **새로 고쳐도 바뀌지 않는다는 표시입니다.** */
-  date: string;
+  classNm?: string;
 };
 
-export type BrowsePopularBook = {
-  /** 그 도서관에서의 대출 순위. **15절은 대출건수를 주지 않아 순위만 옵니다.** */
-  rank: number;
-  title: string;
-  authors: string | null;
-  publisher: string | null;
-  publicationYear: string | null;
-  isbn13: string;
-  imageUrl: string | null;
-  detailUrl: string | null;
+/** 자료실 한 곳. **서가를 고르는 단위입니다.** 층이 다르면 아예 다른 서가입니다. */
+export type ShelfRoom = {
+  /** 조각 파일이 놓인 자리. 주소에 그대로 들어갑니다. */
+  slug: string;
+  code?: string;
+  name?: string;
+  count: number;
+  chunks: number;
+  /** 선반 라벨의 왼쪽 끝. */
+  firstCall?: string;
+  /** 선반 라벨의 오른쪽 끝. */
+  lastCall?: string;
+  /**
+   * 초성 → 그 초성이 처음 나오는 자리.
+   *
+   * <p>**없는 초성은 담기지 않습니다.** 화면은 담기지 않은 줄을 흐리게 그려
+   * 「누를 수 있지만 갈 곳이 없다」가 아니라 「여기엔 없다」로 보이게 합니다.
+   */
+  chosungAt: Record<string, number>;
 };
 
-/** @param label 화면에 그대로 나가는 이름. **빈 묶음은 서버가 아예 담지 않습니다.** */
-export type BrowsePopularGroup = { key: string; label: string; books: BrowsePopularBook[] };
+export type ShelfMeta = {
+  libCode: string;
+  kdc: string;
+  /**
+   * **장서 데이터 기준일.** 받아 온 날입니다. 화면 머리에 그대로 적습니다.
+   *
+   * <p>실시간이 아니라는 것을 숨기지 않으려는 표시입니다. 그 뒤에 들어온 새 책은
+   * 다시 세울 때까지 서가에 없습니다.
+   */
+  asOf: string;
+  /** 마지막으로 **바뀌었는지 확인한** 날. 기준일과 다릅니다. 화면에는 적지 않습니다. */
+  checkedAt?: string;
+  chunkSize: number;
+  count: number;
+  reported: number;
+  rooms: ShelfRoom[];
+};
 
-/** @param story 없을 수 있습니다. **화면이 그것을 「없다」로 그리면 안 됩니다.** */
-export type BrowseResponse = { story: BrowseStory | null; popular: BrowsePopularGroup[] };
+/** 고를 수 있는 서가 하나. KDC 대주제 열 개이고 도서관마다 같습니다. */
+export type ShelfSubject = { code: string; label: string };
 
-export async function fetchBrowse(libCode: string): Promise<BrowseResponse> {
-  const response = await get<BrowseResponse>(`/api/browse?lib=${encodeURIComponent(libCode)}`);
-  return { story: response.story ?? null, popular: response.popular ?? [] };
+export type ShelfSubjects = {
+  subjects: ShelfSubject[];
+  /**
+   * 이미 세워 둔 대주제.
+   *
+   * <p>**여기 없는 것은 고장이 아니라 「아직 아무도 열지 않았다」입니다.** 누르면
+   * 그때 세우고, 그동안 기다려야 한다는 것을 화면이 미리 말해 줍니다. 누르고 나서야
+   * 기다리라는 말을 들으면 누른 것을 후회하게 됩니다.
+   */
+  built: string[];
+};
+
+/**
+ * 서가가 지금 어떤 상태인지.
+ *
+ * - `ready` 바로 볼 수 있습니다
+ * - `building` 지금 세우는 중입니다. `percent` 가 함께 옵니다
+ * - `absent` 아직 아무도 열지 않았습니다. **고장이 아닙니다**
+ */
+export type ShelfStatus = {
+  state: 'ready' | 'building' | 'absent';
+  /** 세워져 있지만 기한이 지난 것. **보여 주기는 그대로 보여 줍니다.** */
+  stale: boolean;
+  percent: number;
+  books: number;
+};
+
+export async function fetchShelfSubjects(libCode: string): Promise<ShelfSubjects> {
+  const response = await get<Partial<ShelfSubjects>>(
+    `/api/shelf/${encodeURIComponent(libCode)}/subjects`,
+  );
+  return { subjects: response.subjects ?? [], built: response.built ?? [] };
+}
+
+/** 상태만 봅니다. **이 호출은 서가를 세우지 않습니다.** */
+export async function fetchShelfStatus(libCode: string, kdc: string): Promise<ShelfStatus> {
+  return get<ShelfStatus>(`/api/shelf/${encodeURIComponent(libCode)}/${encodeURIComponent(kdc)}`);
+}
+
+/**
+ * 서가를 세우기 시작합니다.
+ *
+ * <p>**같은 서가를 둘이 열어도 서버가 한 번만 세웁니다.** 이미 있거나 누가 세우는
+ * 중이면 아무 일도 하지 않고 지금 상태만 돌려줍니다.
+ */
+export async function startShelfBuild(libCode: string, kdc: string): Promise<ShelfStatus> {
+  return post<ShelfStatus>(
+    `/api/shelf/${encodeURIComponent(libCode)}/${encodeURIComponent(kdc)}`,
+    {},
+  );
+}
+
+export async function fetchShelfMeta(libCode: string, kdc: string): Promise<ShelfMeta> {
+  return get<ShelfMeta>(
+    `/api/shelf/${encodeURIComponent(libCode)}/${encodeURIComponent(kdc)}/meta`,
+  );
+}
+
+/**
+ * 서가의 한 조각. 스크롤하면서 필요한 것만 받습니다.
+ *
+ * <p>**기준일을 주소에 붙입니다.** 서버는 그 값을 쓰지 않습니다. 조각은 하루 동안
+ * 브라우저가 기억해 두는데, 다시 세웠을 때 주소가 달라지지 않으면 예전 조각을 그대로
+ * 씁니다. 그러면 서가 한가운데만 옛날 책이 남습니다.
+ */
+export async function fetchShelfChunk(
+  libCode: string,
+  kdc: string,
+  roomSlug: string,
+  chunk: number,
+  asOf: string,
+): Promise<ShelfBook[]> {
+  return get<ShelfBook[]>(
+    `/api/shelf/${encodeURIComponent(libCode)}/${encodeURIComponent(kdc)}` +
+      `/${encodeURIComponent(roomSlug)}/${chunk}?v=${encodeURIComponent(asOf)}`,
+  );
 }
 
 /**

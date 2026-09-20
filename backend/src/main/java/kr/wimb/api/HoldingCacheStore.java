@@ -35,15 +35,35 @@ public class HoldingCacheStore {
     private final CachingHoldingsClient cache;
     private final Path path;
 
+    /**
+     * 서가를 수집하러 띄운 컨테이너인지. <b>그때는 소장 캐시를 되살리지 않습니다.</b>
+     *
+     * <p>수집은 20만 권을 힙에 들고 정렬합니다. 기계가 메모리 1GB 이고 힙은 그 절반인데,
+     * 소장 캐시가 수십 MB 를 함께 차지하면 그 절반을 넘겨 <b>OOM 킬러가 컨테이너를
+     * 조용히 죽입니다.</b> 수집 컨테이너는 소장 조회를 한 번도 하지 않으므로 캐시가
+     * 있어 봐야 쓸 데도 없습니다.
+     *
+     * <p>저장하는 쪽은 막지 않아도 됩니다. {@link #flush} 가 바뀐 것이 없으면 쓰지
+     * 않는데, 수집 컨테이너는 캐시를 건드리지 않아 언제나 깨끗합니다. 그래도 되살리지
+     * 않으면 빈 캐시가 되므로 <b>덮어쓸 위험 자체가 없어지는 쪽</b>이 낫습니다.
+     */
+    private final boolean harvesting;
+
     public HoldingCacheStore(CachingHoldingsClient cache,
                              @Value("${wimb.holdings.cache-path:data/holding-cache.tsv.gz}")
-                             String path) {
+                             String path,
+                             @Value("${wimb.shelf.harvest:}") String harvest) {
         this.cache = cache;
         this.path = Path.of(path);
+        this.harvesting = harvest != null && !harvest.isBlank();
     }
 
     @PostConstruct
     void restore() {
+        if (harvesting) {
+            log.info("서가를 수집하는 중이라 소장 캐시를 되살리지 않습니다.");
+            return;
+        }
         int loaded = cache.load(path);
         // 몇 건을 되살렸는지 남깁니다. 이것이 없으면 캐시가 살아 돌아온 것인지 매번 처음부터
         // 쌓는 것인지 구별할 수 없어, 호출이 줄지 않는 이유를 추측하게 됩니다.

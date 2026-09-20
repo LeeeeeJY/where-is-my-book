@@ -122,8 +122,13 @@ class WimbControllerTest {
                 kr.wimb.opac.OpacTemplates.load(), noResolver(),
                 new CachingHoldingsClient((isbn, region) -> List.of(), Duration.ofHours(6), 100,
                         Clock.systemUTC()),
-                unlimited(), new BrowseService(client),
+                unlimited(), noShelf(),
                 Clock.fixed(Instant.parse("2026-09-06T00:00:00Z"), ZoneId.of("UTC")));
+    }
+
+    /** 서가를 적어 두지 않은 상태. 이 시험들은 서가를 보지 않습니다. */
+    private static kr.wimb.shelf.ShelfStore noShelf() {
+        return new kr.wimb.shelf.ShelfStore(java.nio.file.Path.of("build/tmp/no-shelf"));
     }
 
     private static WimbController controller(RegionAware transport) {
@@ -142,7 +147,7 @@ class WimbControllerTest {
                 kr.wimb.opac.OpacTemplates.load(), noResolver(),
                 new CachingHoldingsClient((isbn, region) -> List.of(), Duration.ofHours(6), 100,
                         Clock.systemUTC()),
-                unlimited(), new BrowseService(client),
+                unlimited(), noShelf(),
                 Clock.fixed(Instant.parse("2026-09-06T00:00:00Z"), ZoneId.of("UTC")));
     }
 
@@ -160,7 +165,7 @@ class WimbControllerTest {
         };
         return new WimbController(client, search, new MultiCheckService(search), budget,
                 kr.wimb.opac.OpacTemplates.load(), noResolver(), new CachingHoldingsClient((isbn, region) -> List.of(), Duration.ofHours(6), 100,
-                        Clock.systemUTC()), unlimited(), new BrowseService(client), moving);
+                        Clock.systemUTC()), unlimited(), noShelf(), moving);
     }
 
     // ── 도서관 링크 (/api/go) ──────────────────────────────────────────────
@@ -202,7 +207,7 @@ class WimbControllerTest {
                 new kr.wimb.opac.DetailResolver(opac, Clock.systemUTC()),
                 new CachingHoldingsClient((isbn, region) -> List.of(), Duration.ofHours(6), 100,
                         Clock.systemUTC()),
-                unlimited(), new BrowseService(client),
+                unlimited(), noShelf(),
                 Clock.fixed(Instant.parse("2026-09-06T00:00:00Z"), ZoneId.of("UTC")));
         controller.libraries();   // 도서관 마스터를 채워야 /api/go 가 그 도서관을 압니다.
         return controller;

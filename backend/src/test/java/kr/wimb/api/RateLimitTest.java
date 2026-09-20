@@ -216,11 +216,11 @@ class RateLimitTest {
         // **요청 수를 그냥 세면 안 됩니다.** /api/check/resolve 한 번은 줄마다 두세 번씩
         // 정보나루를 불러 백 번을 넘길 수 있는데, /api/status 한 번은 한 번도 부르지
         // 않습니다. 같은 한 번으로 세면 가장 비싼 요청이 가장 싸게 통과합니다.
-        assertTrue(RateLimitInterceptor.costOf("/api/check/resolve")
-                > RateLimitInterceptor.costOf("/api/holdings"));
-        assertTrue(RateLimitInterceptor.costOf("/api/holdings")
-                > RateLimitInterceptor.costOf("/api/status"));
-        assertEquals(RateLimitInterceptor.costOf("/api/version"),
-                RateLimitInterceptor.costOf("/api/status"));
+        assertTrue(RateLimitInterceptor.costOf("GET", "/api/check/resolve")
+                > RateLimitInterceptor.costOf("GET", "/api/holdings"));
+        assertTrue(RateLimitInterceptor.costOf("GET", "/api/holdings")
+                > RateLimitInterceptor.costOf("GET", "/api/status"));
+        assertEquals(RateLimitInterceptor.costOf("GET", "/api/version"),
+                RateLimitInterceptor.costOf("GET", "/api/status"));
     }
 }

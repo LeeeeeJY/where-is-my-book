@@ -5,6 +5,11 @@ import kr.wimb.holdings.CachingHoldingsClient;
 import kr.wimb.holdings.HoldingsLookup;
 import kr.wimb.ingest.ApiBudget;
 import kr.wimb.ingest.InMemoryApiBudget;
+import kr.wimb.shelf.ShelfHarvester;
+import kr.wimb.shelf.ShelfService;
+import kr.wimb.shelf.ShelfStore;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -13,6 +18,7 @@ import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
+import java.nio.file.Path;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -60,6 +66,8 @@ public class WimbConfiguration implements WebMvcConfigurer {
      */
     @Value("${wimb.data4library.max-in-flight:12}")
     private int maxInFlight;
+
+    private static final Logger log = LoggerFactory.getLogger(WimbConfiguration.class);
 
     @Value("${wimb.cors.allowed-origins:http://localhost:5173}")
     private String[] allowedOrigins;
@@ -184,15 +192,93 @@ public class WimbConfiguration implements WebMvcConfigurer {
                 HOLDINGS_CACHE_TTL, HOLDINGS_CACHE_MAX_ENTRIES, Clock.systemUTC());
     }
 
+    /**
+     * 서가 파일을 두는 곳. <b>컨테이너 안이 아니라 볼륨이어야 합니다.</b>
+     *
+     * <p>컨테이너 파일 시스템은 컨테이너와 함께 사라지므로, 배포할 때마다 20만 권을
+     * 다시 받게 됩니다. 한 번에 몇천 번을 부르는 일이라 하루 예산이 배포 몇 번으로
+     * 사라집니다. 소장 캐시 스냅샷이 쓰는 {@code wimb-data} 볼륨을 함께 씁니다.
+     *
+     * <p>아래 값은 로컬에서 개발할 때 쓰는 상대 경로입니다. 이미지가
+     * {@code WIMB_SHELF_DATA_DIR=/data/shelf} 로 덮습니다.
+     */
+    @Bean
+    public ShelfStore shelfStore(@Value("${wimb.shelf.data-dir:data/shelf}") String dataDir) {
+        return new ShelfStore(Path.of(dataDir));
+    }
+
+    /**
+     * 서가 수집기. <b>빈으로 두지만 저절로 돌지는 않습니다.</b>
+     * {@code --wimb.shelf.harvest=<도서관부호>} 로 띄울 때만 일합니다.
+     */
+    @Bean
+    public ShelfHarvester shelfHarvester(Data4LibraryClient client,
+                                         @Value("${wimb.shelf.data-dir:data/shelf}") String dataDir) {
+        return new ShelfHarvester(client, Path.of(dataDir), Clock.systemUTC());
+    }
+
+    /**
+     * 서가를 <b>언제 세울지</b> 정하는 곳. 미리 세워 두지 않고 사람이 여는 것만 세웁니다.
+     * 전국 1,619곳을 미리 받으면 48만 회에 디스크 65GB 라 이 기계에 들어가지 않습니다.
+     */
+    @Bean
+    public ShelfService shelfService(
+            ShelfStore store, ShelfHarvester harvester, ApiBudget budget,
+            @Value("${wimb.shelf.refresh-days:14}") int refreshDays,
+            @Value("${wimb.shelf.max-concurrent-builds:2}") int maxConcurrentBuilds,
+            @Value("${wimb.shelf.reserve-calls:5000}") int reserveCalls) {
+        return new ShelfService(store, harvester, budget, refreshDays, maxConcurrentBuilds,
+                reserveCalls, Clock.systemUTC());
+    }
+
     @Bean
     public HoldingsLookup holdingsLookup(CachingHoldingsClient cache) {
         // 매뉴얼 13절이 region 을 필수로 명시하므로 탐색 비용 없이 PER_REGION 으로 시작합니다.
         return new HoldingsLookup(cache, HoldingsLookup.RegionModeStore.documented());
     }
 
+    /**
+     * 어느 주소에서 온 화면이 이 API 를 부를 수 있는지.
+     *
+     * <h2>{@code allowedOrigins} 가 아니라 {@code allowedOriginPatterns} 입니다</h2>
+     *
+     * <p>앞엣것은 <b>글자가 그대로 같아야</b> 통과시킵니다. 그런데 Vercel 은 프리뷰
+     * 배포마다 주소를 새로 만듭니다({@code where-is-my-book-<해시>-<계정>.vercel.app}).
+     * 그래서 운영 주소만 적어 두면 <b>프리뷰에서는 API 가 통째로 막힙니다.</b> 화면에는
+     * 「API 서버에 연결하지 못했습니다」로 보이는데, 서버는 멀쩡하고 주소도 맞습니다.
+     * 문 앞에서 돌려보내는 것이라 <b>우리가 줄곧 갈라 놓으려는 「서버가 없다」와
+     * 「서버는 있는데 물어보지 못했다」가 여기서도 뒤바뀝니다.</b>
+     *
+     * <p>고치려고 프리뷰 주소를 그때그때 환경 변수에 더할 수는 없습니다. 배포할 때마다
+     * 바뀌므로 사람이 따라갈 수 없습니다. 별표를 쓰려면 패턴 쪽이어야 합니다.
+     *
+     * <h2>별표를 여는 것이 왜 괜찮은가</h2>
+     *
+     * <p>CORS 가 막는 것은 <b>「남의 사이트가 방문자의 자격으로 우리 API 를 읽는 것」</b>
+     * 입니다. 그런데 이 API 는 <b>인증도 쿠키도 세션도 없습니다.</b> 훔쳐 갈 자격 자체가
+     * 없으므로, 별표를 열어서 새로 생기는 위험은 「남이 우리 몫의 호출 한도를 쓴다」
+     * 하나입니다. 그리고 그것은 <b>CORS 로는 원래 못 막습니다.</b> 브라우저 밖에서
+     * 부르면 CORS 는 아예 관여하지 않기 때문입니다.
+     *
+     * <p>그 위험을 막는 것은 주소별 호출 제한({@link RateLimit})이고, 이 저장소는
+     * 「주소를 감추는 것은 답이 아니다」로 이미 그렇게 정해 두었습니다. <b>CORS 를 접근
+     * 통제로 쓰지 마세요.</b> 그 일을 하는 물건이 아닙니다.
+     *
+     * <p>다만 <b>패턴을 {@code https://*.vercel.app} 처럼 넓히지는 마세요.</b> 남는 위험은
+     * 없다시피 하지만, 목록을 보는 사람이 「누가 부를 수 있는지」를 한눈에 알 수 있어야
+     * 합니다. 프로젝트 이름까지는 적어 둡니다.
+     */
     @Override
     public void addCorsMappings(CorsRegistry registry) {
-        registry.addMapping("/api/**").allowedOrigins(allowedOrigins).allowedMethods("GET", "POST");
+        // **뜰 때 무엇을 허용했는지 남깁니다.** 브라우저가 CORS 로 막혔다고 말할 때,
+        // 이것이 없으면 「값을 안 넣은 것」인지 「넣었는데 안 맞는 것」인지 바깥에서
+        // 구별할 방법이 없습니다. 환경 변수를 고치고 컨테이너를 다시 띄우지 않으면
+        // 예전 값으로 도는데 그것도 조용해서, 멀쩡한 코드를 뜯어보게 됩니다.
+        // 허용 주소는 애초에 브라우저에 드러나는 값이라 감출 것이 없습니다.
+        log.info("CORS 허용 주소: {}", String.join(", ", allowedOrigins));
+        registry.addMapping("/api/**")
+                .allowedOriginPatterns(allowedOrigins)
+                .allowedMethods("GET", "POST");
     }
 
     /**

@@ -4,6 +4,7 @@ import kr.wimb.bib.BibNormalizer;
 import kr.wimb.bib.Isbn;
 import kr.wimb.bib.Volume;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -20,6 +21,10 @@ import java.util.Optional;
  *       믿을 만하므로 있으면 우선합니다.</li>
  *   <li>{@code bookImageURL} 로 표지가 옵니다. 1차에서 표지를 포기할 필요가 없습니다.</li>
  * </ul>
+ *
+ * <p><b>{@code callNumbers} 는 {@code itemSrch} 만 줍니다.</b> 그리고 그 안의
+ * {@code callNumber} 는 청구기호 문자열이 아니라 조각들을 담은 상자입니다.
+ * {@link CallNumber} 에 실제 응답 모양을 적어 두었습니다.
  */
 public record BookInfo(
         String bookname,
@@ -36,18 +41,20 @@ public record BookInfo(
         String bookDetailUrl,
         Integer loanCount,
         /**
-         * 인기대출 계열의 순위. <b>{@code loan_count} 가 오지 않는 자리가 있어서
-         * 따로 듭니다.</b> 매뉴얼이 「도서관별 인기대출도서는 대출순위만 제공」이라고
-         * 적어 두었고(9절), 15절 응답에는 {@code loan_count} 항목이 아예 없습니다.
-         * 그런 자리에서는 대출건수로 순서를 맞추던 규칙을 쓸 수 없습니다.
+         * 등록일자. {@code itemSrch} 만 줍니다. <b>장서 데이터 기준일과 혼동하지
+         * 마세요.</b> 이것은 그 책이 그 도서관에 들어온 날이고, 기준일은 우리가 수집을
+         * 끝낸 날입니다.
          */
-        Integer ranking,
+        String regDate,
         /**
-         * 청구기호. {@code itemSrch}(2절)의 {@code callNumbers > callNumber} 에서 옵니다.
-         * <b>서가에서 책을 찾을 때 실제로 쓰는 값입니다.</b> 한 겹 더 들어가 있어
-         * {@link Data4LibraryResponse#itemsUnder} 로 따로 읽어 넣습니다.
+         * 복본마다의 청구기호 조각. {@code itemSrch}(2절)만 줍니다. 다른 엔드포인트에서는
+         * 빈 목록입니다.
+         *
+         * <p><b>한 책에 여럿일 수 있습니다.</b> 복본이 둘이면 여기도 둘이고, 자료실이
+         * 다르면 서가에서 서로 다른 자리에 꽂힙니다. 자세한 것은 {@link CallNumber} 를
+         * 보세요.
          */
-        String callNumber
+        List<CallNumber> callNumbers
 ) {
     public static BookInfo from(Map<String, String> fields) {
         return new BookInfo(
@@ -64,31 +71,21 @@ public record BookInfo(
                 fields.get("bookImageURL"),
                 fields.get("bookDtlUrl"),
                 asInt(fields.get("loan_count")),
-                asInt(fields.get("ranking")),
-                null);
-    }
-
-    /** 청구기호를 붙인 사본. {@code itemSrch} 만 이 값을 줍니다. */
-    public BookInfo withCallNumber(String value) {
-        return new BookInfo(bookname, authors, publisher, publicationYear, isbn13, setIsbn13,
-                additionSymbol, vol, classNo, classNm, bookImageUrl, bookDetailUrl,
-                loanCount, ranking, value);
+                fields.get("reg_date"),
+                List.of());
     }
 
     /**
-     * 이 자료가 소설인지. <b>매뉴얼에는 근거가 없습니다.</b> 세부주제({@code dtl_kdc})가
-     * 두 자리까지라 {@code 81} 한국문학·{@code 83} 일본문학까지만 가르고, 소설은 KDC
-     * 세 번째 자리({@code 813} 한국소설, {@code 843} 영미소설)이기 때문입니다.
+     * 청구기호 조각을 붙인 사본. {@code itemSrch} 만 이 값을 줍니다.
      *
-     * <p>그래서 {@code kdc=8} 로 문학을 받아 여기서 거릅니다. <b>도서관마다 분류 체계가
-     * 달라 {@code class_no} 가 KDC 가 아닌 자료가 섞일 수 있으므로, 이 규칙은 실제 값을
-     * 충분히 본 뒤에 다시 봐야 합니다.</b> 지금은 「8로 시작하고 세 번째 자리가 3」만
-     * 봅니다. 아니면 거르는 쪽이 아니라 남기지 않는 쪽입니다. 소설이 아닌 것을 소설이라고
-     * 내보내는 것보다 몇 권 놓치는 편이 낫습니다.
+     * <p><b>빈 상자는 걸러서 넣습니다.</b> 조각이 하나도 없는 {@code callNumber} 를
+     * 그대로 들고 있으면 서가에 자리가 없는 복본이 목록에 들어갑니다.
      */
-    public boolean looksLikeNovel() {
-        if (classNo == null || classNo.length() < 3) return false;
-        return classNo.charAt(0) == '8' && classNo.charAt(2) == '3';
+    public BookInfo withCallNumbers(List<CallNumber> values) {
+        List<CallNumber> kept = values.stream().filter(c -> !c.isEmpty()).toList();
+        return new BookInfo(bookname, authors, publisher, publicationYear, isbn13, setIsbn13,
+                additionSymbol, vol, classNo, classNm, bookImageUrl, bookDetailUrl,
+                loanCount, regDate, kept);
     }
 
     /** 체크디지트까지 검증한 ISBN13. 판별할 수 없으면 비어 있습니다. */
