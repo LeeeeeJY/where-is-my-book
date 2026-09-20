@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ApiUnavailable, fetchLibraries } from './api';
 import { BookSearch } from './components/BookSearch';
+import { Shelf } from './components/Shelf';
 import { BrandMark } from './components/Brand';
 import { MultiCheck } from './components/MultiCheck';
 import { LibraryPicker } from './components/LibraryPicker';
@@ -16,6 +17,16 @@ import type { Library, UserPosition } from './domain/types';
  * 복원되기도 전에 지워집니다.
  */
 const INITIAL_SEARCH = window.location.search;
+
+/**
+ * 화면 셋. **위의 탭과 서가의 아래 탭 바가 같은 목록을 씁니다.** 따로 적으면 탭을
+ * 하나 더할 때 한쪽에만 들어가고, 그 화면은 다른 쪽에서 갈 수 없는 곳이 됩니다.
+ */
+const MODES = [
+  ['single', '한 권 검색'],
+  ['multi', '여러 권 검색'],
+  ['shelf', '서가'],
+] as const;
 
 type Catalog =
   | { kind: 'loading' }
@@ -34,7 +45,11 @@ export default function App() {
   const [catalog, setCatalog] = useState<Catalog>({ kind: 'loading' });
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [restored, setRestored] = useState(false);
-  const [mode, setMode] = useState<'single' | 'multi'>('single');
+  /*
+   * **서가를 셋째 탭에 둡니다.** 검색하러 온 사람에게는 검색 칸만 보이는 편이 낫고,
+   * 서가는 애초에 다른 행동이라 들어오는 문을 따로 두는 것이 맞습니다.
+   */
+  const [mode, setMode] = useState<'single' | 'multi' | 'shelf'>('single');
   /**
    * 「내 주변」에서 잡은 위치. 도서관 선택 칸이 잡고 여러 권 검색이 거리를 재는 데 씁니다.
    * 한쪽 컴포넌트 안에 두면 다른 쪽이 볼 수 없어 여기에 올려 둡니다.
@@ -149,12 +164,7 @@ export default function App() {
             윗선이 맞습니다. 좁은 화면에서는 DOM 순서 그대로 선택 → 탭 → 내용으로 쌓입니다.
           */}
           <nav className="tabs tabs--mode" role="tablist">
-            {(
-              [
-                ['single', '한 권 검색'],
-                ['multi', '여러 권 검색'],
-              ] as const
-            ).map(([key, label]) => (
+            {MODES.map(([key, label]) => (
               <button
                 key={key}
                 role="tab"
@@ -172,9 +182,31 @@ export default function App() {
             {mode === 'multi' && (
               <MultiCheck libraries={libraries} selected={selected} position={position} />
             )}
-
           </div>
         </main>
+      )}
+
+      {/*
+        **서가는 화면을 통째로 씁니다.** 표지를 줄줄이 세우는 화면이라 옆에 도서관
+        선택 칸을 두면 볼 자리가 절반으로 줄고, 한 줄에 네 권이라는 약속도 깨집니다.
+        그래서 격자 밖으로 나와 위의 탭 대신 아래 탭 바를 씁니다.
+      */}
+      {mode === 'shelf' && catalog.kind !== 'loading' && (
+        <Shelf
+          libraries={libraries}
+          selected={selected}
+          tabs={MODES.map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              className={mode === key ? 'tabbar__key tabbar__key--on' : 'tabbar__key'}
+              aria-current={mode === key ? 'page' : undefined}
+              onClick={() => setMode(key)}
+            >
+              {label}
+            </button>
+          ))}
+        />
       )}
 
       {/*

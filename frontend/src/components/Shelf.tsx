@@ -1,35 +1,34 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   fetchShelfChunk,
-  fetchShelfLibraries,
   fetchShelfMeta,
+  fetchShelfSubjects,
   type ShelfBook,
   type ShelfMeta,
   type ShelfRoom,
+  type ShelfSubject,
 } from '../api';
 import type { Library } from '../domain/types';
-import {
-  COLS,
-  chunksFor,
-  locate,
-  rowCount,
-  scrollToRow,
-  visibleRows,
-} from '../domain/shelfLayout';
+import { COLS, chunksFor, locate, rowCount, scrollToRow, visibleRows } from '../domain/shelfLayout';
 import { ShelfCover } from './ShelfCover';
+import { ShelfOpening } from './ShelfOpening';
 
 /** 오른쪽 색인에 세우는 초성. 서버의 {@code Chosung.INDEX} 와 같은 열넷입니다. */
 const CHOSUNG = ['ㄱ', 'ㄴ', 'ㄷ', 'ㄹ', 'ㅁ', 'ㅂ', 'ㅅ', 'ㅇ', 'ㅈ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ'];
 
 /**
  * 표지 한 권이 차지하는 칸의 가로세로 비. 판형이 제각각이라 실제 비율은 표지마다
- * 다르지만, <b>칸은 같아야 줄이 맞습니다.</b> 표지는 이 칸 안에서 아래 선에 맞춰
- * 서므로, 낮은 책은 낮게 높은 책은 높게 서서 실제 서가처럼 보입니다.
+ * 다르지만 <b>칸은 같아야 줄이 맞습니다.</b> 표지는 이 칸 안에서 아래 선에 맞춰 서므로,
+ * 낮은 책은 낮게 높은 책은 높게 서서 실제 서가처럼 보입니다.
  */
 const COVER_RATIO = 1.45;
 
-/** 선반 판과 그 아래 그림자가 차지하는 높이. */
-const PLANK = 16;
+/** 선반 판과 그 아래 그림자가 차지하는 높이. CSS 의 `.shelf__plank` 와 같아야 합니다. */
+const PLANK = 18;
+
+/** 서가 안쪽 여백과 칸 사이. CSS 와 같은 값이어야 줄이 맞습니다. */
+const SHELF_PAD = 16;
+const GAP = 10;
 
 /**
  * 도서관 장서를 <b>실제 서가처럼</b> 보여 주는 화면.
@@ -37,19 +36,13 @@ const PLANK = 16;
  * <h2>검색이 없습니다</h2>
  *
  * <p>찾는 책이 있는 사람은 검색 탭으로 갑니다. 여기는 <b>무엇을 읽을지 아직 정하지
- * 않은 사람</b>이 서가 사이를 걷는 자리입니다. 검색 칸을 두면 두 가지를 한 화면에서
- * 하게 되고, 그러면 어느 쪽도 제대로 되지 않습니다.
+ * 않은 사람</b>이 서가 사이를 걷는 자리입니다.
  *
- * <h2>정보나루를 부르지 않습니다</h2>
+ * <h2>서가는 열 때 세웁니다</h2>
  *
- * <p>서버가 미리 받아 적어 둔 파일만 읽습니다. 몇 번을 열어도 하루 호출 예산이 줄지
- * 않고, 정보나루가 멈춰 있어도 서가는 평소대로 열립니다.
- *
- * <h2>보이는 줄만 그립니다</h2>
- *
- * <p>도서관 한 곳이 20만 권입니다. 한 줄에 네 권이면 5만 줄이고 그 전부를 DOM 에
- * 올리면 브라우저가 멈춥니다. 자리는 전체 높이로 잡아 두고 <b>보이는 줄과 그 위아래
- * 몇 줄만</b> 그립니다. 세는 일은 {@code domain/shelfLayout.ts} 가 합니다.
+ * <p>전국 1,619곳을 미리 받으면 48만 회에 디스크 65GB 라 들어가지 않습니다. 그래서
+ * <b>사람이 여는 서가만</b> 세우고, 한 번 세운 것은 그 뒤로 정보나루를 한 번도 부르지
+ * 않습니다. 처음 여는 사람만 기다립니다.
  */
 export function Shelf({
   libraries,
@@ -61,108 +54,44 @@ export function Shelf({
   /** 화면 아래에 띄울 탭. 서가가 화면을 통째로 쓰므로 위의 탭이 가려집니다. */
   tabs: React.ReactNode;
 }) {
-  const [available, setAvailable] = useState<string[] | 'loading' | 'failed'>('loading');
-  const [libCode, setLibCode] = useState<string | null>(null);
-  const [meta, setMeta] = useState<ShelfMeta | 'loading' | 'failed' | null>(null);
-  const [roomSlug, setRoomSlug] = useState<string | null>(null);
   /*
-    **탭 바는 내려갈 때 숨고 올라올 때 돌아옵니다.** 서가는 손가락으로 계속 미는
-    화면이라 아래 40px 이 늘 가려져 있으면 그만큼 책이 덜 보입니다. 그렇다고 아주
-    없애면 다른 탭으로 갈 길이 사라집니다. 읽는 동안 물러나고 되돌아보려 할 때
-    나타나는 것이 두 가지를 다 지킵니다.
+    **고른 순서가 아니라 목록 순서로 셉니다.** `Set` 의 순서는 사용자가 체크한 차례라,
+    시도 하나를 통째로 고르면 첫 곳이 도서관 목록의 첫 곳과 달라집니다.
   */
+  const mine = libraries.filter((one) => selected.has(one.libCode));
+
+  const [libCode, setLibCode] = useState<string | null>(null);
+  const [subject, setSubject] = useState<ShelfSubject | null>(null);
   const [tabsHidden, setTabsHidden] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    fetchShelfLibraries().then(
-      (codes) => !cancelled && setAvailable(codes),
-      () => !cancelled && setAvailable('failed'),
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  /*
-    고른 도서관 가운데 서가가 있는 곳을 먼저 보여 줍니다. 하나도 없으면 서가가 있는
-    곳 전부를 보여 주되, **고른 곳이 아니라는 사실을 화면이 밝힙니다.** 조용히 다른
-    도서관의 서가를 보여 주면 자기가 고른 곳의 장서라고 읽습니다.
-  */
-  const ready = Array.isArray(available) ? available : [];
-  const mine = ready.filter((code) => selected.has(code));
-  const offered = mine.length > 0 ? mine : ready;
-  const current = libCode && offered.includes(libCode) ? libCode : (offered[0] ?? null);
-
-  useEffect(() => {
-    if (!current) return;
-    let cancelled = false;
-    setMeta('loading');
-    setRoomSlug(null);
-    fetchShelfMeta(current).then(
-      (received) => !cancelled && setMeta(received),
-      () => !cancelled && setMeta('failed'),
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, [current]);
-
-  const shelf = meta && typeof meta !== 'string' ? meta : null;
-  /*
-    **가장 큰 자료실을 먼저 엽니다.** 서가를 보러 온 사람이 보고 싶은 것은 대개
-    종합자료실이고, 그것이 거의 언제나 가장 큽니다. 자료실 이름으로 고르려 하면
-    도서관마다 표기가 달라 규칙이 곧 틀립니다.
-  */
-  const room = useMemo(() => {
-    if (!shelf || shelf.rooms.length === 0) return null;
-    const picked = shelf.rooms.find((one) => one.slug === roomSlug);
-    if (picked) return picked;
-    return shelf.rooms.reduce((big, one) => (one.count > big.count ? one : big));
-  }, [shelf, roomSlug]);
-
+  const current = libCode && selected.has(libCode) ? libCode : (mine[0]?.libCode ?? null);
   const library = libraries.find((one) => one.libCode === current);
 
   return (
     <div className="shelf-screen">
-      {available === 'loading' && <p className="shelf-empty muted">서가를 여는 중입니다.</p>}
-
-      {available === 'failed' && (
-        <p className="shelf-empty">
-          <span className="banner banner--info">
-            서가를 불러오지 못했습니다. 검색은 평소대로 됩니다.
-          </span>
-        </p>
-      )}
-
-      {Array.isArray(available) && offered.length === 0 && (
+      {!current ? (
         <p className="shelf-empty muted">
-          아직 서가를 만들어 둔 도서관이 없습니다. 장서 전체를 미리 받아 두어야 하는
-          화면이라, 준비된 도서관에서만 열립니다.
+          도서관을 고르면 그 도서관 서가를 둘러볼 수 있습니다. 왼쪽 「도서관 선택」에서
+          자주 가는 곳을 먼저 골라 주세요.
         </p>
-      )}
-
-      {shelf && room && current && (
-        <ShelfView
-          key={`${current}/${room.slug}`}
-          meta={shelf}
-          room={room}
+      ) : !subject ? (
+        <SubjectPicker
+          key={current}
+          libCode={current}
           libraryName={library?.name ?? current}
-          rooms={shelf.rooms}
-          onRoom={setRoomSlug}
-          libCodes={offered}
-          libraries={libraries}
+          libraries={mine}
           onLibrary={setLibCode}
-          borrowed={mine.length === 0}
+          onPick={setSubject}
+        />
+      ) : (
+        <ShelfGate
+          key={`${current}/${subject.code}`}
+          libCode={current}
+          subject={subject}
+          libraryName={library?.name ?? current}
+          onLeave={() => setSubject(null)}
           onHideTabs={setTabsHidden}
         />
-      )}
-
-      {meta === 'loading' && current && <p className="shelf-empty muted">서가를 여는 중입니다.</p>}
-      {meta === 'failed' && current && (
-        <p className="shelf-empty">
-          <span className="banner banner--info">그 도서관의 서가를 불러오지 못했습니다.</span>
-        </p>
       )}
 
       <nav className="tabbar" data-hidden={tabsHidden ? '' : undefined}>
@@ -172,43 +101,201 @@ export function Shelf({
   );
 }
 
-/** 서가 하나. 도서관과 자료실이 바뀌면 통째로 다시 만듭니다(`key`). */
-function ShelfView({
-  meta,
-  room,
-  rooms,
+/**
+ * 서가를 고르는 자리. <b>어느 것이 바로 열리는지 미리 말해 줍니다.</b>
+ *
+ * <p>세워 둔 적 없는 서가는 누르면 몇십 초를 기다려야 하는데, 그것을 누르고 나서야
+ * 알게 되면 누른 것을 후회합니다. 표시가 있으면 기다릴지 말지를 누르기 전에 정합니다.
+ */
+function SubjectPicker({
+  libCode,
   libraryName,
-  libCodes,
   libraries,
   onLibrary,
-  onRoom,
-  borrowed,
+  onPick,
+}: {
+  libCode: string;
+  libraryName: string;
+  libraries: readonly Library[];
+  onLibrary: (code: string) => void;
+  onPick: (subject: ShelfSubject) => void;
+}) {
+  const [subjects, setSubjects] = useState<ShelfSubject[]>([]);
+  const [built, setBuilt] = useState<string[]>([]);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchShelfSubjects(libCode).then(
+      (found) => {
+        if (cancelled) return;
+        setSubjects(found.subjects);
+        setBuilt(found.built);
+      },
+      () => !cancelled && setFailed(true),
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [libCode]);
+
+  return (
+    <div className="picker-shelf">
+      <header className="picker-shelf__head">
+        <h2 className="picker-shelf__title">서가 둘러보기</h2>
+        {libraries.length > 1 ? (
+          <select
+            className="shelf-head__pick"
+            aria-label="서가를 볼 도서관"
+            value={libCode}
+            onChange={(event) => onLibrary(event.target.value)}
+          >
+            {libraries.map((one) => (
+              <option key={one.libCode} value={one.libCode}>
+                {one.name}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <span className="shelf-head__lib">{libraryName}</span>
+        )}
+      </header>
+
+      {failed && (
+        <p className="banner banner--info">
+          서가 목록을 불러오지 못했습니다. 검색은 평소대로 됩니다.
+        </p>
+      )}
+
+      <ul className="subjects">
+        {subjects.map((one) => {
+          const ready = built.includes(one.code);
+          return (
+            <li key={one.code}>
+              <button
+                type="button"
+                className="subject"
+                data-ready={ready ? '' : undefined}
+                onClick={() => onPick(one)}
+              >
+                <span className="subject__code">{one.code}00</span>
+                <span className="subject__label">{one.label}</span>
+                {/*
+                  **「바로 열림」과 「세워야 함」을 갈라 말합니다.** 둘 다 누를 수 있지만
+                  기다림이 다릅니다. 아무 표시가 없으면 어느 쪽을 눌러도 같아 보입니다.
+                */}
+                <span className="subject__state">{ready ? '바로 열림' : '처음 여는 서가'}</span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+
+      <p className="picker-shelf__note muted">
+        정보나루는 책을 서가 순서로 주지 않아서, 처음 여는 서가는 그 갈래를 통째로 받아
+        청구기호 순으로 세워야 합니다. 한 번 세우면 그 뒤로는 바로 열립니다.
+      </p>
+    </div>
+  );
+}
+
+/** 세워져 있으면 서가를, 아니면 세우는 화면을 보여 줍니다. */
+function ShelfGate({
+  libCode,
+  subject,
+  libraryName,
+  onLeave,
+  onHideTabs,
+}: {
+  libCode: string;
+  subject: ShelfSubject;
+  libraryName: string;
+  onLeave: () => void;
+  onHideTabs: (hidden: boolean) => void;
+}) {
+  const [meta, setMeta] = useState<ShelfMeta | 'opening' | 'failed'>('opening');
+
+  const load = useCallback(() => {
+    fetchShelfMeta(libCode, subject.code).then(
+      (found) => setMeta(found),
+      () => setMeta('failed'),
+    );
+  }, [libCode, subject.code]);
+
+  if (meta === 'opening') {
+    return (
+      <ShelfOpening
+        libCode={libCode}
+        subject={subject}
+        libraryName={libraryName}
+        onReady={load}
+        onGiveUp={onLeave}
+      />
+    );
+  }
+
+  if (meta === 'failed') {
+    return (
+      <div className="shelf-open">
+        <p className="banner banner--info">그 서가를 불러오지 못했습니다.</p>
+        <button type="button" className="chip" onClick={onLeave}>
+          다른 서가 고르기
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <ShelfView
+      meta={meta}
+      subject={subject}
+      libraryName={libraryName}
+      onLeave={onLeave}
+      onHideTabs={onHideTabs}
+    />
+  );
+}
+
+/** 세워진 서가 하나. */
+function ShelfView({
+  meta,
+  subject,
+  libraryName,
+  onLeave,
   onHideTabs,
 }: {
   meta: ShelfMeta;
-  room: ShelfRoom;
-  rooms: ShelfRoom[];
+  subject: ShelfSubject;
   libraryName: string;
-  libCodes: string[];
-  libraries: readonly Library[];
-  onLibrary: (code: string) => void;
-  onRoom: (slug: string) => void;
-  /** 고른 도서관에 서가가 없어 다른 곳을 보여 주고 있는지. */
-  borrowed: boolean;
+  onLeave: () => void;
   onHideTabs: (hidden: boolean) => void;
 }) {
   const scroller = useRef<HTMLDivElement | null>(null);
+  const [roomSlug, setRoomSlug] = useState<string | null>(null);
   const [size, setSize] = useState({ rowHeight: 0, viewport: 0 });
   const [scrollTop, setScrollTop] = useState(0);
-  const [chunks, setChunks] = useState<Map<number, ShelfBook[]>>(new Map());
+  const [chunks, setChunks] = useState<Map<string, ShelfBook[]>>(new Map());
   const [picked, setPicked] = useState<string | null>(null);
 
-  const rows = rowCount(room.count);
+  /*
+    **가장 큰 자료실을 먼저 엽니다.** 서가를 보러 온 사람이 보고 싶은 것은 대개
+    종합자료실이고 그것이 거의 언제나 가장 큽니다. 이름으로 고르려 하면 도서관마다
+    표기가 달라 규칙이 곧 틀립니다.
+  */
+  const room = useMemo<ShelfRoom | null>(() => {
+    if (meta.rooms.length === 0) return null;
+    return (
+      meta.rooms.find((one) => one.slug === roomSlug) ??
+      meta.rooms.reduce((big, one) => (one.count > big.count ? one : big))
+    );
+  }, [meta.rooms, roomSlug]);
+
+  const rows = rowCount(room?.count ?? 0);
 
   /*
-    **칸 크기를 화면에서 잽니다.** 서가는 한 줄에 네 권이라 칸 너비가 화면 너비를
-    따라가고, 줄 높이는 거기서 나옵니다. 값을 고정하면 좁은 화면에서 표지가 겹치거나
-    넓은 화면에서 우표만 해집니다.
+    **칸 크기를 화면에서 잽니다.** 한 줄에 네 권이라 칸 너비가 화면 너비를 따라가고
+    줄 높이는 거기서 나옵니다. 값을 고정하면 좁은 화면에서 표지가 겹치거나 넓은
+    화면에서 우표만 해집니다.
   */
   useLayoutEffect(() => {
     const element = scroller.current;
@@ -217,10 +304,12 @@ function ShelfView({
     const measure = () => {
       const width = element.clientWidth;
       if (width <= 0) return;
-      // 서가 안쪽 여백과 칸 사이를 뺀 나머지를 넷으로 나눕니다.
       const inner = width - SHELF_PAD * 2 - GAP * (COLS - 1);
       const slot = Math.max(24, inner / COLS);
-      setSize({ rowHeight: Math.round(slot * COVER_RATIO) + PLANK, viewport: element.clientHeight });
+      setSize({
+        rowHeight: Math.round(slot * COVER_RATIO) + PLANK,
+        viewport: element.clientHeight,
+      });
     };
 
     measure();
@@ -233,30 +322,34 @@ function ShelfView({
 
   /*
     보이는 줄에 필요한 조각을 받아 둡니다. **이미 받은 것은 다시 받지 않습니다.**
-    스크롤은 한 번 밀 때 수십 번 일어나므로, 그때마다 같은 조각을 부르면 서버도
-    브라우저도 그 일만 하게 됩니다.
+    스크롤은 한 번 밀 때 수십 번 일어나므로 그때마다 같은 조각을 부르면 그 일만
+    하게 됩니다.
   */
   useEffect(() => {
-    const wanted = chunksFor(range, meta.chunkSize).filter((at) => !chunks.has(at));
+    if (!room) return;
+    const wanted = chunksFor(range, meta.chunkSize).filter(
+      (at) => !chunks.has(keyOf(room.slug, at)),
+    );
     if (wanted.length === 0) return;
 
     let cancelled = false;
     for (const at of wanted) {
-      fetchShelfChunk(meta.libCode, room.slug, at, meta.asOf).then(
+      fetchShelfChunk(meta.libCode, meta.kdc, room.slug, at, meta.asOf).then(
         (books) => {
           if (cancelled) return;
           setChunks((before) => {
-            if (before.has(at)) return before;
+            const key = keyOf(room.slug, at);
+            if (before.has(key)) return before;
             const after = new Map(before);
-            after.set(at, books);
+            after.set(key, books);
             return after;
           });
         },
         () => {
           /*
-            **조각 하나를 못 받아도 서가는 그대로 둡니다.** 그 자리는 빈 칸으로
-            남고 다시 스크롤하면 한 번 더 시도합니다. 서가 전체를 오류 화면으로
-            바꾸면 멀쩡한 나머지까지 못 보게 됩니다.
+            **조각 하나를 못 받아도 서가는 그대로 둡니다.** 그 자리는 빈 칸으로 남고
+            다시 스크롤하면 한 번 더 시도합니다. 서가 전체를 오류 화면으로 바꾸면
+            멀쩡한 나머지까지 못 보게 됩니다.
           */
         },
       );
@@ -264,23 +357,23 @@ function ShelfView({
     return () => {
       cancelled = true;
     };
-  }, [range.from, range.to, meta, room.slug, chunks]);
+  }, [range.from, range.to, meta, room, chunks]);
 
   const bookAt = useCallback(
     (index: number): ShelfBook | null => {
+      if (!room) return null;
       const { chunk, at } = locate(index, meta.chunkSize);
-      return chunks.get(chunk)?.[at] ?? null;
+      return chunks.get(keyOf(room.slug, chunk))?.[at] ?? null;
     },
-    [chunks, meta.chunkSize],
+    [chunks, meta.chunkSize, room],
   );
 
   /*
-    스크롤한 자리와 **방향**을 함께 봅니다. 방향은 탭 바를 숨길지 정하는 데만 쓰고
-    그리는 데는 쓰지 않습니다.
+    스크롤한 자리와 **방향**을 함께 봅니다. 방향은 탭 바를 숨길지 정하는 데만 씁니다.
 
     **작은 움직임은 세지 않습니다.** 손가락이 닿기만 해도 몇 px 은 움직이는데, 그때마다
-    탭 바가 오르내리면 화면이 떱니다. 그리고 맨 위 가까이에서는 늘 보여 줍니다. 서가에
-    막 들어온 사람에게 나갈 길이 감춰져 있으면 안 됩니다.
+    탭 바가 오르내리면 화면이 떱니다. 맨 위 가까이에서는 늘 보여 줍니다. 서가에 막
+    들어온 사람에게 나갈 길이 감춰져 있으면 안 됩니다.
   */
   const lastTop = useRef(0);
   const onScroll = useCallback(() => {
@@ -298,7 +391,7 @@ function ShelfView({
   /** 초성을 누르면 그 자리로 갑니다. 없는 초성은 누를 수 없습니다. */
   const jump = useCallback(
     (chosung: string) => {
-      const index = room.chosungAt[chosung];
+      const index = room?.chosungAt[chosung];
       if (index === undefined || !scroller.current || size.rowHeight <= 0) return;
       setPicked((before) => (before === chosung ? null : chosung));
       scroller.current.scrollTo({
@@ -306,62 +399,77 @@ function ShelfView({
         behavior: 'smooth',
       });
     },
-    [room.chosungAt, size.rowHeight, size.viewport],
+    [room, size.rowHeight, size.viewport],
   );
 
-  /*
-    **큰 제목은 지금 보이는 책의 분류명입니다.** 스크롤하면서 바뀌어 「지금 어느 갈래
-    앞에 서 있는가」를 말합니다. 아직 그 조각을 받지 못했으면 이전 값을 그대로 둡니다.
-    받을 때마다 제목이 비었다가 돌아오면 깜빡이는 것으로 보입니다.
-  */
-  const heading = useHeading(bookAt(range.from * COLS));
-
+  const heading = useHeading(bookAt(range.from * COLS), subject.label);
   const collapsed = scrollTop > 40;
+
+  if (!room) {
+    return (
+      <div className="shelf-open">
+        <p className="banner banner--info">
+          이 서가에는 청구기호가 있는 책이 없어 세울 수 없었습니다.
+        </p>
+        <button type="button" className="chip" onClick={onLeave}>
+          다른 서가 고르기
+        </button>
+      </div>
+    );
+  }
 
   return (
     <>
       <header className="shelf-head" data-collapsed={collapsed ? '' : undefined}>
         <div className="shelf-head__bar">
-          <LibraryPick
-            libCodes={libCodes}
-            libraries={libraries}
-            current={meta.libCode}
-            currentName={libraryName}
-            onPick={onLibrary}
-          />
+          <button type="button" className="chip chip--sm" onClick={onLeave}>
+            서가 바꾸기
+          </button>
           {/* 접혔을 때만 보이는 작은 제목. 큰 제목이 사라진 자리를 대신합니다. */}
           <span className="shelf-head__small">{heading}</span>
         </div>
 
         <div className="shelf-head__big">
-          <h1 className="shelf-head__title">{heading}</h1>
-          <p className="shelf-head__meta">
-            <RoomPick rooms={rooms} current={room} onPick={onRoom} />
-            {room.firstCall && room.lastCall && (
-              <span className="shelf-head__range">
-                {room.firstCall} – {room.lastCall}
-              </span>
-            )}
+          {/*
+            **한 겹을 더 두는 것이 꼭 필요합니다.** 접는 방법이 `grid-template-rows` 를
+            `1fr` 에서 `0fr` 로 옮기는 것인데, 그 규칙은 <b>줄 하나</b>를 정의합니다.
+            자식이 둘이면 둘째가 암묵적 줄로 밀려나 높이가 `auto` 로 남고, 그러면
+            <b>글자만 투명해지고 자리는 그대로 남습니다.</b> 실제로 접었는데도 머리말이
+            117px 이었고, 서가 위에 빈 띠가 생겼습니다.
+          */}
+          <div className="shelf-head__inner">
+            <h1 className="shelf-head__title">{heading}</h1>
+            <p className="shelf-head__meta">
+              <span className="shelf-head__lib">{libraryName}</span>
+              <RoomPick rooms={meta.rooms} current={room} onPick={setRoomSlug} />
+              {room.firstCall && room.lastCall && (
+                <span className="shelf-head__range">
+                  {room.firstCall} – {room.lastCall}
+                </span>
+              )}
             {/*
               **기준일을 값에서 떼지 마세요.** 이 서가는 실시간이 아니라 그날 받아 둔
               것입니다. 날짜가 없으면 사람은 그것을 지금 상태로 읽고, 그 뒤에 들어온
               새 책이 없는 것을 고장으로 여깁니다.
             */}
-            <span className="shelf-head__asof">
-              장서 기준 {formatDay(meta.asOf)} · {room.count.toLocaleString('ko-KR')}권
-            </span>
-          </p>
-          {borrowed && (
-            <p className="shelf-head__note muted">
-              고른 도서관에는 아직 서가가 없어 다른 도서관의 서가를 보여 드립니다.
+              <span className="shelf-head__asof">
+                장서 기준 {formatDay(meta.asOf)} · {room.count.toLocaleString('ko-KR')}권
+              </span>
             </p>
-          )}
+          </div>
         </div>
 
         {picked && (
           <p className="shelf-head__filter">
+            {/*
+              **자모 한 글자는 알약에 담습니다.** 「ㅁ」은 글자 자체가 네모라, 문장
+              가운데 홀로 두면 <b>글꼴이 없어 나온 네모</b>로 읽힙니다. 굵게 해도
+              마찬가지입니다. 알약에 담으면 「우리가 고른 글자」라는 것이 모양으로
+              드러납니다. 「ㅇ」과 「ㅁ」처럼 도형에 가까운 자모가 여럿입니다.
+            */}
             <span>
-              <b>{picked}</b> 으로 시작하는 저자만 밝게 보입니다
+              <span className="shelf-head__jamo">{picked}</span> 으로 시작하는 저자만 밝게
+              보입니다
             </span>
             <button type="button" className="chip chip--sm" onClick={() => setPicked(null)}>
               해제
@@ -384,8 +492,7 @@ function ShelfView({
                   <div className="shelf__books">
                     {Array.from({ length: COLS }, (_, column) => {
                       const index = row * COLS + column;
-                      if (index >= room.count) return <span className="shelf__gap" key={column} />;
-                      const book = bookAt(index);
+                      const book = index < room.count ? bookAt(index) : null;
                       if (!book) return <span className="shelf__gap" key={column} />;
                       return (
                         <ShelfCover
@@ -443,53 +550,18 @@ function ShelfView({
   );
 }
 
-/** 서가 안쪽 여백과 칸 사이. CSS 와 같은 값이어야 줄이 맞습니다. */
-const SHELF_PAD = 14;
-const GAP = 10;
-
 /**
  * 큰 제목. <b>받지 못한 사이에 비우지 않습니다.</b>
  *
  * <p>스크롤하면 그 줄의 조각을 아직 못 받은 순간이 있는데, 그때 제목을 비우면 스크롤
  * 하는 내내 제목이 깜빡입니다. 새 값이 올 때까지 이전 값을 그대로 둡니다.
  */
-function useHeading(book: ShelfBook | null): string {
-  const [heading, setHeading] = useState('서가');
+function useHeading(book: ShelfBook | null, fallback: string): string {
+  const [heading, setHeading] = useState(fallback);
   useEffect(() => {
     if (book?.classNm) setHeading(book.classNm);
   }, [book?.classNm]);
   return heading;
-}
-
-/** 도서관 고르기. 한 곳뿐이면 고를 것이 없으므로 이름만 적습니다. */
-function LibraryPick({
-  libCodes,
-  libraries,
-  current,
-  currentName,
-  onPick,
-}: {
-  libCodes: string[];
-  libraries: readonly Library[];
-  current: string;
-  currentName: string;
-  onPick: (code: string) => void;
-}) {
-  if (libCodes.length <= 1) return <span className="shelf-head__lib">{currentName}</span>;
-  return (
-    <select
-      className="shelf-head__pick"
-      aria-label="서가를 볼 도서관"
-      value={current}
-      onChange={(event) => onPick(event.target.value)}
-    >
-      {libCodes.map((code) => (
-        <option key={code} value={code}>
-          {libraries.find((one) => one.libCode === code)?.name ?? code}
-        </option>
-      ))}
-    </select>
-  );
 }
 
 /** 자료실 고르기. 층이 다르면 아예 다른 서가라 이어 붙이지 않고 갈라 둡니다. */
@@ -513,11 +585,16 @@ function RoomPick({
     >
       {rooms.map((one) => (
         <option key={one.slug} value={one.slug}>
-          {(one.name || one.code || one.slug) + ` (${one.count.toLocaleString('ko-KR')}권)`}
+          {`${one.name || one.code || one.slug} (${one.count.toLocaleString('ko-KR')}권)`}
         </option>
       ))}
     </select>
   );
+}
+
+/** 자료실을 바꾸면 조각도 갈립니다. 열쇠에 자료실을 넣지 않으면 남의 책이 섞입니다. */
+function keyOf(roomSlug: string, chunk: number): string {
+  return `${roomSlug}/${chunk}`;
 }
 
 /** 「9월 20일」. 서버가 주는 것은 ISO 날짜입니다. */
