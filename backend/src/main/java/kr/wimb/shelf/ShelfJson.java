@@ -65,8 +65,7 @@ final class ShelfJson {
         num(out, "count", meta.count());
         num(out, "reported", meta.reported());
         num(out, "keyVersion", meta.keyVersion());
-        comma(out);
-        quote(out, "findable").append(':').append(meta.findable());
+        num(out, "shapeVersion", meta.shapeVersion());
         comma(out);
         quote(out, "rooms").append(":[");
 
@@ -95,7 +94,20 @@ final class ShelfJson {
             quote(out, entry.getKey()).append(':').append(entry.getValue());
             started = true;
         }
-        out.append("}}");
+        out.append('}');
+
+        comma(out);
+        quote(out, "sections").append(":[");
+        for (int i = 0; i < room.sections().size(); i++) {
+            if (i > 0) out.append(',');
+            ShelfMeta.Section section = room.sections().get(i);
+            out.append('{');
+            next(out, "name", section.name());
+            num(out, "at", section.at());
+            num(out, "count", section.count());
+            out.append('}');
+        }
+        out.append("]}");
     }
 
     // ── 글자로 옮기기 ────────────────────────────────────────────────────

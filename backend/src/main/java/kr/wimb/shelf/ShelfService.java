@@ -259,15 +259,20 @@ public class ShelfService {
      * 그대로면 갱신도 건너뛰므로 아무도 손대지 않으면 영영입니다.
      *
      * <ul>
-     *   <li><b>순서 규칙의 판 번호</b>가 다르면 서가가 예전 순서로 서 있습니다.
-     *       화면에는 아무 이상이 없어 보입니다</li>
-     *   <li><b>찾기 색인</b>이 없으면 그 서가에서는 찾기를 쓸 수 없습니다. 화면은
-     *       단추를 내지 않아 사람이 막다른 길을 만나지는 않지만, 다시 세우기 전에는
-     *       그 상태가 이어집니다</li>
+     *   <li><b>순서 규칙의 판 번호</b>({@link ShelfSortKey#VERSION})가 다르면 서가가
+     *       예전 순서로 서 있습니다. 화면에는 아무 이상이 없어 보입니다</li>
+     *   <li><b>적어 둔 모양의 판 번호</b>({@link ShelfMeta#SHAPE_VERSION})가 다르면
+     *       나중에 늘린 것이 그 서가에는 없습니다. 찾기 색인과 갈래 구간이 그렇습니다.
+     *       화면은 그 단추를 내지 않아 사람이 막다른 길을 만나지는 않지만, 다시
+     *       세우기 전에는 그 상태가 이어집니다</li>
      * </ul>
+     *
+     * <p><b>기능마다 불리언을 하나씩 늘리지 마세요.</b> 낡았는지 보는 자리가 흩어지고,
+     * 그중 하나를 빠뜨리면 그 서가는 영영 예전 모양으로 남습니다.
      */
     private boolean outOfDate(ShelfMeta meta) {
-        return meta.keyVersion() != ShelfSortKey.VERSION || !meta.findable();
+        return meta.keyVersion() != ShelfSortKey.VERSION
+                || meta.shapeVersion() != ShelfMeta.SHAPE_VERSION;
     }
 
     private void touchChecked(String libCode, Kdc kdc) {

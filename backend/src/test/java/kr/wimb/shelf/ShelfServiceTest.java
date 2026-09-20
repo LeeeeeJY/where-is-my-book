@@ -181,27 +181,28 @@ class ShelfServiceTest {
     }
 
     /**
-     * <b>찾기 색인이 없는 서가도 다시 세웁니다.</b>
+     * <b>적는 것이 늘어나면 그 전에 세운 서가도 다시 세웁니다.</b>
      *
-     * <p>색인은 수집할 때만 적습니다. 그래서 색인이 생기기 전에 세운 서가에는 없는데,
-     * 권수가 그대로면 갱신도 건너뛰므로 <b>아무도 손대지 않으면 영영 없습니다.</b>
-     * 순서 규칙이 바뀌었을 때와 같은 모양의 문제라 같은 길로 고칩니다.
+     * <p>수집기가 파일에 적는 것은 세울 때 한 번 적고 맙니다. 그래서 나중에 늘린 것은
+     * 그 전에 세운 서가에 없는데, 권수가 그대로면 갱신도 건너뛰므로 <b>아무도 손대지
+     * 않으면 영영 없습니다.</b> 찾기 색인이 그랬고 갈래 구간이 그랬습니다. 순서 규칙이
+     * 바뀌었을 때와 같은 모양의 문제라 같은 길로 고칩니다.
      */
     @Test
-    @DisplayName("찾기 색인이 없으면 권수가 그대로여도 다시 세운다")
-    void rebuildsWhenTheFindIndexIsMissing(@TempDir Path dir) throws Exception {
+    @DisplayName("적는 모양이 바뀌면 권수가 그대로여도 다시 세운다")
+    void rebuildsWhenTheWrittenShapeIsOlder(@TempDir Path dir) throws Exception {
         var fixture = new Fixture(dir);
-        // 날짜도 오늘이고 판 번호도 지금 것이고 권수도 그대로입니다. 색인만 없습니다.
-        fixture.writeShelfWithoutFindIndex("141321", "2026-09-20", 3);
+        // 날짜도 오늘이고 순서 판 번호도 지금 것이고 권수도 그대로입니다. 모양만 예전 것입니다.
+        fixture.writeShelfWithOlderShape("141321", "2026-09-20", 3);
         fixture.numFound.set(3);
         fixture.calls.set(0);
 
         var status = fixture.service.status("141321", SUBJECT);
-        assertTrue(status.stale(), "색인이 없는 서가는 낡은 것입니다");
+        assertTrue(status.stale(), "예전 모양으로 세운 서가는 낡은 것입니다");
         fixture.awaitIdle();
 
         assertTrue(fixture.calls.get() > 1,
-                "권수만 묻고 끝내면 색인이 영영 생기지 않습니다. 실제로 받은 횟수: "
+                "권수만 묻고 끝내면 늘린 것이 영영 생기지 않습니다. 실제로 받은 횟수: "
                         + fixture.calls.get());
         assertTrue(Files.isReadable(dir.resolve("141321").resolve(SUBJECT.slug())
                         .resolve("r0").resolve("find.txt")),
@@ -320,34 +321,36 @@ class ShelfServiceTest {
         /** 판 번호를 골라 적습니다. 예전 규칙으로 세운 서가를 흉내 낼 때 씁니다. */
         void writeShelf(String libCode, String asOf, String checkedAt, int reported, int keyVersion)
                 throws Exception {
-            writeShelf(libCode, asOf, checkedAt, reported, keyVersion, true);
+            writeShelf(libCode, asOf, checkedAt, reported, keyVersion,
+                    ShelfMeta.SHAPE_VERSION);
         }
 
-        /** 찾기 색인이 없던 때에 세운 서가를 흉내 냅니다. */
-        void writeShelfWithoutFindIndex(String libCode, String asOf, int reported)
+        /** 적는 것이 늘어나기 전에 세운 서가를 흉내 냅니다. */
+        void writeShelfWithOlderShape(String libCode, String asOf, int reported)
                 throws Exception {
-            writeShelf(libCode, asOf, asOf, reported, ShelfSortKey.VERSION, false);
+            writeShelf(libCode, asOf, asOf, reported, ShelfSortKey.VERSION,
+                    ShelfMeta.SHAPE_VERSION - 1);
         }
 
         void writeShelf(String libCode, String asOf, String checkedAt, int reported,
-                        int keyVersion, boolean findable) throws Exception {
+                        int keyVersion, int shapeVersion) throws Exception {
             Path room = dir.resolve(libCode).resolve(SUBJECT.slug()).resolve("r0");
             Files.createDirectories(room);
             Files.writeString(room.resolve("0.json"),
                     "[{\"isbn\":\"9788937437267\",\"title\":\"토지\",\"call\":\"813.6 박14ㅌ\"}]",
                     StandardCharsets.UTF_8);
-            if (findable) {
+            if (shapeVersion >= ShelfMeta.SHAPE_VERSION) {
                 Files.writeString(room.resolve("find.txt"), "토지\t박경리\t813.6 박14ㅌ\n",
                         StandardCharsets.UTF_8);
             }
             Files.writeString(metaPath(libCode), """
                 {"libCode":"%s","kdc":"%s","asOf":"%s","checkedAt":"%s","chunkSize":200,\
-                "count":1,"reported":%d,"keyVersion":%d,"findable":%b,\
+                "count":1,"reported":%d,"keyVersion":%d,"shapeVersion":%d,\
                 "rooms":[{"slug":"r0","name":"종합자료실","count":1,\
                 "chunks":1,"firstCall":"813.6 박14ㅌ","lastCall":"813.6 박14ㅌ",\
                 "chosungAt":{"ㅂ":0}}]}"""
                     .formatted(libCode, SUBJECT.code(), asOf, checkedAt, reported, keyVersion,
-                            findable),
+                            shapeVersion),
                     StandardCharsets.UTF_8);
         }
     }

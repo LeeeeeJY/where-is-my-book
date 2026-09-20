@@ -169,7 +169,7 @@ public class ShelfHarvester {
         // 다시 적은 것이 아닙니다. 올려 버리면 예전 순서인 서가가 최신인 척합니다.
         ShelfMeta updated = new ShelfMeta(meta.libCode(), meta.kdc(), meta.asOf(), checkedAt,
                 meta.chunkSize(), meta.count(), meta.reported(), meta.keyVersion(),
-                meta.findable(), meta.rooms());
+                meta.shapeVersion(), meta.rooms());
         Files.writeString(dataDir.resolve(libCode).resolve(kdc.slug()).resolve("meta.json"),
                 ShelfJson.meta(updated), StandardCharsets.UTF_8);
     }
@@ -269,6 +269,7 @@ public class ShelfHarvester {
                 nullToEmpty(item.chosung()),
                 nullToEmpty(item.roomName()),
                 nullToEmpty(item.callText()),
+                nullToEmpty(item.classNm()),
                 ShelfFind.line(item),
                 ShelfJson.item(item));
     }
@@ -282,7 +283,7 @@ public class ShelfHarvester {
      * 파싱하는 코드를 한 벌 더 두는 값보다 쌉니다.
      */
     private static final int SORT_KEY = 0, ROOM_CODE = 1, CHOSUNG = 2,
-            ROOM_NAME = 3, CALL_TEXT = 4, FIND = 5, JSON = 6;
+            ROOM_NAME = 3, CALL_TEXT = 4, CLASS_NM = 5, FIND = 6, JSON = 7;
 
     // ── 파일로 적기 ──────────────────────────────────────────────────────
 
@@ -308,7 +309,7 @@ public class ShelfHarvester {
 
         String today = today().toString();
         ShelfMeta meta = new ShelfMeta(libCode, kdc.code(), today, today, CHUNK, packed.size(),
-                reported, ShelfSortKey.VERSION, true, List.copyOf(rooms));
+                reported, ShelfSortKey.VERSION, ShelfMeta.SHAPE_VERSION, List.copyOf(rooms));
         Files.writeString(staging.resolve("meta.json"), ShelfJson.meta(meta),
                 StandardCharsets.UTF_8);
 
@@ -368,7 +369,56 @@ public class ShelfHarvester {
         String last = rows.get(rows.size() - 1);
         return new ShelfMeta.Room(slug, field(first, ROOM_CODE), field(first, ROOM_NAME),
                 rows.size(), chunks,
-                field(first, CALL_TEXT), field(last, CALL_TEXT), chosungAt);
+                field(first, CALL_TEXT), field(last, CALL_TEXT), chosungAt, sectionsOf(rows));
+    }
+
+    /**
+     * 갈래가 <b>어디서부터 어디까지 서 있는지</b>를 셉니다.
+     *
+     * <p>서가가 청구기호 순이고 분류번호가 그 앞자리를 정하므로 같은 갈래의 책은 한
+     * 덩어리로 붙어 있습니다. 그래서 이어지는 구간만 찾으면 되고, 정보나루를 한 번도
+     * 부르지 않습니다.
+     *
+     * <p><b>한 갈래가 여러 군데로 갈리는 일이 있어서 가장 긴 덩어리를 씁니다.</b>
+     * 별치기호가 분류번호보다 <b>앞에서</b> 갈라기 때문입니다. 실측으로 부천 어느
+     * 자료실의 「영미문학 &gt; 소설」이 별치 구역({@code Y서(아)})과 보통 서가({@code 843})
+     * 두 군데에 나뉘어 서 있었습니다. 처음 나오는 자리를 적으면 대부분의 책이 있는
+     * 곳이 아니라 <b>작은 구석으로 데려다줄 수 있습니다.</b>
+     *
+     * <p>권수는 흩어진 덩어리까지 합합니다. 화면이 그 수를 함께 보여 주므로, 가장 큰
+     * 덩어리만 세면 실제보다 적게 말하게 됩니다.
+     */
+    private static List<ShelfMeta.Section> sectionsOf(List<String> rows) {
+        // 이름 → [가장 긴 덩어리의 시작, 그 길이, 합한 권수]
+        Map<String, int[]> found = new LinkedHashMap<>();
+        int at = 0;
+        while (at < rows.size()) {
+            String name = field(rows.get(at), CLASS_NM);
+            int end = at;
+            while (end < rows.size() && field(rows.get(end), CLASS_NM).equals(name)) end++;
+
+            // 분류명이 없는 자료는 갈래로 세우지 않습니다. 이름이 없으면 고를 수도 없고,
+            // 「(없음)」 같은 말을 우리가 지어내면 정보나루가 주지 않은 갈래가 생깁니다.
+            if (!name.isEmpty()) {
+                int from = at;
+                int[] best = found.computeIfAbsent(name, key -> new int[] {from, 0, 0});
+                int length = end - at;
+                if (length > best[1]) {
+                    best[0] = at;
+                    best[1] = length;
+                }
+                best[2] += length;
+            }
+            at = end;
+        }
+
+        List<ShelfMeta.Section> sections = new ArrayList<>(found.size());
+        found.forEach((name, best) -> sections.add(
+                new ShelfMeta.Section(name, best[0], best[2])));
+        // 서가에 선 차례로 내보냅니다. 고르는 목록이 실제 서가와 같은 순서여야
+        // 「여기 다음이 저기」가 눈에 들어옵니다.
+        sections.sort(java.util.Comparator.comparingInt(ShelfMeta.Section::at));
+        return List.copyOf(sections);
     }
 
     /** 눌러 담은 문자열에서 {@code index} 번째 조각을 꺼냅니다. */
