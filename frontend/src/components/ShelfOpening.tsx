@@ -107,11 +107,12 @@ export function ShelfOpening({
         </p>
       ) : (
         <>
-          <p className="shelf-open__lead">
-            이 서가를 처음 여는 것이라 책을 순서대로 세우고 있습니다.
-            <br />
-            <b>다음부터는 바로 열립니다.</b>
-          </p>
+          {/*
+            **다음부터 빨라진다는 말을 적지 않습니다.** 그것은 우리가 안쪽에서 어떻게 해
+            두었는지이지 지금 기다리는 사람이 할 수 있는 일이 아닙니다. 기다리는 화면이
+            할 말은 「무엇을 하는 중인가」와 「어디까지 왔는가」 둘뿐입니다.
+          */}
+          <p className="shelf-open__lead">서가를 둘러보는 중입니다.</p>
 
           <div
             className="shelf-open__bar"
@@ -126,8 +127,8 @@ export function ShelfOpening({
 
           <p className="shelf-open__count muted">
             {status && status.books > 0
-              ? `${status.books.toLocaleString('ko-KR')}권을 세웠습니다`
-              : '정보나루에 물어보는 중입니다'}
+              ? `${status.books.toLocaleString('ko-KR')}권을 둘러봤습니다`
+              : '책을 찾는 중입니다'}
           </p>
         </>
       )}

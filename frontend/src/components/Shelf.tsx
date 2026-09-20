@@ -114,7 +114,6 @@ function SubjectPicker({
   onPick: (subject: ShelfSubject) => void;
 }) {
   const [subjects, setSubjects] = useState<ShelfSubject[]>([]);
-  const [built, setBuilt] = useState<string[]>([]);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
@@ -123,7 +122,8 @@ function SubjectPicker({
       (found) => {
         if (cancelled) return;
         setSubjects(found.subjects);
-        setBuilt(found.built);
+        // `found.built` 은 받아 두되 화면에 쓰지 않습니다. 어느 갈래가 이미 세워져
+        // 있는지는 진단에 쓰는 값이고, 고르는 사람이 할 수 있는 일이 아닙니다.
       },
       () => !cancelled && setFailed(true),
     );
@@ -161,27 +161,20 @@ function SubjectPicker({
       )}
 
       <ul className="subjects">
-        {subjects.map((one) => {
-          const ready = built.includes(one.code);
-          return (
-            <li key={one.code}>
-              <button
-                type="button"
-                className="subject"
-                data-ready={ready ? '' : undefined}
-                onClick={() => onPick(one)}
-              >
-                <span className="subject__code">{one.code}00</span>
-                <span className="subject__label">{one.label}</span>
-                {/*
-                  **「바로 열림」과 「세워야 함」을 갈라 말합니다.** 둘 다 누를 수 있지만
-                  기다림이 다릅니다. 아무 표시가 없으면 어느 쪽을 눌러도 같아 보입니다.
-                */}
-                <span className="subject__state">{ready ? '바로 열림' : '처음 여는 서가'}</span>
-              </button>
-            </li>
-          );
-        })}
+        {/*
+          **어느 갈래가 바로 열리는지 표시하지 않습니다.** 예전에는 「바로 열림」과
+          「처음 여는 서가」를 갈라 적었는데, 그것은 우리가 안쪽에서 어떻게 해 두었는지를
+          말하는 것이지 **고르는 사람이 할 수 있는 일이 아닙니다.** 읽는 사람은 읽고 싶은
+          갈래를 고를 뿐이고, 기다려야 하면 기다리는 화면이 그때 말해 줍니다.
+        */}
+        {subjects.map((one) => (
+          <li key={one.code}>
+            <button type="button" className="subject" onClick={() => onPick(one)}>
+              <span className="subject__code">{one.code}00</span>
+              <span className="subject__label">{one.label}</span>
+            </button>
+          </li>
+        ))}
       </ul>
     </div>
   );
@@ -537,18 +530,6 @@ function ShelfView({
               );
             })}
         </div>
-
-        {/*
-          출처는 이용 조건상의 의무이고 신뢰 표시이기도 합니다. 서가가 화면을 통째로
-          쓰므로 아래 푸터가 가려집니다. 여기 한 줄을 둡니다.
-        */}
-        <p className="shelf-source muted">
-          출처:{' '}
-          <a href="https://www.data4library.kr" target="_blank" rel="noreferrer noopener">
-            도서관 정보나루
-          </a>{' '}
-          (국립중앙도서관)
-        </p>
       </div>
 
       {nearby !== null && (

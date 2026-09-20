@@ -38,6 +38,8 @@ export function ShelfNearby({
   onMove: (index: number) => void;
 }) {
   const [chunks, setChunks] = useState<Map<number, ShelfBook[]>>(new Map());
+  const [dragging, setDragging] = useState(false);
+  const ruler = useRef<HTMLDivElement>(null);
 
   /*
     가운데 책과 양옆 둘씩이면 다섯 칸입니다. 조각 경계에 걸치면 이웃 조각도 받아야
@@ -96,6 +98,25 @@ export function ShelfNearby({
       onMove(next);
     },
     [index, room.count, onMove],
+  );
+
+  /**
+   * 눈금을 손으로 끌어 자리를 옮깁니다.
+   *
+   * <p>좌우로 한 권씩 넘기는 것만으로는 **수천 권짜리 서가를 가로지를 수 없습니다.**
+   * 눈금이 이미 「전체에서 어디쯤인가」를 말하고 있으므로, 그것을 끌 수 있게 하면 그
+   * 자리로 바로 갑니다. 서가 앞에서 옆으로 걸어가는 것과 통째로 자리를 옮기는 것은
+   * 다른 동작입니다.
+   */
+  const seek = useCallback(
+    (clientX: number) => {
+      const box = ruler.current?.getBoundingClientRect();
+      if (!box || box.width <= 0 || room.count <= 0) return;
+      const ratio = Math.min(1, Math.max(0, (clientX - box.left) / box.width));
+      const next = Math.round(ratio * (room.count - 1));
+      if (next !== index) onMove(next);
+    },
+    [index, onMove, room.count],
   );
 
   useEffect(() => {
@@ -197,7 +218,36 @@ export function ShelfNearby({
         어디까지 왔는지를 잃는데, 숫자만으로는 감이 오지 않고 막대가 있으면 한눈에
         들어옵니다.
       */}
-      <div className="nearby__ruler" aria-hidden="true">
+      <div
+        className="nearby__ruler"
+        ref={ruler}
+        data-dragging={dragging ? '' : undefined}
+        role="slider"
+        tabIndex={0}
+        aria-label="서가에서 볼 자리"
+        aria-valuemin={1}
+        aria-valuemax={room.count}
+        aria-valuenow={index + 1}
+        aria-valuetext={
+          center?.call ? `${index + 1}번째, ${center.call}` : `${index + 1}번째`
+        }
+        onPointerDown={(event) => {
+          event.currentTarget.setPointerCapture(event.pointerId);
+          setDragging(true);
+          seek(event.clientX);
+        }}
+        onPointerMove={(event) => {
+          if (event.currentTarget.hasPointerCapture(event.pointerId)) seek(event.clientX);
+        }}
+        onPointerUp={() => setDragging(false)}
+        onPointerCancel={() => setDragging(false)}
+        /*
+          **끄는 것을 넘기는 것으로 읽지 않게 막습니다.** 바깥 상자가 좌우 스와이프를
+          듣고 있어서, 여기서 멈추지 않으면 눈금을 한 번 끌 때 자리가 두 번 움직입니다.
+        */
+        onTouchStart={(event) => event.stopPropagation()}
+        onTouchEnd={(event) => event.stopPropagation()}
+      >
         <span style={{ left: `${(index / Math.max(1, room.count - 1)) * 100}%` }} />
       </div>
       <p className="nearby__where muted">
