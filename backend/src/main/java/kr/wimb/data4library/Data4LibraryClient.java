@@ -360,55 +360,6 @@ public final class Data4LibraryClient {
     }
 
     /**
-     * 이 도서관의 인기대출도서. 이용자 그룹별 상위 20권이 <b>한 번의 호출로</b> 옵니다
-     * (매뉴얼 15절 {@code extends/loanItemSrchByLib}). 파라미터가 도서관부호 하나뿐입니다.
-     *
-     * <p><b>여섯 묶음이 전부 {@code book} 이라는 같은 이름을 씁니다.</b> 그래서 부모를
-     * 지정해 읽지 않으면 120권이 한 덩어리로 섞이고, 그래도 예외가 나지 않습니다.
-     * {@link Data4LibraryResponse#itemsUnder} 의 주석에 자세히 적어 두었습니다.
-     *
-     * <p><b>이 응답에는 {@code loan_count} 가 없습니다.</b> 순위({@code ranking})만 옵니다.
-     * 대출건수로 순서를 맞추던 규칙을 여기서는 쓸 수 없습니다.
-     */
-    public Map<AgeGroup, List<BookInfo>> popularByLibrary(String libCode, ApiBudget.Priority priority) {
-        String xml = call("extends/loanItemSrchByLib", Map.of("libCode", libCode), priority);
-
-        Map<AgeGroup, List<BookInfo>> out = new LinkedHashMap<>();
-        for (AgeGroup group : AgeGroup.values()) {
-            List<BookInfo> books = Data4LibraryResponse.itemsUnder(xml, group.tag(), "book").stream()
-                    .map(BookInfo::from)
-                    .toList();
-            // **빈 묶음은 넣지 않습니다.** 작은 도서관은 영유아·유아가 비어서 옵니다.
-            // 화면이 그것을 그대로 그리면 눌렀는데 아무것도 안 나와 고장으로 읽힙니다.
-            if (!books.isEmpty()) out.put(group, books);
-        }
-        return out;
-    }
-
-    /** 15절이 한 번에 돌려주는 이용자 그룹. 묶음마다 XML 태그 이름이 다릅니다. */
-    public enum AgeGroup {
-        ALL("loanBooks", "전체"),
-        INFANT("age0Books", "0~5세"),
-        TODDLER("age6Books", "6~7세"),
-        ELEMENTARY("age8Books", "초등"),
-        TEEN("age14Books", "청소년"),
-        ADULT("age20Books", "성인");
-
-        private final String tag;
-        private final String label;
-
-        AgeGroup(String tag, String label) {
-            this.tag = tag;
-            this.label = label;
-        }
-
-        public String tag() { return tag; }
-
-        /** 화면에 그대로 나가는 이름입니다. */
-        public String label() { return label; }
-    }
-
-    /**
      * 그 도서관 장서 가운데 이 주제가 몇 건인지({@code itemSrch}, 매뉴얼 2절).
      *
      * <p><b>{@code type=ALL} 이 장서 전체입니다.</b> 인기 대출이 아니라 그 도서관이 가진

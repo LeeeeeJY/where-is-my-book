@@ -43,7 +43,6 @@ public class WimbController {
     private final Data4LibraryClient client;
     private final BookSearchService searchService;
     private final MultiCheckService multiCheckService;
-    private final BrowseService browseService;
     private final ApiBudget budget;
 
     /** 소장 캐시. {@code /api/status} 가 항목 수를 내보냅니다. */
@@ -99,9 +98,9 @@ public class WimbController {
                           MultiCheckService multiCheckService, ApiBudget budget,
                           OpacTemplates opacTemplates, DetailResolver detailResolver,
                           CachingHoldingsClient holdingsCache,
-                          RateLimit rateLimit, BrowseService browseService) {
+                          RateLimit rateLimit) {
         this(client, searchService, multiCheckService, budget, opacTemplates, detailResolver,
-                holdingsCache, rateLimit, browseService, Clock.systemUTC());
+                holdingsCache, rateLimit, Clock.systemUTC());
     }
 
     /** 재시도 시각을 시험할 수 있도록 시계를 받는 생성자입니다. */
@@ -109,8 +108,7 @@ public class WimbController {
                    MultiCheckService multiCheckService, ApiBudget budget,
                    OpacTemplates opacTemplates, DetailResolver detailResolver,
                    CachingHoldingsClient holdingsCache,
-                   RateLimit rateLimit, BrowseService browseService, Clock clock) {
-        this.browseService = browseService;
+                   RateLimit rateLimit, Clock clock) {
         this.rateLimit = rateLimit;
         this.holdingsCache = holdingsCache;
         this.opacTemplates = opacTemplates;
@@ -453,33 +451,6 @@ public class WimbController {
     public record LoanDto(boolean hasBook, boolean loanAvailable, String asOf) {}
 
     /** 호출 예산이 얼마나 남았는지. 한도가 예상과 다른지 여기서 드러납니다. */
-    /**
-     * 둘러보기 화면. <b>오늘의 이야기 한 권과 그 도서관의 인기대출 목록</b>입니다.
-     *
-     * <p><b>소장 조회를 부르지 마세요.</b> 목록에 소장을 미리 붙이면 스무 권 × 시도 수만큼
-     * 호출이 나갑니다. 화면은 줄을 눌렀을 때만 {@code /api/holdings} 로 물어봅니다.
-     * 「대출 상태를 목록에 미리 달지 마세요」와 같은 규칙입니다.
-     *
-     * <p>정보나루가 답하지 않아도 <b>500 을 내지 않습니다.</b> 둘러보기는 곁들이 화면이라
-     * 이것 때문에 검색까지 막히면 안 됩니다. 빈 목록으로 답하고 화면이 안내 한 줄을 그립니다.
-     */
-    @GetMapping("/browse")
-    public BrowseResponse browse(@RequestParam("lib") String libCode) {
-        if (libCode == null || libCode.isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "도서관을 고르면 보여 드립니다.");
-        }
-        return new BrowseResponse(
-                browseService.storyOf(libCode).orElse(null),
-                browseService.popularOf(libCode));
-    }
-
-    /**
-     * @param story 없을 수 있습니다. 정보나루가 답하지 않았거나, 그 도서관 문학 장서에서
-     *              소설을 찾지 못한 경우입니다. <b>화면이 「없다」로 그리면 안 됩니다.</b>
-     */
-    public record BrowseResponse(BrowseService.Story story,
-                                 List<BrowseService.PopularGroup> popular) {}
-
     @GetMapping("/status")
     public Map<String, Object> status() {
         Map<String, Object> out = new java.util.LinkedHashMap<>();
@@ -496,10 +467,6 @@ public class WimbController {
         // 것인지 캐시가 원래 안 도는 것인지 구별할 수 없어 추측하게 됩니다.
         // 배포 직후 이 값이 0이면 스냅샷을 잃은 것입니다.
         out.put("holdingCacheEntries", holdingsCache.size());
-        // 둘러보기는 도서관마다 하루 한 번만 부릅니다. 이 값이 방문자 수를 따라
-        // 늘면 날짜 경계가 잘못 잡힌 것이고, 재배포마다 0이면 캐시를 잃는 것입니다.
-        out.put("browseStories", browseService.cacheSizes().get("browseStories"));
-        out.put("browsePopular", browseService.cacheSizes().get("browsePopular"));
         // OPAC 규칙이 실제로 실려 있는지. 배포 직후 0이면 규칙 파일을 잃은 것이고(예전에
         // .gitignore 가 삼킨 적이 있습니다), 상세 해석의 성적은 어디서 새는지를 말합니다.
         // resolved 는 상세로 갔고, missed 는 페이지는 받았는데 링크가 없었고(그 판이 없거나
