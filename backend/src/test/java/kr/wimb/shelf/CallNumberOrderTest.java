@@ -159,6 +159,48 @@ class CallNumberOrderTest {
         }
     }
 
+    @Nested
+    @DisplayName("전집은 권 차례로 선다")
+    class VolumeInBookCode {
+
+        /**
+         * <b>전집은 권 번호가 도서기호 꼬리에 붙어 옵니다.</b> 「박65ㅌ1」「박65ㅌ2」…
+         * 처럼요. 그 꼬리를 글자 그대로 견주면 <b>10권이 2권 앞에 섭니다.</b>
+         * 「ㅌ10」의 「1」이 「ㅌ2」의 「2」보다 작아서입니다.
+         *
+         * <p>이 파일이 가운데 숫자에 대해 이미 경고하던 것과 같은 일인데 꼬리에만
+         * 남아 있었습니다. 전집은 권수가 열을 넘는 일이 흔해서 <b>실제 서가와 가장
+         * 크게 어긋나 보이는 자리</b>입니다.
+         */
+        @Test
+        @DisplayName("꼬리의 권 번호를 크기로 견준다. 10권이 2권 뒤다")
+        void volumeDigitsInSuffixSortBySize() {
+            assertAscending(
+                    Book.at("813.6", "박65ㅌ1"),
+                    Book.at("813.6", "박65ㅌ2"),
+                    Book.at("813.6", "박65ㅌ9"),
+                    Book.at("813.6", "박65ㅌ10"),
+                    Book.at("813.6", "박65ㅌ11"),
+                    Book.at("813.6", "박65ㅌ20"));
+        }
+
+        /** 권 번호가 없는 것이 1권보다 앞입니다. 서가에서 본권이 먼저입니다. */
+        @Test
+        @DisplayName("권 번호가 없는 쪽이 앞이다")
+        void noVolumeComesFirst() {
+            assertOrder(Book.at("813.6", "박65ㅌ"), Book.at("813.6", "박65ㅌ1"));
+        }
+
+        /** 「c.2」처럼 숫자 뒤에 또 글자가 붙어도 숫자는 크기로 견줍니다. */
+        @Test
+        @DisplayName("숫자 뒤에 글자가 더 붙어도 크기로 견준다")
+        void digitsFollowedByLettersStillSortBySize() {
+            assertAscending(
+                    Book.at("813.6", "박65ㅌ2가"),
+                    Book.at("813.6", "박65ㅌ10가"));
+        }
+    }
+
     // ── 3 vs 4. 분류번호가 도서기호보다 먼저 ────────────────────────────
 
     @Nested

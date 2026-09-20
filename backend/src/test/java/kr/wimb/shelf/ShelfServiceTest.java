@@ -86,7 +86,7 @@ class ShelfServiceTest {
         fixture.blockBuild();
 
         fixture.service.build("141321", SUBJECT);
-        fixture.awaitBuilding("141321");
+        fixture.awaitBlocked("141321");
         int afterFirst = fixture.calls.get();
 
         fixture.service.build("141321", SUBJECT);
@@ -193,6 +193,28 @@ class ShelfServiceTest {
         void releaseBuild() {
             var waiting = gate.getAndSet(null);
             if (waiting != null) waiting.countDown();
+        }
+
+        /**
+         * 세우는 일이 시작해서 <b>빗장 앞에 멈출 때까지</b> 기다립니다.
+         *
+         * <p>「세우는 중」이 된 것만 보고 넘어가면 안 됩니다. <b>상태는 빗장을 지르는
+         * 순간 바뀌는데 호출은 그 뒤에 나갑니다.</b> 그 사이에 센 값을 기준으로 「더
+         * 늘지 않았다」를 보면, 뒤늦게 나간 호출 때문에 시험이 이따금 실패합니다.
+         * 한꺼번에 여러 쪽을 부르므로 <b>한 번 불렀는지가 아니라 더 늘지 않는지</b>를
+         * 봐야 합니다.
+         */
+        void awaitBlocked(String libCode) throws InterruptedException {
+            awaitBuilding(libCode);
+            int stable = 0;
+            int before = -1;
+            for (int i = 0; i < 300 && stable < 5; i++) {
+                int now = calls.get();
+                stable = now == before && now > 0 ? stable + 1 : 0;
+                before = now;
+                Thread.sleep(10);
+            }
+            if (calls.get() == 0) fail("정보나루를 한 번도 부르지 않았습니다");
         }
 
         void awaitBuilding(String libCode) throws InterruptedException {

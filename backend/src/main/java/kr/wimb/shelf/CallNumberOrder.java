@@ -74,7 +74,8 @@ public final class CallNumberOrder {
                 .thenComparing(CallNumberOrder::classParts, CallNumberOrder::compareClassNo)
                 .thenComparing(p -> BookCode.parse(p.bookCode()).prefix())
                 .thenComparingLong(p -> BookCode.parse(p.bookCode()).number())
-                .thenComparing(p -> BookCode.parse(p.bookCode()).suffix())
+                .thenComparing(p -> BookCode.parse(p.bookCode()).suffix(),
+                        CallNumberOrder::compareNaturally)
                 .thenComparingLong(p -> p.volOrdinal() == null ? -1 : p.volOrdinal())
                 .thenComparingLong(p -> firstNumberIn(p.copyCode()));
     }
@@ -87,6 +88,58 @@ public final class CallNumberOrder {
         String bookCode();
         Integer volOrdinal();
         String copyCode();
+    }
+
+    /**
+     * 글자와 숫자가 섞인 값을 <b>숫자 덩어리는 크기로</b> 견줍니다.
+     *
+     * <p>{@link ShelfSortKey#natural} 과 같은 순서를 내야 합니다. 열쇠를 다시 쓰지 않고
+     * 여기서 값을 직접 걸어가는 것이 이 비교자가 있는 이유입니다.
+     */
+    private static int compareNaturally(String left, String right) {
+        int i = 0;
+        int j = 0;
+        while (i < left.length() && j < right.length()) {
+            boolean leftDigit = isDigit(left.charAt(i));
+            boolean rightDigit = isDigit(right.charAt(j));
+
+            // 한쪽만 숫자면, 숫자 쪽이 뒤입니다. 열쇠가 숫자 앞에 구분 문자를 넣어
+            // 어떤 글자보다도 작게 만드는 것과 같은 결과입니다(「ㅌ」이 「ㅌ1」보다 앞).
+            if (leftDigit != rightDigit) return leftDigit ? 1 : -1;
+
+            if (!leftDigit) {
+                int diff = Character.compare(left.charAt(i), right.charAt(j));
+                if (diff != 0) return diff;
+                i++;
+                j++;
+                continue;
+            }
+
+            int leftEnd = i;
+            while (leftEnd < left.length() && isDigit(left.charAt(leftEnd))) leftEnd++;
+            int rightEnd = j;
+            while (rightEnd < right.length() && isDigit(right.charAt(rightEnd))) rightEnd++;
+
+            int diff = compareDigits(left.substring(i, leftEnd), right.substring(j, rightEnd));
+            if (diff != 0) return diff;
+            i = leftEnd;
+            j = rightEnd;
+        }
+        // 앞머리가 같으면 짧은 쪽이 먼저입니다.
+        return Integer.compare(left.length() - i, right.length() - j);
+    }
+
+    /** 자릿수가 터무니없이 길면 크기를 지어내지 않고 글자로 견줍니다. */
+    private static int compareDigits(String left, String right) {
+        try {
+            return Long.compare(Long.parseLong(left), Long.parseLong(right));
+        } catch (NumberFormatException e) {
+            return left.compareTo(right);
+        }
+    }
+
+    private static boolean isDigit(char c) {
+        return c >= '0' && c <= '9';
     }
 
     // ── 분류번호 견주기 ──────────────────────────────────────────────────
