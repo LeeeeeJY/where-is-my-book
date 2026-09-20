@@ -1418,32 +1418,65 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
   그래서 셋을 함께 씁니다. **앞으로 나오고**(`translateY`), **놋쇠 테두리를 두르고**,
   **위에 서표를 끼웁니다.** 서표는 책 밖으로 삐져나오므로 줄 안에서 혼자 튀어 보입니다.
 */
-.cover[data-found] { transform: translateY(-10px); z-index: 1; }
+/*
+  **서가에서 뽑아 든 것처럼 보여야 합니다.** 앞으로 조금 나오고 테두리를 두르는 것만으로는
+  모자랐습니다. 한 화면에 스무 권이 <b>같은 크기로</b> 서 있어서, 그 가운데 하나가 몇 px
+  떠오른 것은 훑는 눈에 걸리지 않습니다. 그래서 **키를 키웁니다.** 크기가 다른 것은 나란한
+  격자에서 가장 먼저 눈에 걸리는 차이이고, 실제로도 뽑다 만 책은 옆 책보다 커 보입니다.
+
+  **밑을 축으로 키웁니다**(`transform-origin: 50% 100%`). 가운데를 축으로 하면 책이
+  선반 아래로 파고들어 바닥선이 무너지는데, 이 화면은 **표지가 아래 선에 맞춰 서는 것**이
+  핵심입니다. 밑을 축으로 하면 선반에 발을 붙인 채 위로만 자랍니다.
+*/
+.cover[data-found] {
+  transform: translateY(-10px) scale(1.1);
+  transform-origin: 50% 100%;
+  z-index: 1;
+}
+/*
+  **테두리는 두 겹입니다.** 놋쇠 한 겹만 두르면 표지 색이 놋쇠와 비슷할 때 테두리가
+  표지에 녹아 사라집니다. 실제 표지는 갈색·금색이 흔하고, 표지가 없는 책은 분류번호로
+  칠한 종이라 더 그렇습니다. 바깥에 어두운 선을 한 겹 더 두르면 **어떤 표지 위에서도
+  테두리가 테두리로 보입니다.**
+
+  **번지는 후광은 쓰지 마세요.** 놋쇠 빛을 넓게 퍼뜨려 봤더니 선반 나무가 놋쇠와 같은
+  갈색이라 **밝아지는 것이 아니라 뿌예졌습니다.** 표시가 아니라 초점이 안 맞은 것으로
+  보입니다. 대신 **아래로 짙은 그림자**를 깝니다. 어두운 쪽으로 벌어지는 것은 나무와
+  섞이지 않아서, 책이 선반에서 뽑혀 앞으로 나온 것으로 읽힙니다.
+*/
 .cover[data-found] .cover__body {
   box-shadow:
-    0 3px 3px rgba(43, 27, 13, 0.5),
-    0 18px 26px -10px rgba(43, 27, 13, 0.7),
-    0 0 0 3px var(--brass);
+    0 4px 4px rgba(43, 27, 13, 0.55),
+    0 22px 26px -8px rgba(43, 27, 13, 0.85),
+    0 0 0 4px var(--brass),
+    0 0 0 7px rgba(27, 17, 8, 0.7);
   /*
     **도착하는 순간 한 번만 피어납니다.** 미끄러져 온 끝에 테두리가 그냥 켜져 있으면
     언제 켜졌는지를 놓치고 다시 한 권씩 훑게 됩니다. 서가는 보이는 줄만 그리므로 이
     표지는 도착할 때 처음 그려지고, 그때 한 번 돕니다.
+
+    **마지막 칸은 바로 위의 값과 글자 그대로 같아야 합니다.** 채움 방식이 `both` 라
+    <b>끝난 뒤에도 마지막 칸이 그대로 남아</b> 위에 적은 값을 덮습니다. 하나만 고치면
+    테두리가 예전 굵기로 돌아가는데, 움직임을 줄여 달라고 한 사람은 애니메이션이 꺼져
+    위의 값을 보므로 **사람마다 다르게 보입니다.**
   */
   animation: cover-found 760ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 @keyframes cover-found {
-  from { box-shadow: 0 0 0 0 rgba(43, 27, 13, 0), 0 0 0 0 rgba(43, 27, 13, 0), 0 0 0 1px rgba(164, 129, 63, 0); }
+  from { box-shadow: 0 0 0 0 rgba(43, 27, 13, 0), 0 0 0 0 rgba(43, 27, 13, 0), 0 0 0 1px rgba(164, 129, 63, 0), 0 0 0 1px rgba(27, 17, 8, 0); }
   45% {
     box-shadow:
-      0 3px 3px rgba(43, 27, 13, 0.5),
-      0 18px 26px -10px rgba(43, 27, 13, 0.7),
-      0 0 0 6px rgba(164, 129, 63, 0.55);
+      0 4px 4px rgba(43, 27, 13, 0.55),
+      0 22px 26px -8px rgba(43, 27, 13, 0.85),
+      0 0 0 9px rgba(164, 129, 63, 0.75),
+      0 0 0 12px rgba(27, 17, 8, 0.5);
   }
   to {
     box-shadow:
-      0 3px 3px rgba(43, 27, 13, 0.5),
-      0 18px 26px -10px rgba(43, 27, 13, 0.7),
-      0 0 0 3px var(--brass);
+      0 4px 4px rgba(43, 27, 13, 0.55),
+      0 22px 26px -8px rgba(43, 27, 13, 0.85),
+      0 0 0 4px var(--brass),
+      0 0 0 7px rgba(27, 17, 8, 0.7);
   }
 }
 
@@ -1452,11 +1485,27 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
   보이게 합니다. 띄워 두었으므로 줄 높이가 변하지 않습니다.
 */
 .cover__mark {
-  position: absolute; top: -9px; right: 12%; width: 11px; height: 30px; z-index: 2;
-  background: linear-gradient(180deg, #c8a15c 0%, var(--brass) 45%, #8a6a2f 100%);
+  /*
+    **크기를 표지에 맞춰 잡습니다.** px 로 못박아 두면 한쪽에서 반드시 틀립니다. 표지가
+    휴대폰에서 80px, 1,280px 화면에서 243px 이라 세 배 차이가 나는데, 좁은 화면에 맞춘
+    서표는 넓은 화면에서 **작은 꼬리표**가 되어 안 보이고, 넓은 화면에 맞춘 것은 좁은
+    화면에서 **표지를 덮습니다.** 그래서 비율로 잡되 `clamp` 으로 양 끝을 막습니다.
+  */
+  position: absolute; z-index: 2;
+  right: 10%;
+  width: clamp(13px, 16%, 21px);
+  height: clamp(36px, 46%, 62px);
+  top: clamp(-20px, -12%, -12px);
+  background: linear-gradient(180deg, #d9b678 0%, var(--brass) 45%, #7d5f28 100%);
   border-radius: 2px 2px 0 0;
   clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 74%, 0 100%);
-  box-shadow: 0 2px 4px rgba(43, 27, 13, 0.55);
+  /*
+    **그림자는 `filter` 로 겁니다. `box-shadow` 가 아닙니다.** `clip-path` 는 그려진
+    것을 통째로 잘라내므로 모양 밖으로 나가는 `box-shadow` 가 <b>함께 잘려 없어집니다.</b>
+    `drop-shadow` 는 잘라낸 <b>뒤의 모양</b>을 따라가므로 제비꼬리까지 그림자가 붙고,
+    흰 표지 위에서도 서표의 윤곽이 남습니다.
+  */
+  filter: drop-shadow(0 0 1px rgba(27, 17, 8, 0.95)) drop-shadow(0 3px 4px rgba(27, 17, 8, 0.8));
   transform-origin: 50% 0;
   animation: cover-mark 620ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
