@@ -24,7 +24,7 @@ export const COLS = 4;
  * 맞춰 주지 않아서, 새 줄이 들어오는 것보다 눈이 먼저 도착합니다. 반대로 크게 잡으면
  * 한 번에 그리는 표지가 늘어 처음 여는 것이 느려집니다.
  */
-export const OVERSCAN = 3;
+export const OVERSCAN = 6;
 
 export type Range = {
   /** 그릴 첫 줄(0부터). */

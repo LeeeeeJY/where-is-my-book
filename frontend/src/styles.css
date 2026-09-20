@@ -1283,6 +1283,12 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
 .cover__body {
   position: relative; display: block; width: 100%;
   background-position: center; background-size: cover;
+  /*
+    **표지가 도착하기 전에도 자리가 있어야 합니다.** 없으면 빈 칸이었다가 그림이
+    오는 순간 책이 솟아오릅니다. 아주 옅게 깔아 두면 그 자리가 「아직 안 온 책」으로
+    보입니다. 대체 표지는 이 위에 그러데이션을 덮으므로 영향이 없습니다.
+  */
+  background-color: rgba(246, 241, 230, 0.08);
   border-radius: 1px 3px 3px 1px;
   box-shadow:
     0 1px 1px rgba(43, 27, 13, 0.55),
@@ -1304,9 +1310,24 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
   box-shadow: inset -1px 0 0 rgba(43, 27, 13, 0.35);
 }
 
+/*
+  **표지가 오기 전에 높이를 잡아 둡니다.**
+
+  `height: auto` 만 두면 그림이 오기 전 이미지의 높이가 <b>0</b> 이라, 스크롤하다
+  표지가 도착할 때마다 그 칸이 바닥에서 솟아오릅니다. 한 줄에 네 권이 제각각
+  솟으니 서가 전체가 계속 출렁입니다.
+
+  `aspect-ratio: auto 1 / 1.45` 는 <b>그림의 실제 비율을 알게 되면 그것을 쓰고,
+  모르는 동안에만</b> 뒤의 값을 씁니다. 그래서 판형이 제각각인 것은 그대로 살아
+  있고(책이 아래 선에 맞춰 서는 이유입니다), 오기 전의 출렁임만 사라집니다.
+  <b>`auto` 를 빼지 마세요.</b> 빼면 모든 표지가 같은 비율로 눌립니다.
+*/
 .cover__art {
   display: block; width: 100%; height: auto; border-radius: inherit;
+  aspect-ratio: auto 1 / 1.45;
+  opacity: 0; transition: opacity 0.22s ease;
 }
+.cover__art[data-loaded] { opacity: 1; }
 
 /*
   **대체 표지.** 없다고 빈 자리로 두면 서가에 구멍이 뚫려 「여기 뭔가 잘못됐다」로

@@ -69,6 +69,52 @@ final class ShelfSortKey {
     }
 
     /**
+     * 글자와 숫자가 섞인 값을, <b>숫자 덩어리는 크기로</b> 견주게 적습니다.
+     *
+     * <p>도서기호 꼬리가 여기에 해당합니다. 전집은 권 번호가 그 꼬리에 붙어 오는데
+     * (「박65ㅌ1」「박65ㅌ2」…), 글자 그대로 견주면 <b>「ㅌ10」이 「ㅌ2」보다 앞에
+     * 섭니다.</b> 「1」이 「2」보다 작아서입니다. 전집은 권수가 열을 넘는 일이 흔해서
+     * 실제 서가와 가장 크게 어긋나 보이는 자리입니다.
+     *
+     * <p>숫자 덩어리를 {@link #number} 로 적고 앞뒤를 구분 문자로 끊습니다. 구분
+     * 문자가 어떤 글자보다도 작으므로 <b>숫자가 없는 쪽이 먼저</b>입니다(「ㅌ」이
+     * 「ㅌ1」보다 앞). 서가에서 본권이 1권보다 앞에 서는 것과 같습니다.
+     */
+    static String natural(String raw) {
+        String value = text(raw);
+        if (value.isEmpty()) return "";
+
+        StringBuilder out = new StringBuilder(value.length() + 8);
+        int at = 0;
+        while (at < value.length()) {
+            char c = value.charAt(at);
+            if (c < '0' || c > '9') {
+                out.append(c);
+                at++;
+                continue;
+            }
+            int end = at;
+            while (end < value.length() && isDigit(value.charAt(end))) end++;
+            long parsed;
+            try {
+                parsed = Long.parseLong(value.substring(at, end));
+            } catch (NumberFormatException e) {
+                // 자리가 터무니없이 긴 값입니다. 크기를 지어내지 않고 글자로 둡니다.
+                out.append(value, at, end);
+                at = end;
+                continue;
+            }
+            out.append(SEP).append(number(parsed)).append(SEP);
+            at = end;
+        }
+        return out.toString();
+    }
+
+    private static boolean isDigit(char c) {
+        return c >= '0' && c <= '9';
+    }
+
+    /**
      * 값이 없으면 <b>맨 뒤</b>로 보내는 문자열. 자료실과 분류번호가 여기에 해당합니다.
      * 어느 자료실인지 모르는 책, 분류번호가 없는 책은 서가에 꽂힐 자리가 없으므로
      * 앞에 끼워 넣지 않고 뒤에 모읍니다.

@@ -24,9 +24,10 @@ public record BookCode(String prefix, long number, String suffix) {
     /**
      * 도서기호 문자열을 나눕니다. {@code null} 이나 빈 문자열이면 빈 조각입니다.
      *
-     * <p><b>첫 숫자 덩어리만 숫자로 읽습니다.</b> 뒤에 숫자가 또 나오면 그것은
-     * 꼬리에 그대로 둡니다. 「김63ㄷ2」의 2 는 판이나 복본을 가리키는 것이라 가운데
-     * 숫자와 성격이 다릅니다.
+     * <p><b>첫 숫자 덩어리만 가운데 숫자로 읽습니다.</b> 뒤에 숫자가 또 나오면 그것은
+     * 꼬리에 남깁니다. 「김63ㄷ2」의 2 는 권이나 복본을 가리키는 것이라 가운데 숫자와
+     * 성격이 다릅니다. <b>다만 꼬리에 남긴 숫자도 크기로 견줍니다.</b> 성격이 다른 것과
+     * 글자로 견줘도 되는 것은 다릅니다({@link #sortKey}).
      */
     public static BookCode parse(String raw) {
         String value = raw == null ? "" : raw.trim();
@@ -48,9 +49,14 @@ public record BookCode(String prefix, long number, String suffix) {
      *
      * <p>숫자는 {@link ShelfSortKey#number} 가 자릿수를 앞에 붙여 적으므로 자릿수가
      * 달라도 크기대로 늘어섭니다.
+     *
+     * <p><b>꼬리도 마찬가지입니다.</b> 전집은 권 번호가 꼬리에 붙어 오는데
+     * (「박65ㅌ1」「박65ㅌ2」…), 글자 그대로 두면 10권이 2권 앞에 섭니다.
+     * {@link ShelfSortKey#natural} 이 꼬리 안의 숫자 덩어리도 크기로 적습니다.
      */
     String sortKey() {
-        return prefix + ShelfSortKey.SEP + ShelfSortKey.number(number) + ShelfSortKey.SEP + suffix;
+        return prefix + ShelfSortKey.SEP + ShelfSortKey.number(number)
+                + ShelfSortKey.SEP + ShelfSortKey.natural(suffix);
     }
 
     private static boolean isDigit(char c) {

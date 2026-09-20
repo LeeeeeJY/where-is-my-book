@@ -38,6 +38,7 @@ export function ShelfCover({
   onPick: () => void;
 }) {
   const [failed, setFailed] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const showImage = Boolean(book.cover) && !failed;
 
   return (
@@ -54,12 +55,19 @@ export function ShelfCover({
         style={showImage ? undefined : { backgroundImage: coverPaper(book) }}
       >
         {showImage ? (
+          /*
+            **도착하면 천천히 나타납니다.** 자리는 이미 잡혀 있으므로(`cover__art` 의
+            `aspect-ratio`) 배치는 움직이지 않고 그림만 떠오릅니다. 스크롤하다 표지가
+            하나씩 탁탁 켜지는 것이 서가를 계속 출렁이는 것처럼 보이게 했습니다.
+          */
           <img
             className="cover__art"
             src={book.cover}
             alt=""
             loading="lazy"
             decoding="async"
+            data-loaded={loaded ? '' : undefined}
+            onLoad={() => setLoaded(true)}
             onError={() => setFailed(true)}
           />
         ) : (
