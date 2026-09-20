@@ -21,3 +21,34 @@ export function sectionLabel(name: string): string {
   if (parts.length === 1) return parts[0];
   return parts.slice(1).join(' · ');
 }
+
+/**
+ * 한 갈래가 <b>걸어갈 만한 구역</b>이 되는 최소 권수.
+ *
+ * <p>서가에 한 줄이 네 권이므로 열 권은 두 줄 반입니다. 그보다 작으면 걸어가서 서는
+ * 곳이 아니라 <b>지나가며 스치는 몇 권</b>이고, 목록에 올려 두면 고르는 사람이 읽어야
+ * 할 줄만 늘어납니다.
+ */
+const WORTH_WALKING_TO = 10;
+
+/**
+ * 목록에 올릴 갈래만 고릅니다.
+ *
+ * <p>실측으로 부천 어느 자료실(7,072권)에 갈래가 <b>예순세 가지</b>였고 그중
+ * <b>서른네 가지가 한 자릿수 권수</b>였습니다. 목록의 첫 줄이 「중국문학 · 르포르타주
+ * 및 기타 (2권)」이었는데, 그것을 고르려고 목록을 여는 사람은 없습니다. 열 권으로
+ * 자르면 스물아홉 가지가 남고 <b>가려지는 책은 1%</b>입니다.
+ *
+ * <p><b>지금 서 있는 갈래는 작아도 남깁니다.</b> 목록이 보여 주는 값이 곧 「지금 어느
+ * 갈래 앞인가」인데, 그 갈래가 잘려 나가면 목록이 빈칸이 됩니다. 스크롤하다 작은 갈래에
+ * 들어설 때마다 이름이 사라졌다 나타나면 고장으로 읽힙니다.
+ *
+ * <p>도서관 선택 칸이 많이 고른 지역을 묶어 보여 주는 것과 같은 종류입니다. 묻지도
+ * 않은 것에 길게 답하지 않으면서, 사용자가 실제로 찾는 답은 그대로 둡니다.
+ */
+export function sectionsWorthShowing<T extends { name: string; count: number }>(
+  sections: readonly T[],
+  standing: string,
+): T[] {
+  return sections.filter((one) => one.count >= WORTH_WALKING_TO || one.name === standing);
+}
