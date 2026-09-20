@@ -1405,3 +1405,137 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
   text-align: center; border-radius: 4px;
   color: var(--surface); background: var(--accent);
 }
+
+/* ── 이 책 주변 서가 ──────────────────────────────────────────────── */
+
+/*
+  **서가 위에 덮습니다.** 뒤로 가면 보던 자리가 그대로 있어야 하는데, 화면을 갈아
+  끼우면 서가가 처음부터 다시 그려져 스크롤 자리를 잃습니다. 덮어 두면 닫는 순간
+  보던 줄이 그대로 있습니다.
+*/
+.nearby {
+  position: absolute; inset: 0; z-index: 5;
+  display: grid; align-content: center; gap: 12px;
+  padding: 56px 0 0;
+  /*
+    **어두워야 합니다.** 책을 한 권 뽑아 든 자리는 서가 사이 통로이고, 거기는
+    밝지 않습니다. 밝게 두면 책과 배경이 같은 갈색이 되어 무엇을 보고 있는지
+    흐려집니다. 실제로 그 상태였습니다.
+  */
+  background:
+    radial-gradient(90% 46% at 50% 34%, rgba(255, 244, 222, 0.10), rgba(0, 0, 0, 0) 70%),
+    linear-gradient(180deg, #241a10 0%, #16100a 100%);
+  background-color: #16100a;
+  /* 손가락으로 좌우로 넘기는 화면이라 세로 스크롤을 잠급니다. */
+  overscroll-behavior: contain; touch-action: pan-y;
+}
+.nearby__close { position: absolute; top: 12px; left: 12px; z-index: 2; }
+
+/* 선반 앞면의 서가 라벨. 실제 서가 끝에 붙어 있는 것과 같은 것입니다. */
+.nearby__label {
+  margin: 0 auto; display: inline-flex; align-items: baseline; gap: 10px;
+  padding: 5px 14px; border-radius: 3px;
+  background: var(--brass-soft); color: #43331f;
+  font-size: 11px; letter-spacing: 0.02em;
+  box-shadow: inset 0 0 0 1px rgba(67, 51, 31, 0.25);
+}
+.nearby__label-room { font-weight: 700; }
+.nearby__label-range { font-family: var(--display); opacity: 0.85; }
+
+/*
+  **가운데가 크고 양옆이 걸칩니다.** 실제 서가에서 한 권을 뽑아 들면 옆 책이 비스듬히
+  보이는 것과 같습니다. 옆 책을 같은 크기로 두면 무엇을 보고 있는지가 흐려집니다.
+*/
+.nearby__stage {
+  display: flex; align-items: flex-end; justify-content: center; gap: 10px;
+  padding: 0 12px; min-height: 42vh;
+}
+.nearby__slot { flex: none; display: flex; align-items: flex-end; }
+.nearby__slot[data-spot='0'] { width: 46%; }
+.nearby__slot[data-spot='1'] { width: 22%; opacity: 0.72; }
+.nearby__slot[data-spot='2'] { width: 14%; opacity: 0.38; }
+
+.nearby__book {
+  appearance: none; border: 0; padding: 0; background: none; cursor: pointer;
+  display: block; width: 100%;
+  border-radius: 1px 3px 3px 1px;
+  box-shadow: 0 2px 3px rgba(0, 0, 0, 0.5), 0 18px 26px -14px rgba(0, 0, 0, 0.8);
+}
+.nearby__book:focus-visible { outline: 2px solid var(--brass); outline-offset: 3px; }
+.nearby__art { display: block; width: 100%; height: auto; border-radius: inherit; }
+.nearby__made {
+  display: grid; align-content: space-between; gap: 8px; aspect-ratio: 1 / 1.45;
+  padding: 14px 12px 12px 16px; border-radius: inherit;
+  color: #f6f1e6; text-align: left;
+}
+.nearby__made-title {
+  font-family: var(--display); font-size: 13px; font-weight: 600; line-height: 1.35;
+  word-break: keep-all;
+  display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden;
+}
+.nearby__made-author { font-size: 11px; opacity: 0.8; word-break: keep-all; }
+/* 작은 자리에서는 글자가 들어가지 않습니다. 제목만 남깁니다. */
+.nearby__slot[data-spot='2'] .nearby__made-author { display: none; }
+/* 서가의 끝. 빈 자리를 남겨야 「여기가 끝」이라는 것이 보입니다. */
+.nearby__end { display: block; width: 100%; aspect-ratio: 1 / 1.45; }
+
+/* 책이 놓인 선반. 서가 화면의 선반 판과 같은 결입니다. */
+.nearby__plank {
+  height: 14px; margin: -2px 8px 0;
+  background: linear-gradient(180deg,
+    var(--wood-light) 0 3px, var(--wood) 3px 8px, var(--wood-dark) 8px 12px,
+    rgba(0, 0, 0, 0.5) 12px);
+  border-radius: 1px;
+  box-shadow: 0 10px 16px -8px rgba(0, 0, 0, 0.85);
+}
+
+/* 이 서가 전체에서 지금 어디쯤인지. 넘기다 보면 어디까지 왔는지를 잃습니다. */
+.nearby__ruler {
+  position: relative; height: 3px; margin: 10px 16px 0;
+  background: rgba(246, 241, 230, 0.16); border-radius: 999px;
+}
+.nearby__ruler > span {
+  position: absolute; top: -3px; width: 3px; height: 9px; border-radius: 999px;
+  background: var(--brass); transform: translateX(-1px);
+  transition: left 0.18s ease;
+}
+.nearby__where {
+  margin: 0; text-align: center; font-size: 11px;
+  color: rgba(246, 241, 230, 0.6); font-family: var(--display);
+}
+
+/* 하단 시트. 가운데 책에 관한 것만 담습니다. */
+.nearby__sheet {
+  margin: 4px 0 0; padding: 16px 16px calc(20px + env(safe-area-inset-bottom));
+  background: var(--surface); border-radius: 14px 14px 0 0;
+  box-shadow: 0 -8px 24px -14px rgba(0, 0, 0, 0.9);
+}
+.nearby__title {
+  margin: 0; font-family: var(--display); font-size: 18px; line-height: 1.35;
+  word-break: keep-all;
+}
+.nearby__meta { margin: 6px 0 0; font-size: 13px; color: var(--muted); }
+.nearby__facts {
+  margin: 12px 0 0; display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 13px;
+}
+.nearby__facts > div { display: grid; gap: 1px; }
+.nearby__facts dt { font-size: 11px; color: var(--muted); }
+.nearby__facts dd { margin: 0; font-weight: 600; }
+.nearby__call { font-family: var(--display); letter-spacing: 0.02em; }
+.nearby__go { margin: 14px 0 0; }
+
+/*
+  좌우 단추. 손가락으로 넘길 수 있지만 **그것만으로는 넘길 수 있다는 것을 모릅니다.**
+  44px 을 넘깁니다.
+*/
+.nearby__step {
+  position: absolute; top: 38%; z-index: 2;
+  appearance: none; border: 0; cursor: pointer;
+  width: 44px; height: 44px; border-radius: 999px;
+  font-size: 22px; line-height: 1; color: #f6f1e6;
+  background: rgba(0, 0, 0, 0.32);
+}
+.nearby__step:disabled { opacity: 0.25; cursor: default; }
+.nearby__step:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
+.nearby__step--back { left: 8px; }
+.nearby__step--next { right: 8px; }

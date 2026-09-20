@@ -11,6 +11,7 @@ import {
 import type { Library } from '../domain/types';
 import { COLS, chunksFor, locate, rowCount, scrollToRow, visibleRows } from '../domain/shelfLayout';
 import { ShelfCover } from './ShelfCover';
+import { ShelfNearby } from './ShelfNearby';
 import { ShelfOpening } from './ShelfOpening';
 
 /** 오른쪽 색인에 세우는 초성. 서버의 {@code Chosung.INDEX} 와 같은 열넷입니다. */
@@ -88,6 +89,7 @@ export function Shelf({
           key={`${current}/${subject.code}`}
           libCode={current}
           subject={subject}
+          library={library}
           libraryName={library?.name ?? current}
           onLeave={() => setSubject(null)}
           onHideTabs={setTabsHidden}
@@ -203,12 +205,14 @@ function SubjectPicker({
 function ShelfGate({
   libCode,
   subject,
+  library,
   libraryName,
   onLeave,
   onHideTabs,
 }: {
   libCode: string;
   subject: ShelfSubject;
+  library: Library | undefined;
   libraryName: string;
   onLeave: () => void;
   onHideTabs: (hidden: boolean) => void;
@@ -249,6 +253,7 @@ function ShelfGate({
     <ShelfView
       meta={meta}
       subject={subject}
+      library={library}
       libraryName={libraryName}
       onLeave={onLeave}
       onHideTabs={onHideTabs}
@@ -260,12 +265,14 @@ function ShelfGate({
 function ShelfView({
   meta,
   subject,
+  library,
   libraryName,
   onLeave,
   onHideTabs,
 }: {
   meta: ShelfMeta;
   subject: ShelfSubject;
+  library: Library | undefined;
   libraryName: string;
   onLeave: () => void;
   onHideTabs: (hidden: boolean) => void;
@@ -276,6 +283,11 @@ function ShelfView({
   const [scrollTop, setScrollTop] = useState(0);
   const [chunks, setChunks] = useState<Map<string, ShelfBook[]>>(new Map());
   const [picked, setPicked] = useState<string | null>(null);
+  /*
+    **표지를 누르면 그 자리의 주변 서가를 봅니다.** 자리 번호로 기억합니다. 책으로
+    기억하면 같은 책이 복본으로 두 자리에 있을 때 어느 자리에서 눌렀는지를 잃습니다.
+  */
+  const [nearby, setNearby] = useState<number | null>(null);
 
   /*
     **가장 큰 자료실을 먼저 엽니다.** 서가를 보러 온 사람이 보고 싶은 것은 대개
@@ -500,9 +512,7 @@ function ShelfView({
                           book={book}
                           dimmed={picked !== null && book.chosung !== picked}
                           lifted={picked !== null && book.chosung === picked}
-                          onPick={() => {
-                            /* 7단계에서 「이 책 주변 서가 보기」로 이어집니다. */
-                          }}
+                          onPick={() => setNearby(index)}
                         />
                       );
                     })}
@@ -525,6 +535,17 @@ function ShelfView({
           (국립중앙도서관)
         </p>
       </div>
+
+      {nearby !== null && (
+        <ShelfNearby
+          meta={meta}
+          room={room}
+          index={nearby}
+          library={library}
+          onClose={() => setNearby(null)}
+          onMove={setNearby}
+        />
+      )}
 
       <nav className="rail" aria-label="저자 초성으로 찾기">
         {CHOSUNG.map((one) => {

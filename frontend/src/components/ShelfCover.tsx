@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { ShelfBook } from '../api';
+import { coverPaper } from '../domain/coverPaper';
 
 /**
  * 서가에 꽂힌 책 한 권. <b>표지 그림만 보이고 글자는 없습니다.</b>
@@ -19,9 +20,9 @@ import type { ShelfBook } from '../api';
  * <p>없다고 빈 자리로 두면 서가에 구멍이 뚫립니다. 실제 서가에서 책이 빠진 자리처럼
  * 보여서 「여기 뭔가 잘못됐다」로 읽힙니다. 그래서 <b>제목과 저자로 표지를 그립니다.</b>
  *
- * <p>색은 <b>분류번호에서 정합니다.</b> 같은 갈래의 책들이 비슷한 색을 띠게 되는데,
- * 실제 서가에서 한 출판사의 총서가 같은 장정으로 늘어서 있는 것과 같은 모양입니다.
- * 무작위로 칠하면 서가가 알록달록해져 오히려 눈이 쉴 곳이 없습니다.
+ * <p>색은 <b>분류번호에서 정합니다.</b> 「이 책 주변 서가」와 같은 규칙을 써야 하므로
+ * {@code domain/coverPaper.ts} 한 곳에 두었습니다. 갈리면 녹색 책을 눌렀는데 갈색
+ * 책이 열립니다.
  */
 export function ShelfCover({
   book,
@@ -48,7 +49,10 @@ export function ShelfCover({
       onClick={onPick}
       aria-label={describe(book)}
     >
-      <span className="cover__body" style={showImage ? undefined : paperOf(book)}>
+      <span
+        className="cover__body"
+        style={showImage ? undefined : { backgroundImage: coverPaper(book) }}
+      >
         {showImage ? (
           <img
             className="cover__art"
@@ -82,26 +86,4 @@ export function ShelfCover({
  */
 function describe(book: ShelfBook): string {
   return [book.title, book.author, book.call].filter(Boolean).join(', ');
-}
-
-/**
- * 대체 표지의 바탕. <b>분류번호가 색을 정합니다.</b>
- *
- * <p>같은 갈래끼리 비슷한 색이 되어 서가가 한 덩어리로 보입니다. 무작위로 칠하면
- * 알록달록해져 눈이 쉴 곳이 없고, 새로 고칠 때마다 색이 달라져 같은 책이 다른 책처럼
- * 보입니다. 분류번호로 정하면 몇 번을 열어도 같습니다.
- */
-function paperOf(book: ShelfBook): React.CSSProperties {
-  const klass = (book.call ?? book.isbn ?? '').replace(/[^0-9]/g, '');
-  // 분류번호가 없으면 ISBN 이라도 씁니다. 색이 없는 것보다 아무 색이나 같은 규칙으로
-  // 정해지는 편이 낫습니다. 어차피 이 색은 뜻을 담지 않고 갈래만 나눕니다.
-  const seed = Number(klass.slice(0, 3) || '0');
-  const hue = (seed * 37) % 360;
-  return {
-    // 채도와 밝기를 좁게 묶어 둡니다. 이 값을 넓히면 서가가 알록달록해집니다.
-    backgroundImage: `linear-gradient(160deg,
-      hsl(${hue} 22% 42%) 0%,
-      hsl(${hue} 26% 32%) 55%,
-      hsl(${hue} 24% 27%) 100%)`,
-  };
 }
