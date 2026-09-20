@@ -114,7 +114,6 @@ function SubjectPicker({
   onPick: (subject: ShelfSubject) => void;
 }) {
   const [subjects, setSubjects] = useState<ShelfSubject[]>([]);
-  const [built, setBuilt] = useState<string[]>([]);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
@@ -123,7 +122,8 @@ function SubjectPicker({
       (found) => {
         if (cancelled) return;
         setSubjects(found.subjects);
-        setBuilt(found.built);
+        // `found.built` 은 받아 두되 화면에 쓰지 않습니다. 어느 갈래가 이미 세워져
+        // 있는지는 진단에 쓰는 값이고, 고르는 사람이 할 수 있는 일이 아닙니다.
       },
       () => !cancelled && setFailed(true),
     );
@@ -161,27 +161,20 @@ function SubjectPicker({
       )}
 
       <ul className="subjects">
-        {subjects.map((one) => {
-          const ready = built.includes(one.code);
-          return (
-            <li key={one.code}>
-              <button
-                type="button"
-                className="subject"
-                data-ready={ready ? '' : undefined}
-                onClick={() => onPick(one)}
-              >
-                <span className="subject__code">{one.code}00</span>
-                <span className="subject__label">{one.label}</span>
-                {/*
-                  **「바로 열림」과 「세워야 함」을 갈라 말합니다.** 둘 다 누를 수 있지만
-                  기다림이 다릅니다. 아무 표시가 없으면 어느 쪽을 눌러도 같아 보입니다.
-                */}
-                <span className="subject__state">{ready ? '바로 열림' : '처음 여는 서가'}</span>
-              </button>
-            </li>
-          );
-        })}
+        {/*
+          **어느 갈래가 바로 열리는지 표시하지 않습니다.** 예전에는 「바로 열림」과
+          「처음 여는 서가」를 갈라 적었는데, 그것은 우리가 안쪽에서 어떻게 해 두었는지를
+          말하는 것이지 **고르는 사람이 할 수 있는 일이 아닙니다.** 읽는 사람은 읽고 싶은
+          갈래를 고를 뿐이고, 기다려야 하면 기다리는 화면이 그때 말해 줍니다.
+        */}
+        {subjects.map((one) => (
+          <li key={one.code}>
+            <button type="button" className="subject" onClick={() => onPick(one)}>
+              <span className="subject__code">{one.code}00</span>
+              <span className="subject__label">{one.label}</span>
+            </button>
+          </li>
+        ))}
       </ul>
     </div>
   );
@@ -296,22 +289,31 @@ function ShelfView({
     두 칸을 각자 스크롤하게 두었다가 같은 이유로 걷어냈습니다. 대신 「페이지를 얼마나
     내렸는가」에서 「서가가 어디서 시작하는가」를 빼야 몇 번째 줄인지 알 수 있습니다.
   */
+  const measure = useCallback(() => {
+    const element = shelfBox.current;
+    if (!element) return;
+    const width = element.clientWidth;
+    if (width <= 0) return;
+    const inner = width - SHELF_PAD * 2 - GAP * (COLS - 1);
+    const slot = Math.max(24, inner / COLS);
+    const next = {
+      rowHeight: Math.round(slot * COVER_RATIO) + PLANK,
+      viewport: window.innerHeight,
+      top: Math.round(element.getBoundingClientRect().top + window.scrollY),
+    };
+    // 같은 값을 다시 넣지 않습니다. 넣으면 그릴 때마다 상태가 바뀌어 헛돕니다.
+    setSize((before) =>
+      before.rowHeight === next.rowHeight &&
+      before.viewport === next.viewport &&
+      before.top === next.top
+        ? before
+        : next,
+    );
+  }, []);
+
   useLayoutEffect(() => {
     const element = shelfBox.current;
     if (!element) return;
-
-    const measure = () => {
-      const width = element.clientWidth;
-      if (width <= 0) return;
-      const inner = width - SHELF_PAD * 2 - GAP * (COLS - 1);
-      const slot = Math.max(24, inner / COLS);
-      setSize({
-        rowHeight: Math.round(slot * COVER_RATIO) + PLANK,
-        viewport: window.innerHeight,
-        top: element.getBoundingClientRect().top + window.scrollY,
-      });
-    };
-
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(element);
@@ -320,7 +322,7 @@ function ShelfView({
       observer.disconnect();
       window.removeEventListener('resize', measure);
     };
-  }, []);
+  }, [measure]);
 
   /*
     페이지를 얼마나 내렸는지 지켜봅니다. **그릴 때마다 자리를 다시 재지 않습니다.**
@@ -399,7 +401,29 @@ function ShelfView({
   );
 
   const heading = useHeading(bookAt(range.from * COLS), subject.label);
-  const collapsed = scrollTop - size.top > 40;
+
+  /*
+    **접는 기준과 펴는 기준을 벌려 둡니다. 한 값으로 되돌리지 마세요.**
+
+    머리말이 접히면 <b>문서가 그만큼 짧아집니다</b>(실측 144px → 57px, 87px). 그러면
+    브라우저가 보던 자리를 지키려고 스크롤 위치를 그만큼 되돌립니다(scroll anchoring).
+    기준이 하나면 그 순간 기준 아래로 내려가 다시 펴지고, 펴지면 문서가 길어지며 스크롤이
+    다시 밀려 올라가 또 접힙니다. <b>손을 떼도 혼자 펴졌다 접혔다 합니다.</b> 실측으로
+    740px 로 보낸 스크롤이 734px 에, 760px 이 736px 에, 780px 이 742px 에 멈췄습니다.
+
+    벌린 폭(130px)이 줄어드는 높이(87px)보다 커야 합니다. 접힌 뒤 스크롤이 되돌려져도
+    펴는 기준 위에 남고, 펴진 뒤 밀려 올라가도 접는 기준 아래에 남습니다.
+  */
+  const collapsed = useCollapsed(scrollTop - size.top);
+
+  /*
+    **접힘이 바뀌면 자리를 다시 잽니다.** 서가가 시작하는 자리가 87px 올라오는데,
+    그 값으로 몇 번째 줄인지를 셉니다. 다시 재지 않으면 접힌 동안 줄이 한 줄 가까이
+    어긋나, 스크롤하다 책이 건너뛰거나 겹쳐 보입니다.
+  */
+  useLayoutEffect(() => {
+    measure();
+  }, [collapsed, measure]);
 
   if (!room) {
     return (
@@ -506,18 +530,6 @@ function ShelfView({
               );
             })}
         </div>
-
-        {/*
-          출처는 이용 조건상의 의무이고 신뢰 표시이기도 합니다. 서가가 화면을 통째로
-          쓰므로 아래 푸터가 가려집니다. 여기 한 줄을 둡니다.
-        */}
-        <p className="shelf-source muted">
-          출처:{' '}
-          <a href="https://www.data4library.kr" target="_blank" rel="noreferrer noopener">
-            도서관 정보나루
-          </a>{' '}
-          (국립중앙도서관)
-        </p>
       </div>
 
       {nearby !== null && (
@@ -561,6 +573,24 @@ function ShelfView({
  * <p>스크롤하면 그 줄의 조각을 아직 못 받은 순간이 있는데, 그때 제목을 비우면 스크롤
  * 하는 내내 제목이 깜빡입니다. 새 값이 올 때까지 이전 값을 그대로 둡니다.
  */
+const COLLAPSE_AT = 150;
+const EXPAND_AT = 20;
+
+/**
+ * 머리말을 접을지. <b>접는 자리와 펴는 자리가 다릅니다.</b>
+ *
+ * <p>접으면 문서가 87px 짧아지고 브라우저가 스크롤을 그만큼 되돌리므로, 기준이 하나면
+ * 그 자리에서 접힘과 펴짐이 번갈아 일어납니다. 벌린 폭이 줄어드는 높이보다 크면 어느
+ * 쪽으로 넘어가도 되돌려진 자리가 반대쪽 기준을 넘지 못합니다.
+ */
+function useCollapsed(past: number): boolean {
+  const [collapsed, setCollapsed] = useState(false);
+  useEffect(() => {
+    setCollapsed((before) => (before ? past > EXPAND_AT : past > COLLAPSE_AT));
+  }, [past]);
+  return collapsed;
+}
+
 function useHeading(book: ShelfBook | null, fallback: string): string {
   const [heading, setHeading] = useState(fallback);
   useEffect(() => {
