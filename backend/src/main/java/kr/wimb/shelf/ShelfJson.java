@@ -64,6 +64,7 @@ final class ShelfJson {
         num(out, "chunkSize", meta.chunkSize());
         num(out, "count", meta.count());
         num(out, "reported", meta.reported());
+        num(out, "keyVersion", meta.keyVersion());
         comma(out);
         quote(out, "rooms").append(":[");
 

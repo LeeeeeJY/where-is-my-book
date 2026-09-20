@@ -138,6 +138,48 @@ class ShelfServiceTest {
         assertTrue(meta.contains("\"checkedAt\":\"2026-09-20\""), "확인한 날은 오늘이어야 합니다");
     }
 
+    /**
+     * <b>순서를 적는 규칙이 바뀌면 권수가 그대로여도 다시 세웁니다.</b>
+     *
+     * <p>순서는 수집할 때 계산해 파일에 적어 둡니다. 그래서 규칙만 고치면 이미 세워 둔
+     * 서가는 예전 순서 그대로이고, 갱신할 때가 되어도 <b>권수가 그대로라 건너뜁니다.</b>
+     * 아무도 손대지 않으면 영영 예전 순서로 남는데, 화면에는 아무 이상이 없어 보여서
+     * 규칙을 고친 사람은 고쳐졌다고 믿습니다. 실제로 전집 순서를 고쳤을 때 이 자리가
+     * 없어서 사람이 서버에 들어가 손으로 지워야 했습니다.
+     */
+    @Test
+    @DisplayName("순서 규칙이 바뀌면 권수가 그대로여도 다시 세운다")
+    void rebuildsWhenTheOrderingRuleChanged(@TempDir Path dir) throws Exception {
+        var fixture = new Fixture(dir);
+        // 날짜는 오늘이라 기한으로는 낡지 않았고, 권수도 그대로입니다.
+        fixture.writeShelf("141321", "2026-09-20", "2026-09-20", 3, ShelfSortKey.VERSION - 1);
+        fixture.numFound.set(3);
+        fixture.calls.set(0);
+
+        var status = fixture.service.status("141321", SUBJECT);
+        assertTrue(status.stale(), "예전 규칙으로 세운 서가는 낡은 것입니다");
+        fixture.awaitIdle();
+
+        String meta = Files.readString(fixture.metaPath("141321"), StandardCharsets.UTF_8);
+        assertTrue(meta.contains("\"keyVersion\":" + ShelfSortKey.VERSION),
+                "다시 세운 뒤에는 지금 판 번호여야 합니다: " + meta);
+        assertTrue(fixture.calls.get() > 1,
+                "권수만 묻고 끝내면 안 됩니다. 실제로 받은 횟수: " + fixture.calls.get());
+    }
+
+    /**
+     * 판 번호가 없던 때에 만든 차림표는 0 으로 읽혀 다시 세워집니다. <b>의도한
+     * 동작입니다.</b> 그 서가들이 바로 예전 순서로 저장된 것들입니다.
+     */
+    @Test
+    @DisplayName("판 번호가 없는 옛 차림표도 다시 세운다")
+    void rebuildsMetaWrittenBeforeTheVersionExisted(@TempDir Path dir) throws Exception {
+        var fixture = new Fixture(dir);
+        fixture.writeShelf("141321", "2026-09-20", "2026-09-20", 3, 0);
+
+        assertTrue(fixture.service.status("141321", SUBJECT).stale());
+    }
+
     // ── 시험 거들기 ───────────────────────────────────────────────────────
 
     /** 2026-09-20 한국 시각 낮. */
@@ -244,6 +286,12 @@ class ShelfServiceTest {
         /** 이미 세워 둔 서가를 흉내 냅니다. */
         void writeShelf(String libCode, String asOf, String checkedAt, int reported)
                 throws Exception {
+            writeShelf(libCode, asOf, checkedAt, reported, ShelfSortKey.VERSION);
+        }
+
+        /** 판 번호를 골라 적습니다. 예전 규칙으로 세운 서가를 흉내 낼 때 씁니다. */
+        void writeShelf(String libCode, String asOf, String checkedAt, int reported, int keyVersion)
+                throws Exception {
             Path room = dir.resolve(libCode).resolve(SUBJECT.slug()).resolve("r0");
             Files.createDirectories(room);
             Files.writeString(room.resolve("0.json"),
@@ -251,10 +299,11 @@ class ShelfServiceTest {
                     StandardCharsets.UTF_8);
             Files.writeString(metaPath(libCode), """
                 {"libCode":"%s","kdc":"%s","asOf":"%s","checkedAt":"%s","chunkSize":200,\
-                "count":1,"reported":%d,"rooms":[{"slug":"r0","name":"종합자료실","count":1,\
+                "count":1,"reported":%d,"keyVersion":%d,\
+                "rooms":[{"slug":"r0","name":"종합자료실","count":1,\
                 "chunks":1,"firstCall":"813.6 박14ㅌ","lastCall":"813.6 박14ㅌ",\
                 "chosungAt":{"ㅂ":0}}]}"""
-                    .formatted(libCode, SUBJECT.code(), asOf, checkedAt, reported),
+                    .formatted(libCode, SUBJECT.code(), asOf, checkedAt, reported, keyVersion),
                     StandardCharsets.UTF_8);
         }
     }
