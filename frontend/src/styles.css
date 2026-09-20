@@ -1748,19 +1748,54 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
   **다 합쳐 480ms 를 넘기지 마세요.** 층을 나누는 것은 깊이를 만들려는 것이지 느리게
   하려는 것이 아닙니다. 넘어가면 누른 뒤 화면이 굼뜨다고 읽힙니다.
 */
+/*
+  **어둠이 닫힌 뒤에 들어옵니다. 같이 들어오면 두 화면이 겹칩니다.**
+
+  층마다 제 시간을 준 첫 판은 40~180ms 에 시작했는데, 그때 덮개는 아직 0.3~0.5 밖에
+  깔리지 않았습니다. 덮개가 어둠과 내용물을 <b>함께</b> 들고 페이드인하므로 그 순간
+  서가도 반쯤 보이고 새 화면도 반쯤 보입니다. 실측으로 120ms 에 **같은 책이 두 군데**
+  있었습니다. 서가에서 기울어 선 것 하나, 무대에 올라온 큰 것 하나입니다. 선반 라벨도
+  「n / 전체」도 서가 위로 비쳤습니다. 깊이가 아니라 **두 장을 겹쳐 놓은 것**으로
+  읽힙니다.
+
+  그래서 가장 이른 층도 <b>140ms 뒤에</b> 시작합니다. 그때 덮개가 0.72 라 서가는 거의
+  가려져 있고, 덮개가 1 이 되는 200ms 즈음부터 새 층이 제 모습을 드러냅니다. 눈에는
+  **불이 꺼지고 나서 무대가 서는** 순서로 보입니다.
+
+  **덮개의 200ms 는 그대로 둡니다.** 그 사이에 밑에서 책이 기우는 것이 비쳐 보이는 것은
+  살려야 합니다. 없애야 하는 것은 기울기가 비치는 것이 아니라 **다음 화면이 통째로**
+  비치는 것입니다.
+
+  **다 합쳐 480ms 를 넘기지 마세요.** 시작이 늦어진 만큼 길이를 줄여 맞췄습니다
+  (가장 늦게 끝나는 것이 470ms). 층을 나누는 것은 깊이를 만들려는 것이지 느리게
+  하려는 것이 아닙니다. 넘어가면 누른 뒤 화면이 굼뜨다고 읽힙니다.
+*/
+/*
+  **`.nearby` 의 직계 자식은 하나도 빠짐없이 여기 있어야 합니다.** 빠진 것은 층이 없는
+  것이 아니라 <b>덮개와 같은 속도로</b> 들어옵니다. 덮개가 0.59 인 순간 그 자식도 0.59 라
+  서가 위에 그대로 비칩니다. 실제로 자리 눈금과 「6 / 800」과 좌우 화살표가 빠져 있어서,
+  다른 층을 다 늦춘 뒤에도 그 셋만 서가에 겹쳐 보였습니다. **한 층만 빠져도 겹침은
+  남습니다.**
+*/
 .nearby__label,
 .nearby__plank,
+.nearby__ruler,
+.nearby__where,
 .nearby__sheet,
 .nearby__bar,
+.nearby__step,
 .nearby__slot > * {
-  animation-duration: 380ms;
+  animation-duration: 250ms;
   animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
   animation-fill-mode: both;
 }
-.nearby__label { animation-name: nearby-drop; animation-delay: 60ms; }
-.nearby__plank { animation-name: nearby-plank; animation-duration: 340ms; animation-delay: 40ms; }
-.nearby__sheet { animation-name: nearby-rise; animation-duration: 360ms; animation-delay: 120ms; }
-.nearby__bar { animation-name: nearby-drop; animation-duration: 280ms; animation-delay: 180ms; }
+.nearby__plank { animation-name: nearby-plank; animation-delay: 140ms; }
+.nearby__label { animation-name: nearby-drop; animation-delay: 150ms; }
+.nearby__ruler { animation-name: nearby-rise; animation-duration: 210ms; animation-delay: 250ms; }
+.nearby__where { animation-name: nearby-rise; animation-duration: 210ms; animation-delay: 250ms; }
+.nearby__sheet { animation-name: nearby-rise; animation-duration: 220ms; animation-delay: 250ms; }
+.nearby__bar { animation-name: nearby-drop; animation-duration: 190ms; animation-delay: 280ms; }
+.nearby__step { animation-name: nearby-drop; animation-duration: 180ms; animation-delay: 290ms; }
 
 /*
   **책에 거는 것은 칸이 아니라 그 안의 단추입니다.** 칸(`.nearby__slot`)은 옆 책을
@@ -1769,10 +1804,10 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
   무엇을 보고 있는지가 흐려집니다. 안쪽에 걸면 두 값이 곱해져 흐림이 그대로 남습니다.
 */
 .nearby__slot[data-spot='0'] > * {
-  animation-name: nearby-pull; animation-duration: 440ms; animation-delay: 40ms;
+  animation-name: nearby-pull; animation-duration: 270ms; animation-delay: 190ms;
 }
-.nearby__slot[data-spot='1'] > * { animation-name: nearby-rise; animation-delay: 120ms; }
-.nearby__slot[data-spot='2'] > * { animation-name: nearby-rise; animation-delay: 170ms; }
+.nearby__slot[data-spot='1'] > * { animation-name: nearby-rise; animation-duration: 220ms; animation-delay: 240ms; }
+.nearby__slot[data-spot='2'] > * { animation-name: nearby-rise; animation-duration: 200ms; animation-delay: 270ms; }
 
 /* 뽑아 든 책. 조금 아래에서, 조금 작게 시작해 제자리로 커집니다. */
 @keyframes nearby-pull {
@@ -1927,7 +1962,14 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
   font-size: 22px; line-height: 1; color: #f6f1e6;
   background: rgba(0, 0, 0, 0.32);
 }
-.nearby__step:disabled { opacity: 0.25; cursor: default; }
+/*
+  **흐리게 하는 것을 `opacity` 로 하면 안 됩니다.** 들어오는 애니메이션이 `both` 라
+  <b>끝난 뒤에도 마지막 칸의 `opacity: 1` 이 남아</b> 이 값을 덮습니다. 첫 책과 마지막
+  책에서 못 누르는 화살표가 <b>멀쩡한 것처럼</b> 보이는데, 눌러 봐야 아무 일도 일어나지
+  않습니다. `filter` 는 애니메이션이 건드리지 않는 자리라 곱해져서 남습니다. 짚은 책의
+  테두리에서 겪은 것과 같은 함정입니다.
+*/
+.nearby__step:disabled { filter: opacity(0.25); cursor: default; }
 .nearby__step:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
 .nearby__step--back { left: 8px; }
 .nearby__step--next { right: 8px; }
@@ -1943,8 +1985,11 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
   .nearby,
   .nearby__label,
   .nearby__plank,
+  .nearby__ruler,
+  .nearby__where,
   .nearby__sheet,
   .nearby__bar,
+  .nearby__step,
   .nearby__slot > * {
     animation: none;
   }
