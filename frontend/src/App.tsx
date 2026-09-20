@@ -182,31 +182,18 @@ export default function App() {
             {mode === 'multi' && (
               <MultiCheck libraries={libraries} selected={selected} position={position} />
             )}
+            {/*
+              **서가도 다른 탭과 같은 자리에 그립니다.** 한때 화면을 통째로 덮고 아래
+              탭 바를 쓰게 했는데, 탭을 누르는 순간 예고 없이 배치가 바뀌어 다른 데로
+              온 것처럼 보였습니다. 탭이 제자리에 있으면 이동이 이동으로 읽힙니다.
+
+              **넓은 화면에서도 좁지 않습니다.** 1,100px 에서 도서관 선택 칸을 빼도
+              오른쪽이 780px 이라 한 줄에 네 권이면 표지가 180px 입니다. 휴대폰의
+              81px 보다 두 배 넓습니다.
+            */}
+            {mode === 'shelf' && <Shelf libraries={libraries} selected={selected} />}
           </div>
         </main>
-      )}
-
-      {/*
-        **서가는 화면을 통째로 씁니다.** 표지를 줄줄이 세우는 화면이라 옆에 도서관
-        선택 칸을 두면 볼 자리가 절반으로 줄고, 한 줄에 네 권이라는 약속도 깨집니다.
-        그래서 격자 밖으로 나와 위의 탭 대신 아래 탭 바를 씁니다.
-      */}
-      {mode === 'shelf' && catalog.kind !== 'loading' && (
-        <Shelf
-          libraries={libraries}
-          selected={selected}
-          tabs={MODES.map(([key, label]) => (
-            <button
-              key={key}
-              type="button"
-              className={mode === key ? 'tabbar__key tabbar__key--on' : 'tabbar__key'}
-              aria-current={mode === key ? 'page' : undefined}
-              onClick={() => setMode(key)}
-            >
-              {label}
-            </button>
-          ))}
-        />
       )}
 
       {/*

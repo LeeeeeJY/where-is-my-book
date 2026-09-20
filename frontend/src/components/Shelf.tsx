@@ -48,12 +48,9 @@ const GAP = 10;
 export function Shelf({
   libraries,
   selected,
-  tabs,
 }: {
   libraries: readonly Library[];
   selected: ReadonlySet<string>;
-  /** 화면 아래에 띄울 탭. 서가가 화면을 통째로 쓰므로 위의 탭이 가려집니다. */
-  tabs: React.ReactNode;
 }) {
   /*
     **고른 순서가 아니라 목록 순서로 셉니다.** `Set` 의 순서는 사용자가 체크한 차례라,
@@ -63,7 +60,6 @@ export function Shelf({
 
   const [libCode, setLibCode] = useState<string | null>(null);
   const [subject, setSubject] = useState<ShelfSubject | null>(null);
-  const [tabsHidden, setTabsHidden] = useState(false);
 
   const current = libCode && selected.has(libCode) ? libCode : (mine[0]?.libCode ?? null);
   const library = libraries.find((one) => one.libCode === current);
@@ -92,13 +88,8 @@ export function Shelf({
           library={library}
           libraryName={library?.name ?? current}
           onLeave={() => setSubject(null)}
-          onHideTabs={setTabsHidden}
         />
       )}
-
-      <nav className="tabbar" data-hidden={tabsHidden ? '' : undefined}>
-        {tabs}
-      </nav>
     </div>
   );
 }
@@ -208,14 +199,12 @@ function ShelfGate({
   library,
   libraryName,
   onLeave,
-  onHideTabs,
 }: {
   libCode: string;
   subject: ShelfSubject;
   library: Library | undefined;
   libraryName: string;
   onLeave: () => void;
-  onHideTabs: (hidden: boolean) => void;
 }) {
   const [meta, setMeta] = useState<ShelfMeta | 'opening' | 'failed'>('opening');
 
@@ -256,7 +245,6 @@ function ShelfGate({
       library={library}
       libraryName={libraryName}
       onLeave={onLeave}
-      onHideTabs={onHideTabs}
     />
   );
 }
@@ -268,18 +256,16 @@ function ShelfView({
   library,
   libraryName,
   onLeave,
-  onHideTabs,
 }: {
   meta: ShelfMeta;
   subject: ShelfSubject;
   library: Library | undefined;
   libraryName: string;
   onLeave: () => void;
-  onHideTabs: (hidden: boolean) => void;
 }) {
-  const scroller = useRef<HTMLDivElement | null>(null);
+  const shelfBox = useRef<HTMLDivElement | null>(null);
   const [roomSlug, setRoomSlug] = useState<string | null>(null);
-  const [size, setSize] = useState({ rowHeight: 0, viewport: 0 });
+  const [size, setSize] = useState({ rowHeight: 0, viewport: 0, top: 0 });
   const [scrollTop, setScrollTop] = useState(0);
   const [chunks, setChunks] = useState<Map<string, ShelfBook[]>>(new Map());
   const [picked, setPicked] = useState<string | null>(null);
@@ -305,12 +291,18 @@ function ShelfView({
   const rows = rowCount(room?.count ?? 0);
 
   /*
-    **칸 크기를 화면에서 잽니다.** 한 줄에 네 권이라 칸 너비가 화면 너비를 따라가고
-    줄 높이는 거기서 나옵니다. 값을 고정하면 좁은 화면에서 표지가 겹치거나 넓은
-    화면에서 우표만 해집니다.
+    **칸 크기와 서가가 시작하는 자리를 함께 잽니다.**
+
+    칸 너비는 한 줄에 네 권이라 화면 너비를 따라가고 줄 높이는 거기서 나옵니다. 값을
+    고정하면 좁은 화면에서 표지가 겹치거나 넓은 화면에서 우표만 해집니다.
+
+    시작하는 자리가 필요한 이유는 <b>페이지 스크롤을 그대로 쓰기 때문</b>입니다. 서가에
+    제 스크롤 칸을 주면 브라우저 스크롤바가 하나 더 생겨 따로 놉니다. 이 저장소가 예전에
+    두 칸을 각자 스크롤하게 두었다가 같은 이유로 걷어냈습니다. 대신 「페이지를 얼마나
+    내렸는가」에서 「서가가 어디서 시작하는가」를 빼야 몇 번째 줄인지 알 수 있습니다.
   */
   useLayoutEffect(() => {
-    const element = scroller.current;
+    const element = shelfBox.current;
     if (!element) return;
 
     const measure = () => {
@@ -320,17 +312,33 @@ function ShelfView({
       const slot = Math.max(24, inner / COLS);
       setSize({
         rowHeight: Math.round(slot * COVER_RATIO) + PLANK,
-        viewport: element.clientHeight,
+        viewport: window.innerHeight,
+        top: element.getBoundingClientRect().top + window.scrollY,
       });
     };
 
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(element);
-    return () => observer.disconnect();
+    window.addEventListener('resize', measure);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', measure);
+    };
   }, []);
 
-  const range = visibleRows(scrollTop, size.viewport, size.rowHeight, rows);
+  /*
+    페이지를 얼마나 내렸는지 지켜봅니다. **그릴 때마다 자리를 다시 재지 않습니다.**
+    스크롤은 한 번 밀 때 수십 번 일어나는데 그때마다 `getBoundingClientRect` 를 부르면
+    브라우저가 배치를 다시 계산합니다.
+  */
+  useEffect(() => {
+    const onScroll = () => setScrollTop(window.scrollY);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
+  const range = visibleRows(scrollTop - size.top, size.viewport, size.rowHeight, rows);
 
   /*
     보이는 줄에 필요한 조각을 받아 둡니다. **이미 받은 것은 다시 받지 않습니다.**
@@ -380,42 +388,23 @@ function ShelfView({
     [chunks, meta.chunkSize, room],
   );
 
-  /*
-    스크롤한 자리와 **방향**을 함께 봅니다. 방향은 탭 바를 숨길지 정하는 데만 씁니다.
-
-    **작은 움직임은 세지 않습니다.** 손가락이 닿기만 해도 몇 px 은 움직이는데, 그때마다
-    탭 바가 오르내리면 화면이 떱니다. 맨 위 가까이에서는 늘 보여 줍니다. 서가에 막
-    들어온 사람에게 나갈 길이 감춰져 있으면 안 됩니다.
-  */
-  const lastTop = useRef(0);
-  const onScroll = useCallback(() => {
-    const element = scroller.current;
-    if (!element) return;
-    const top = element.scrollTop;
-    setScrollTop(top);
-
-    const moved = top - lastTop.current;
-    if (Math.abs(moved) < 8) return;
-    lastTop.current = top;
-    onHideTabs(top > 80 && moved > 0);
-  }, [onHideTabs]);
-
   /** 초성을 누르면 그 자리로 갑니다. 없는 초성은 누를 수 없습니다. */
   const jump = useCallback(
     (chosung: string) => {
       const index = room?.chosungAt[chosung];
-      if (index === undefined || !scroller.current || size.rowHeight <= 0) return;
+      if (index === undefined || size.rowHeight <= 0) return;
       setPicked((before) => (before === chosung ? null : chosung));
-      scroller.current.scrollTo({
-        top: scrollToRow(Math.floor(index / COLS), size.rowHeight, size.viewport),
+      window.scrollTo({
+        // 서가가 시작하는 자리에서 그 줄만큼 더 내려갑니다.
+        top: size.top + scrollToRow(Math.floor(index / COLS), size.rowHeight, size.viewport),
         behavior: 'smooth',
       });
     },
-    [room, size.rowHeight, size.viewport],
+    [room, size.rowHeight, size.viewport, size.top],
   );
 
   const heading = useHeading(bookAt(range.from * COLS), subject.label);
-  const collapsed = scrollTop > 40;
+  const collapsed = scrollTop - size.top > 40;
 
   if (!room) {
     return (
@@ -490,8 +479,8 @@ function ShelfView({
         )}
       </header>
 
-      <div className="shelf-scroll" ref={scroller} onScroll={onScroll}>
-        <div className="shelf" style={{ height: rows * size.rowHeight }}>
+      <div className="shelf-scroll">
+        <div className="shelf" ref={shelfBox} style={{ height: rows * size.rowHeight }}>
           {size.rowHeight > 0 &&
             Array.from({ length: range.to - range.from }, (_, offset) => {
               const row = range.from + offset;
