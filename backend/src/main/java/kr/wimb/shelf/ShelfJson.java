@@ -66,6 +66,8 @@ final class ShelfJson {
         num(out, "reported", meta.reported());
         num(out, "keyVersion", meta.keyVersion());
         comma(out);
+        quote(out, "findable").append(':').append(meta.findable());
+        comma(out);
         quote(out, "rooms").append(":[");
 
         for (int i = 0; i < meta.rooms().size(); i++) {

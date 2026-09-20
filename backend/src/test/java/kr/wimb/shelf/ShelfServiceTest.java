@@ -180,6 +180,34 @@ class ShelfServiceTest {
         assertTrue(fixture.service.status("141321", SUBJECT).stale());
     }
 
+    /**
+     * <b>찾기 색인이 없는 서가도 다시 세웁니다.</b>
+     *
+     * <p>색인은 수집할 때만 적습니다. 그래서 색인이 생기기 전에 세운 서가에는 없는데,
+     * 권수가 그대로면 갱신도 건너뛰므로 <b>아무도 손대지 않으면 영영 없습니다.</b>
+     * 순서 규칙이 바뀌었을 때와 같은 모양의 문제라 같은 길로 고칩니다.
+     */
+    @Test
+    @DisplayName("찾기 색인이 없으면 권수가 그대로여도 다시 세운다")
+    void rebuildsWhenTheFindIndexIsMissing(@TempDir Path dir) throws Exception {
+        var fixture = new Fixture(dir);
+        // 날짜도 오늘이고 판 번호도 지금 것이고 권수도 그대로입니다. 색인만 없습니다.
+        fixture.writeShelfWithoutFindIndex("141321", "2026-09-20", 3);
+        fixture.numFound.set(3);
+        fixture.calls.set(0);
+
+        var status = fixture.service.status("141321", SUBJECT);
+        assertTrue(status.stale(), "색인이 없는 서가는 낡은 것입니다");
+        fixture.awaitIdle();
+
+        assertTrue(fixture.calls.get() > 1,
+                "권수만 묻고 끝내면 색인이 영영 생기지 않습니다. 실제로 받은 횟수: "
+                        + fixture.calls.get());
+        assertTrue(Files.isReadable(dir.resolve("141321").resolve(SUBJECT.slug())
+                        .resolve("r0").resolve("find.txt")),
+                "다시 세운 뒤에는 색인이 있어야 합니다");
+    }
+
     // ── 시험 거들기 ───────────────────────────────────────────────────────
 
     /** 2026-09-20 한국 시각 낮. */
@@ -292,18 +320,34 @@ class ShelfServiceTest {
         /** 판 번호를 골라 적습니다. 예전 규칙으로 세운 서가를 흉내 낼 때 씁니다. */
         void writeShelf(String libCode, String asOf, String checkedAt, int reported, int keyVersion)
                 throws Exception {
+            writeShelf(libCode, asOf, checkedAt, reported, keyVersion, true);
+        }
+
+        /** 찾기 색인이 없던 때에 세운 서가를 흉내 냅니다. */
+        void writeShelfWithoutFindIndex(String libCode, String asOf, int reported)
+                throws Exception {
+            writeShelf(libCode, asOf, asOf, reported, ShelfSortKey.VERSION, false);
+        }
+
+        void writeShelf(String libCode, String asOf, String checkedAt, int reported,
+                        int keyVersion, boolean findable) throws Exception {
             Path room = dir.resolve(libCode).resolve(SUBJECT.slug()).resolve("r0");
             Files.createDirectories(room);
             Files.writeString(room.resolve("0.json"),
                     "[{\"isbn\":\"9788937437267\",\"title\":\"토지\",\"call\":\"813.6 박14ㅌ\"}]",
                     StandardCharsets.UTF_8);
+            if (findable) {
+                Files.writeString(room.resolve("find.txt"), "토지\t박경리\t813.6 박14ㅌ\n",
+                        StandardCharsets.UTF_8);
+            }
             Files.writeString(metaPath(libCode), """
                 {"libCode":"%s","kdc":"%s","asOf":"%s","checkedAt":"%s","chunkSize":200,\
-                "count":1,"reported":%d,"keyVersion":%d,\
+                "count":1,"reported":%d,"keyVersion":%d,"findable":%b,\
                 "rooms":[{"slug":"r0","name":"종합자료실","count":1,\
                 "chunks":1,"firstCall":"813.6 박14ㅌ","lastCall":"813.6 박14ㅌ",\
                 "chosungAt":{"ㅂ":0}}]}"""
-                    .formatted(libCode, SUBJECT.code(), asOf, checkedAt, reported, keyVersion),
+                    .formatted(libCode, SUBJECT.code(), asOf, checkedAt, reported, keyVersion,
+                            findable),
                     StandardCharsets.UTF_8);
         }
     }

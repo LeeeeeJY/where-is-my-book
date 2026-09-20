@@ -1128,7 +1128,14 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
   background: var(--surface); border-bottom: 1px solid var(--line);
   box-shadow: 0 3px 0 -2px var(--brass), 0 6px 16px -12px rgba(36, 29, 20, 0.5);
 }
-.shelf-head__bar { display: flex; align-items: center; gap: 10px; min-height: 34px; }
+/*
+  **펼친 찾기는 제 줄을 씁니다.** 좁은 화면에서 「서가 바꾸기」와 입력 칸과 단추 둘을
+  한 줄에 넣으면 입력 칸이 몇 글자 폭으로 눌려 무엇을 적었는지 보이지 않습니다.
+  그래서 줄바꿈을 허락하고 `.find` 가 한 줄을 통째로 가져갑니다.
+*/
+.shelf-head__bar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px; min-height: 34px;
+}
 
 /*
   **큰 제목은 스크롤하면 접힙니다.** 서가를 보는 동안에는 책이 더 보이는 편이 낫고,
@@ -1152,7 +1159,16 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
 .shelf-head[data-collapsed] .shelf-head__big { grid-template-rows: 0fr; opacity: 0; }
 
 .shelf-head__small {
-  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  /*
+    **줄을 넘기지 않고 남는 만큼만 씁니다.** 줄 바꿈을 허락한 것은 펼친 찾기가 제 줄을
+    쓰게 하려는 것인데, 여기에 기준 너비를 남겨 두면 <b>제목이 긴 갈래에서 이것이
+    둘째 줄로 밀려납니다.</b> 제목은 스크롤하면서 바뀌므로 머리말 높이가 그때마다
+    달라지고, 그러면 서가가 시작하는 자리가 움직여 줄이 어긋납니다. `flex-basis: 0`
+    이면 줄을 나눌 때 이 칸을 0 으로 세므로 절대 넘어가지 않고, 예전처럼 남는 만큼만
+    쓰다가 모자라면 말줄임표가 됩니다.
+  */
+  flex: 1 1 0; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: 14px; font-weight: 600;
   opacity: 0; transition: opacity 0.18s ease;
 }
@@ -1370,6 +1386,17 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
 */
 .cover[data-dim] { opacity: 0.3; }
 .cover[data-lift] { transform: translateY(-6px); }
+/*
+  **찾아간 그 한 권입니다.** 자리로 옮겨만 놓으면 한 화면에 스무 권이 서 있어서 어느
+  것을 찾은 것인지 알 수 없습니다. 표지에는 글자가 없어서 더 그렇습니다. 초성으로
+  고른 것들이 함께 떠오르는 것과 달리 이것은 하나뿐이라 테두리를 더 굵게 둡니다.
+*/
+.cover[data-found] .cover__body {
+  box-shadow:
+    0 2px 2px rgba(43, 27, 13, 0.5),
+    0 14px 22px -8px rgba(43, 27, 13, 0.65),
+    0 0 0 3px var(--brass);
+}
 .cover[data-lift] .cover__body {
   box-shadow:
     0 2px 2px rgba(43, 27, 13, 0.5),
@@ -1377,6 +1404,82 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
     0 0 0 2px var(--brass);
 }
 
+
+/* ── 서가에서 책 찾기 ─────────────────────────────────────────────── */
+
+/*
+  **서가 안에서 그 책이 선 자리로 가는 길 찾기입니다.** 검색 결과 화면이 아니라
+  「몇 번째 자리로 갈까」를 고르는 자리라, 한 줄이 한 책이고 누르면 그리로 옮겨 갑니다.
+
+  **흐름 안에 놓습니다.** 띄워 놓으면(`position: absolute`) 머리말 높이가 그대로라
+  자리를 다시 잴 일이 없어 편하지만, 좁은 화면에서 목록이 서가를 덮어 <b>지금 어디를
+  보고 있는지를 잃습니다.</b> 자리를 다시 재는 쪽이 낫습니다. 그 일은 `Shelf.tsx` 가
+  접힘과 함께 합니다.
+*/
+.find { flex: 1 1 100%; min-width: 0; }
+.find__form { display: flex; align-items: center; gap: 6px; }
+/*
+  **기준 너비를 0 으로 둡니다.** `input` 은 `size` 항목 때문에 아무것도 시키지 않으면
+  <b>20글자 폭(190px)을 제 몫으로 주장합니다.</b> 그러면 320px 화면에서 머리말의
+  최소 너비가 화면보다 넓어져 페이지가 통째로 가로로 밀립니다. 실측으로 문서가 359px 이
+  되어 도서관 선택 칸까지 함께 넘쳤습니다. 기준을 0 으로 두면 남는 자리만 가져갑니다.
+*/
+.find__box {
+  flex: 1 1 0; min-width: 0;
+  padding: 7px 10px; border: 1px solid var(--chip-line); border-radius: 4px;
+  background: var(--surface); color: var(--text); font: inherit; font-size: 14px;
+}
+.find__box:focus-visible { outline: 2px solid var(--brass); outline-offset: 1px; }
+
+/*
+  **목록만 높이를 제한합니다.** 스무 줄이면 화면이 통째로 목록이 되어 서가가 보이지
+  않습니다. 서가 자체에는 제 스크롤 칸을 주지 않지만, 이 목록은 잠깐 열렸다 닫히는
+  것이라 다릅니다.
+*/
+.find__answer { margin-top: 8px; max-height: 42vh; overflow-y: auto; }
+.find__hits { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.find__hit {
+  display: block; width: 100%; text-align: left;
+  padding: 7px 10px; border: 0; border-radius: 4px;
+  background: var(--tile); color: inherit; font: inherit; cursor: pointer;
+}
+.find__hit:hover, .find__hit:focus-visible { background: var(--brass-soft); }
+.find__hit-title { display: block; font-size: 14px; word-break: keep-all; }
+.find__hit-meta {
+  display: block; margin-top: 2px; font-size: 12px; opacity: 0.75;
+  font-family: var(--display); word-break: keep-all;
+}
+.find__note { margin: 8px 0 0; font-size: 13px; word-break: keep-all; }
+
+/*
+  **「이 책 주변 서가」에서도 같은 찾기를 씁니다.** 옆으로 한 권씩 넘기는 것과 눈금을
+  끄는 것만으로는 수천 권짜리 서가에서 그 책 앞에 설 수 없습니다. 어두운 바탕 위라
+  글자색만 그 화면 것으로 바꿉니다.
+*/
+.nearby__bar {
+  position: absolute; top: 12px; left: 12px; right: 12px; z-index: 3;
+  display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px;
+}
+.nearby__bar .nearby__close { position: static; }
+/*
+  **펼친 찾기는 불투명한 판 위에 놓습니다.** 이 화면의 머리 줄은 서가 위에 띄워 둔
+  것이라(`position: absolute`) 아래의 서가 라벨을 밀어내지 못합니다. 반투명하게 두면
+  <b>라벨이 목록 글자 사이로 비쳐 청구기호가 읽히지 않습니다.</b> 실제로 「813.6
+  박14ㅌ1」이 라벨에 덮여 「813.6」까지만 보였습니다.
+*/
+.nearby__bar .find {
+  padding: 8px; border-radius: 8px;
+  background: #16100a;
+  box-shadow: 0 12px 28px -14px rgba(0, 0, 0, 0.95);
+}
+/*
+  어두운 바탕 위의 글자는 종이색입니다. 서가 화면의 `--muted` 는 종이 위에서 쓰는
+  회색이라 여기서는 배경에 묻혀 <b>「이 서가에는 없습니다」가 보이지 않습니다.</b>
+*/
+.nearby__bar .find__note { color: rgba(246, 241, 230, 0.82); }
+.nearby__bar .find__hit { background: rgba(246, 241, 230, 0.12); color: #f6f1e6; }
+.nearby__bar .find__hit:hover,
+.nearby__bar .find__hit:focus-visible { background: rgba(246, 241, 230, 0.24); }
 
 /* ── 초성 색인 ────────────────────────────────────────────────────── */
 

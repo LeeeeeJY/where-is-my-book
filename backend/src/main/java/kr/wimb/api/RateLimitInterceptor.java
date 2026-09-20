@@ -42,6 +42,9 @@ public final class RateLimitInterceptor implements HandlerInterceptor {
         // 수백 번을 부릅니다. 무게를 하나로 매기면 어느 쪽에 맞춰도 틀립니다. 낮게
         // 잡으면 아무나 수백 회를 태우고, 높게 잡으면 진행률을 몇 번 물어보다 막힙니다.
         // 세우는 것은 POST 라 여기서 갈립니다.
+        // 찾기는 그 자료실 색인을 통째로 훑습니다. 정보나루는 부르지 않지만 조각 하나를
+        // 흘려보내는 것보다는 비쌉니다.
+        if (path.startsWith("/api/shelf") && path.endsWith("/find")) return 2;
         if (path.startsWith("/api/shelf")) return "POST".equals(method) ? 120 : 1;
         // 진단은 열 때마다 정보나루를 한 번 씁니다. 자동으로 새로 고치면 안 되는 화면이라
         // 사람이 누르는 속도보다 빠르면 막습니다.

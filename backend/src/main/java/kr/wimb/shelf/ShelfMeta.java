@@ -31,6 +31,14 @@ import java.util.Map;
  *                  번호가 다르면 서버가 낡은 것으로 보고 뒤에서 다시 세웁니다.
  *                  <b>이 값이 없던 때에 만든 차림표는 0 으로 읽혀 다시 세워집니다.</b>
  *                  의도한 동작입니다
+ * @param findable  이 서가에 <b>찾기 색인({@code find.txt})이 함께 적혀 있는지</b>.
+ *                  색인은 수집할 때만 적으므로, 색인이 생기기 전에 세운 서가에는
+ *                  없습니다. 그때 화면에 찾기 단추를 띄워 두면 눌러 본 사람이
+ *                  <b>고칠 수도 없는 실패</b>를 보게 되므로, 단추 자체를 내지 않고
+ *                  서버가 뒤에서 다시 세웁니다. {@code keyVersion} 과 따로 두는 이유는
+ *                  <b>순서를 다시 적은 것과 파일 하나가 없는 것은 다른 일</b>이기
+ *                  때문입니다. 판 번호를 올려 버리면 순서를 고치지도 않고 고쳤다고
+ *                  말하게 됩니다
  */
 public record ShelfMeta(
         String libCode,
@@ -41,6 +49,7 @@ public record ShelfMeta(
         int count,
         int reported,
         int keyVersion,
+        boolean findable,
         List<Room> rooms
 ) {
 

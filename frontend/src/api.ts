@@ -289,8 +289,32 @@ export type ShelfMeta = {
   chunkSize: number;
   count: number;
   reported: number;
+  /**
+   * 이 서가에서 **표제나 저자로 자리를 찾을 수 있는지.**
+   *
+   * <p>찾기 색인은 서가를 세울 때 함께 적습니다. 그래서 색인이 생기기 전에 세운
+   * 서가에는 없고, 그때는 **찾기 단추를 내지 않습니다.** 눌러 봐야 실패하는 단추를
+   * 두면 사람이 자기가 뭘 잘못했나 싶어집니다. 서버가 그런 서가를 낡은 것으로 보고
+   * 뒤에서 다시 세우므로, 다음에 열면 단추가 있습니다.
+   */
+  findable?: boolean;
   rooms: ShelfRoom[];
 };
+
+/** 서가에서 찾은 자리 하나. */
+export type ShelfHit = {
+  /** 그 자료실에서 **몇 번째 자리인지**(0부터). 화면이 이 번호로 옮겨 갑니다. */
+  at: number;
+  title: string;
+  author?: string;
+  call?: string;
+};
+
+/**
+ * @property total 이 서가에서 맞은 자리의 **전체 수**. `hits` 는 그중 앞의 몇 개뿐이라,
+ *   화면이 「그 밖에 n권 더 있습니다」를 말할 수 있어야 사람이 더 좁혀 넣을지 정합니다.
+ */
+export type ShelfFound = { total: number; hits: ShelfHit[] };
 
 /** 고를 수 있는 서가 하나. KDC 대주제 열 개이고 도서관마다 같습니다. */
 export type ShelfSubject = { code: string; label: string };
@@ -370,6 +394,28 @@ export async function fetchShelfChunk(
   return get<ShelfBook[]>(
     `/api/shelf/${encodeURIComponent(libCode)}/${encodeURIComponent(kdc)}` +
       `/${encodeURIComponent(roomSlug)}/${chunk}?v=${encodeURIComponent(asOf)}`,
+  );
+}
+
+/**
+ * 그 자료실 안에서 표제나 저자로 **자리 번호**를 찾습니다.
+ *
+ * <p>**검색이 아니라 길 찾기입니다.** 돌려받는 것은 「그 책이 있다」가 아니라 「이
+ * 서가의 몇 번째 자리」이고, 화면은 그 자리로 옮겨 갈 뿐입니다. 다른 도서관도 다른
+ * 갈래도 보지 않으므로 **빈 목록은 「이 서가에는 없다」이지 「그런 책이 없다」가
+ * 아닙니다.** 그 책이 다른 자료실이나 다른 대주제에 서 있을 수 있습니다.
+ *
+ * <p>서버는 세울 때 적어 둔 색인 파일만 읽습니다. **정보나루 호출이 0건입니다.**
+ */
+export async function findOnShelf(
+  libCode: string,
+  kdc: string,
+  roomSlug: string,
+  q: string,
+): Promise<ShelfFound> {
+  return get<ShelfFound>(
+    `/api/shelf/${encodeURIComponent(libCode)}/${encodeURIComponent(kdc)}` +
+      `/${encodeURIComponent(roomSlug)}/find?q=${encodeURIComponent(q)}`,
   );
 }
 

@@ -1,6 +1,7 @@
 package kr.wimb.api;
 
 import kr.wimb.shelf.Kdc;
+import kr.wimb.shelf.ShelfFind;
 import kr.wimb.shelf.ShelfService;
 import kr.wimb.shelf.ShelfStore;
 import org.springframework.http.CacheControl;
@@ -11,6 +12,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -114,6 +116,50 @@ public class ShelfController {
                                         @PathVariable String roomSlug,
                                         @PathVariable int index) {
         return json(store.chunk(libCode, subject(kdc), roomSlug, index), CHUNK_CACHE);
+    }
+
+    /**
+     * 그 자료실 안에서 표제나 저자로 <b>자리 번호</b>를 찾습니다.
+     *
+     * <h2>검색이 아니라 길 찾기입니다</h2>
+     *
+     * <p>돌려주는 것은 「그 책이 있다」가 아니라 <b>「이 서가의 몇 번째 자리」</b>이고,
+     * 화면은 그 자리로 옮겨 갈 뿐입니다. 다른 도서관도 다른 갈래도 보지 않으므로,
+     * 못 찾았다는 답은 <b>「이 서가에는 없다」이지 「그런 책이 없다」가 아닙니다.</b>
+     * 그 책이 다른 자료실이나 다른 대주제에 서 있을 수 있습니다. 화면이 그렇게 말해야
+     * 합니다.
+     *
+     * <p>세워 둘 때 함께 적어 둔 색인 파일만 읽습니다. <b>정보나루를 부르지
+     * 않습니다.</b>
+     */
+    @GetMapping("/{libCode}/{kdc}/{roomSlug}/find")
+    public Map<String, Object> find(@PathVariable String libCode,
+                                    @PathVariable String kdc,
+                                    @PathVariable String roomSlug,
+                                    @RequestParam("q") String q) {
+        // **짧은 말은 여기서 막습니다.** 한 글자는 수천 줄에 걸려 아무 데도 데려다주지
+        // 못하면서 파일을 통째로 훑습니다. 그 자리는 초성 색인이 이미 맡고 있습니다.
+        if (ShelfFind.normalize(q).length() < ShelfFind.MIN_QUERY) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "두 글자 이상 넣어 주세요.");
+        }
+
+        ShelfFind.Result found = store.find(libCode, subject(kdc), roomSlug, q, ShelfFind.LIMIT)
+                // **색인이 없는 것을 「없음」으로 답하지 않습니다.** 물어보지 못한 것을
+                // 없다고 말하는 일입니다. 색인이 생기기 전에 세운 서가가 여기 걸리는데,
+                // 차림표의 `findable` 이 내려가 있어 화면은 단추 자체를 내지 않고
+                // 서버는 뒤에서 그 서가를 다시 세웁니다.
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "이 서가에서는 아직 찾을 수 없습니다."));
+
+        return Map.of(
+                "total", found.total(),
+                "hits", found.hits().stream()
+                        .map(hit -> Map.of(
+                                "at", hit.at(),
+                                "title", hit.title(),
+                                "author", hit.author(),
+                                "call", hit.call()))
+                        .toList());
     }
 
     // ── 거들기 ────────────────────────────────────────────────────────────

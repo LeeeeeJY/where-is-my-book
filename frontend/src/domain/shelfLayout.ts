@@ -101,8 +101,24 @@ export function locate(index: number, chunkSize: number): { chunk: number; at: n
  * <p><b>맨 위로 올리지 않습니다.</b> 초성을 눌러 간 자리가 화면 맨 윗줄이면 그 앞에
  * 무엇이 있었는지 보이지 않아, 서가에서 손가락으로 짚은 느낌이 나지 않습니다. 조금
  * 위를 남겨 두면 「여기부터」가 눈에 들어옵니다.
+ *
+ * @param headHeight 머리말이 가리는 높이. **지금 재어 넘기세요.**
+ *
+ *   <p>머리말은 화면 위에 붙어 있어서(`position: sticky`) 그만큼을 덮습니다. 이것을
+ *   빼지 않으면 찾아간 책이 **머리말 뒤에 반쯤 가린 채** 섭니다. 실측으로 표지
+ *   106px 가운데 42px 이 가려졌습니다.
+ *
+ *   <p>그리고 **지금 잰 값이라야 맞습니다.** 내려가면 머리말이 접혀 문서가 그만큼
+ *   짧아지므로, 스크롤한 뒤에는 서가가 시작하는 자리도 같은 만큼 올라옵니다. 두 값이
+ *   같은 크기로 움직이니 서로 지워져, 펼친 채로 계산하든 접힌 채로 계산하든 책이
+ *   서는 자리가 같아집니다.
  */
-export function scrollToRow(row: number, rowHeight: number, viewportHeight: number): number {
+export function scrollToRow(
+  row: number,
+  rowHeight: number,
+  viewportHeight: number,
+  headHeight = 0,
+): number {
   const lead = Math.min(rowHeight * 1.5, Math.max(0, viewportHeight) * 0.25);
-  return Math.max(0, row * rowHeight - lead);
+  return Math.max(0, row * rowHeight - lead - Math.max(0, headHeight));
 }

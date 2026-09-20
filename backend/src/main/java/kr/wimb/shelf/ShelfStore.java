@@ -1,6 +1,8 @@
 package kr.wimb.shelf;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -76,6 +78,35 @@ public class ShelfStore {
                 .resolve(roomSlug).resolve(index + ".json"));
     }
 
+    /**
+     * 그 자료실 안에서 표제나 저자로 <b>자리 번호</b>를 찾습니다.
+     *
+     * <p>세워 둘 때 함께 적어 둔 색인 파일만 읽습니다. <b>정보나루를 부르지 않고
+     * 조각도 열지 않습니다.</b> 자세한 규칙은 {@link ShelfFind} 에 있습니다.
+     *
+     * <p><b>색인이 없으면 비어 있습니다.</b> 색인이 생기기 전에 세운 서가가 그렇고,
+     * 그 서가는 {@code findable} 이 내려가 있어 서버가 뒤에서 다시 세웁니다.
+     * 읽다가 실패한 것도 같은 답입니다. 어느 쪽이든 <b>「이 서가에는 없다」로 답하면
+     * 안 됩니다.</b> 물어보지 못한 것을 없다고 말하는 일이라, 이 저장소가 소장 조회에서
+     * 「미소장」과 「확인 불가」를 갈라 두는 것과 같은 자리입니다.
+     */
+    public Optional<ShelfFind.Result> find(String libCode, Kdc kdc, String roomSlug,
+                                           String query, int limit) {
+        if (!LIB_CODE.matcher(libCode).matches()) return Optional.empty();
+        if (!ROOM_SLUG.matcher(roomSlug).matches()) return Optional.empty();
+
+        Path path = inside(dataDir.resolve(libCode).resolve(kdc.slug())
+                .resolve(roomSlug).resolve(ShelfFind.FILE));
+        if (path == null) return Optional.empty();
+
+        // 통째로 읽지 않고 흘려보냅니다. 한 서가가 10만 권이면 색인도 10MB 입니다.
+        try (Stream<String> lines = Files.lines(path, StandardCharsets.UTF_8)) {
+            return Optional.of(ShelfFind.scan(lines, query, limit));
+        } catch (IOException | UncheckedIOException e) {
+            return Optional.empty();
+        }
+    }
+
     /** {@code /api/status} 가 내보냅니다. 배포 뒤에 서가를 잃지 않았는지 봅니다. */
     public int size() {
         if (!Files.isDirectory(dataDir)) return 0;
@@ -91,15 +122,24 @@ public class ShelfStore {
     }
 
     private Optional<byte[]> read(Path path) {
-        // 모양을 이미 걸렀지만 한 번 더 봅니다. 규칙이 늘어나면서 구멍이 생기는 자리라,
-        // 실제로 읽기 직전에 데이터 자리 안인지 확인하는 편이 안전합니다.
-        Path resolved = path.toAbsolutePath().normalize();
-        if (!resolved.startsWith(dataDir.toAbsolutePath().normalize())) return Optional.empty();
-        if (!Files.isReadable(resolved)) return Optional.empty();
+        Path resolved = inside(path);
+        if (resolved == null) return Optional.empty();
         try {
             return Optional.of(Files.readAllBytes(resolved));
         } catch (IOException e) {
             return Optional.empty();
         }
+    }
+
+    /**
+     * 읽어도 되는 자리인지 마지막으로 한 번 더 봅니다. 아니면 {@code null} 입니다.
+     *
+     * <p>모양을 이미 걸렀지만 규칙이 늘어나면서 구멍이 생기는 자리라, <b>실제로 읽기
+     * 직전에</b> 데이터 자리 안인지 확인하는 편이 안전합니다.
+     */
+    private Path inside(Path path) {
+        Path resolved = path.toAbsolutePath().normalize();
+        if (!resolved.startsWith(dataDir.toAbsolutePath().normalize())) return null;
+        return Files.isReadable(resolved) ? resolved : null;
     }
 }

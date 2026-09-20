@@ -5,6 +5,7 @@ import { coverPaper } from '../domain/coverPaper';
 import { linkBadge, linkLabel } from '../domain/opacLink';
 import { locate } from '../domain/shelfLayout';
 import { LoanCheck } from './LoanCheck';
+import { ShelfSearch } from './ShelfSearch';
 
 /**
  * 고른 책을 가운데 두고 <b>그 양옆에 실제로 꽂혀 있는 책</b>을 보여 줍니다.
@@ -39,6 +40,7 @@ export function ShelfNearby({
 }) {
   const [chunks, setChunks] = useState<Map<number, ShelfBook[]>>(new Map());
   const [dragging, setDragging] = useState(false);
+  const [finding, setFinding] = useState(false);
   const ruler = useRef<HTMLDivElement>(null);
 
   /*
@@ -147,9 +149,25 @@ export function ShelfNearby({
         step(to < from ? 1 : -1);
       }}
     >
-      <button type="button" className="nearby__close chip chip--sm" onClick={onClose}>
-        서가로 돌아가기
-      </button>
+      {/*
+        **여기서도 자리를 옮길 수 있어야 합니다.** 옆으로 한 권씩 넘기는 것과 눈금을
+        끄는 것만으로는 수천 권짜리 서가에서 「그 책」 앞에 설 수 없습니다. 서가 화면과
+        같은 통로를 쓰므로 정보나루 호출은 여기서도 0건입니다.
+      */}
+      <div className="nearby__bar">
+        <button type="button" className="nearby__close chip chip--sm" onClick={onClose}>
+          서가로 돌아가기
+        </button>
+        {meta.findable && (
+          <ShelfSearch
+            meta={meta}
+            room={room}
+            open={finding}
+            onOpen={setFinding}
+            onGo={onMove}
+          />
+        )}
+      </div>
 
       {/*
         **선반 앞면의 서가 라벨.** 실제 도서관 서가 끝에 붙어 있는 것과 같은 것이고,
