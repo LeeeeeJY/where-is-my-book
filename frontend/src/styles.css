@@ -1056,7 +1056,6 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
   gap: 8px 12px; flex-wrap: wrap; margin: 0 0 16px;
 }
 .picker-shelf__title { margin: 0; font-family: var(--display); font-size: 19px; }
-.picker-shelf__note { margin: 18px 0 0; font-size: 12px; line-height: 1.6; }
 
 /*
   두 칸으로 둡니다. 열 개라 한 칸이면 세로로 길어 손가락으로 훑기 불편하고, 세 칸이면

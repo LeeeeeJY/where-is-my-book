@@ -183,11 +183,6 @@ function SubjectPicker({
           );
         })}
       </ul>
-
-      <p className="picker-shelf__note muted">
-        정보나루는 책을 서가 순서로 주지 않아서, 처음 여는 서가는 그 갈래를 통째로 받아
-        청구기호 순으로 세워야 합니다. 한 번 세우면 그 뒤로는 바로 열립니다.
-      </p>
     </div>
   );
 }
