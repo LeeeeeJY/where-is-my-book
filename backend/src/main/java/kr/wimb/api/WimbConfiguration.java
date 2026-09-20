@@ -8,6 +8,8 @@ import kr.wimb.ingest.InMemoryApiBudget;
 import kr.wimb.shelf.ShelfHarvester;
 import kr.wimb.shelf.ShelfService;
 import kr.wimb.shelf.ShelfStore;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -64,6 +66,8 @@ public class WimbConfiguration implements WebMvcConfigurer {
      */
     @Value("${wimb.data4library.max-in-flight:12}")
     private int maxInFlight;
+
+    private static final Logger log = LoggerFactory.getLogger(WimbConfiguration.class);
 
     @Value("${wimb.cors.allowed-origins:http://localhost:5173}")
     private String[] allowedOrigins;
@@ -266,6 +270,12 @@ public class WimbConfiguration implements WebMvcConfigurer {
      */
     @Override
     public void addCorsMappings(CorsRegistry registry) {
+        // **뜰 때 무엇을 허용했는지 남깁니다.** 브라우저가 CORS 로 막혔다고 말할 때,
+        // 이것이 없으면 「값을 안 넣은 것」인지 「넣었는데 안 맞는 것」인지 바깥에서
+        // 구별할 방법이 없습니다. 환경 변수를 고치고 컨테이너를 다시 띄우지 않으면
+        // 예전 값으로 도는데 그것도 조용해서, 멀쩡한 코드를 뜯어보게 됩니다.
+        // 허용 주소는 애초에 브라우저에 드러나는 값이라 감출 것이 없습니다.
+        log.info("CORS 허용 주소: {}", String.join(", ", allowedOrigins));
         registry.addMapping("/api/**")
                 .allowedOriginPatterns(allowedOrigins)
                 .allowedMethods("GET", "POST");

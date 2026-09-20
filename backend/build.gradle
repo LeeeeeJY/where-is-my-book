@@ -46,6 +46,15 @@ dependencies {
 
 tasks.named('test') {
     useJUnitPlatform()
+
+    // **backend/ 바깥의 파일을 읽는 테스트가 있으면 여기에 적어야 합니다.**
+    // Gradle 은 선언된 입력이 그대로면 테스트를 아예 돌리지 않습니다. 그래서 적지
+    // 않으면 그 파일을 고쳐도 테스트가 건너뛰어지고, **깨뜨려 놓아도 BUILD SUCCESSFUL
+    // 이 나옵니다.** 실제로 여기서 그렇게 지나갈 뻔했습니다. WimbConfigurationTest 가
+    // 서버 설정 본보기의 허용 주소를 읽습니다.
+    // 이미지 빌드는 backend/ 만 컨텍스트로 쓰므로 이 파일이 거기 없지만, Dockerfile 이
+    // `bootJar -x test` 로 테스트를 건너뛰어서 이 입력을 보지 않습니다(실제로 확인했습니다).
+    inputs.file file('../scripts/vm/wimb.env.example')
     testLogging {
         events 'passed', 'skipped', 'failed'
         exceptionFormat 'full'

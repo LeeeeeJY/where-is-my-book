@@ -142,9 +142,38 @@ VM 이 `latest` 하나만 물어 가므로, 이것이 없으면 화면이 예전
 `.github/workflows/build-image.yml` 의 테스트 단계를 빼지 마세요.
 
 운영에서 쓰는 환경 변수는 `D4L_AUTH_KEY`(필수), `WIMB_CORS_ALLOWED_ORIGINS`,
-`WIMB_DATA4LIBRARY_DAILY_CALL_BUDGET`, `WIMB_OPAC_LINKS_ENABLED` 입니다. 프론트는 `VITE_API_BASE` 로 API 주소를 받는데,
+`WIMB_DATA4LIBRARY_DAILY_CALL_BUDGET`, `WIMB_OPAC_LINKS_ENABLED` 입니다. 전체 목록과 기본값은
+`docs/배포.md` 의 표에, 서버에 그대로 올릴 수 있는 본보기는 `scripts/vm/wimb.env.example` 에
+있습니다. 프론트는 `VITE_API_BASE` 로 API 주소를 받는데,
 **Vite 의 `VITE_*` 는 빌드할 때 코드에 박히므로 값을 바꾸면 반드시 다시 배포해야 합니다.**
 값만 넣고 재배포하지 않으면 번들에 예전 주소가 남아 화면이 바뀌지 않습니다.
+
+**서버 설정을 고치는 것과 반영되는 것은 다릅니다.** 환경 변수는 컨테이너가 뜰 때 한 번
+읽으므로 `~/wimb.env` 를 고쳐도 돌고 있는 서버는 예전 값 그대로이고, 그 상태로
+`deploy.sh` 를 불러도 **이미지가 그대로면 「새 이미지가 없습니다」 한 줄만 남기고
+끝납니다.** 두 단계 모두 오류를 내지 않아서 고친 사람은 반영된 줄 압니다. 그래서
+`scripts/vm/set-env.sh` 가 고치기 · `deploy.sh --force` 로 다시 띄우기 · 뜬 컨테이너가 그
+키를 들고 있는지 확인하기를 한 묶음으로 합니다. **이 묶음을 쪼개지 마세요.** 그리고
+`--env-file` 이 읽는 파일은 셸이 아니므로 **값을 따옴표로 감싸면 따옴표까지 값이
+됩니다.** 어느 주소와도 맞지 않게 되는데 서버는 그것을 오류로 보지 않아 화면에서 CORS
+로만 드러납니다.
+
+**`WIMB_CORS_ALLOWED_ORIGINS` 에 프리뷰 주소를 별표로 함께 넣으세요.** Vercel 은 프리뷰
+배포마다 주소를 새로 만들어서(`where-is-my-book-<해시>-<계정>.vercel.app`) 운영 주소만 적어
+두면 프리뷰에서 API 가 통째로 막힙니다. 화면에는 「API 서버에 연결하지 못했습니다」로
+보이는데 **서버는 멀쩡하고 주소도 맞습니다.** 그 문구를 믿고 멀쩡한 서버를 다시 띄우게
+되는데, 우리가 줄곧 갈라 놓으려는 「서버가 없다」와 「서버는 있는데 물어보지 못했다」가
+여기서 뒤바뀝니다. 그래서 `WimbConfiguration` 이 `allowedOrigins` 가 아니라
+`allowedOriginPatterns` 를 씁니다(앞은 글자가 그대로 같아야 합니다). 별표를 여는 것이
+괜찮은 이유는 이 API 에 인증도 쿠키도 없어서 CORS 가 막아 줄 것이 애초에 없기
+때문이고, 남의 몫 쓰기는 주소별 호출 제한이 막습니다. 다만 `https://*.vercel.app` 처럼
+넓히지는 마세요. 누가 부를 수 있는지가 목록에서 보여야 합니다.
+
+**`WIMB_SHELF_HARVEST` 를 서버의 환경 변수에 넣지 마세요.** 서가 수집은 다 받고 나서
+프로세스를 끝내는 일회성 작업이라(`ShelfHarvestRunner` 가 `System.exit` 을 부릅니다),
+서버에 걸어 두면 뜰 때마다 수집하고 그대로 죽습니다. **서비스가 통째로 내려가는데 원인이
+설정 파일에 있어** 코드에서 찾게 됩니다. 수집은 따로 뜬 컨테이너가 합니다
+(`scripts/vm/harvest-shelf.sh`).
 
 메모리 1GB 짜리 기계(Google 무료 등급 e2-micro)에서 알아 둘 것이 둘 있습니다.
 
