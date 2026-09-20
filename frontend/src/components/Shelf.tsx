@@ -21,6 +21,7 @@ import {
   scrollToSection,
   visibleRows,
 } from '../domain/shelfLayout';
+import { glideTo } from '../domain/glide';
 import { sectionLabel } from '../domain/shelfSection';
 import { ShelfCover } from './ShelfCover';
 import { ShelfNearby } from './ShelfNearby';
@@ -425,24 +426,40 @@ function ShelfView({
    * 그 자리가 있는 줄로 옮겨 갑니다. <b>초성 색인과 찾기가 같은 계산을 씁니다.</b>
    * 갈리면 한쪽만 머리말 뒤에 가려 서는데, 어느 쪽이 그런지는 눌러 본 사람만 압니다.
    */
+  /*
+    **가는 동안 잰 값이 바뀌므로 최신 값을 따로 들고 있습니다.** 머리말이 접히면 서가가
+    시작하는 자리가 87px 올라오는데, 떠날 때 붙잡아 둔 값으로 끝까지 가면 그만큼 어긋난
+    자리에 내려앉습니다. `glideTo` 가 매 프레임 도착 자리를 다시 물어보므로 여기에 늘
+    지금 값이 들어 있어야 합니다.
+  */
+  const sizeNow = useRef(size);
+  sizeNow.current = size;
+  const gliding = useRef<(() => void) | null>(null);
+
   const scrollToIndex = useCallback(
     (index: number, snug = false) => {
-      if (size.rowHeight <= 0) return;
+      if (sizeNow.current.rowHeight <= 0) return;
       const row = Math.floor(index / COLS);
-      window.scrollTo({
+      // 앞서 가던 것이 있으면 놓습니다. 둘이 겹치면 서로 끌어당겨 화면이 떱니다.
+      gliding.current?.();
+      gliding.current = glideTo(() => {
+        const now = sizeNow.current;
         // 서가가 시작하는 자리에서 그 줄만큼 더 내려가되, 머리말이 덮는 만큼은 뺍니다.
         // 갈래로 갈 때만 위를 남기지 않습니다. 남기면 화면 맨 위가 앞 갈래의 끝이 되어
         // 큰 제목과 갈래 목록이 방금 고른 것이 아니라 앞 갈래를 말합니다.
-        top:
-          size.top +
+        return (
+          now.top +
           (snug
-            ? scrollToSection(row, size.rowHeight, size.head)
-            : scrollToRow(row, size.rowHeight, size.viewport, size.head)),
-        behavior: 'smooth',
+            ? scrollToSection(row, now.rowHeight, now.head)
+            : scrollToRow(row, now.rowHeight, now.viewport, now.head))
+        );
       });
     },
-    [size.head, size.rowHeight, size.top, size.viewport],
+    [],
   );
+
+  // 화면을 떠날 때 가던 것을 놓습니다. 그러지 않으면 없어진 화면이 스크롤을 붙듭니다.
+  useEffect(() => () => gliding.current?.(), []);
 
   /** 초성을 누르면 그 자리로 갑니다. 없는 초성은 누를 수 없습니다. */
   const jump = useCallback(
@@ -653,6 +670,15 @@ function ShelfView({
           library={library}
           onClose={() => setNearby(null)}
           onMove={setNearby}
+          /*
+            **「서가에서 보기」는 뒤로 가기와 다른 일입니다.** 뒤로 가기는 열었던 자리로
+            돌아가는 것이고, 이것은 <b>옆으로 걸어와 지금 보고 있는 책</b> 앞에 서는
+            것입니다. 화살표로 백 권을 넘긴 뒤라면 두 자리가 아주 멀 수 있습니다.
+          */
+          onShowOnShelf={(at) => {
+            setNearby(null);
+            goTo(at);
+          }}
         />
       )}
 

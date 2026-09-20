@@ -1406,6 +1406,36 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
     0 2px 2px rgba(43, 27, 13, 0.5),
     0 14px 22px -8px rgba(43, 27, 13, 0.65),
     0 0 0 3px var(--brass);
+  /*
+    **도착하는 순간 한 번만 번집니다.** 미끄러져 온 끝에 그냥 테두리가 켜져 있으면
+    「언제 켜졌는지」를 놓치고 다시 한 권씩 눈으로 훑게 됩니다. 놋쇠빛이 밖으로 한 번
+    퍼졌다가 제자리에 앉으면 눈이 그리로 따라옵니다. 서가는 보이는 줄만 그리므로 이
+    표지는 도착할 때 처음 그려지고, 그때 이 애니메이션이 한 번 돕니다.
+  */
+  animation: cover-found 620ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes cover-found {
+  from {
+    box-shadow:
+      0 2px 2px rgba(43, 27, 13, 0.5),
+      0 14px 22px -8px rgba(43, 27, 13, 0.65),
+      0 0 0 3px rgba(164, 129, 63, 0.9),
+      0 0 0 14px rgba(164, 129, 63, 0);
+  }
+  40% {
+    box-shadow:
+      0 2px 2px rgba(43, 27, 13, 0.5),
+      0 14px 22px -8px rgba(43, 27, 13, 0.65),
+      0 0 0 3px var(--brass),
+      0 0 0 9px rgba(164, 129, 63, 0.34);
+  }
+  to {
+    box-shadow:
+      0 2px 2px rgba(43, 27, 13, 0.5),
+      0 14px 22px -8px rgba(43, 27, 13, 0.65),
+      0 0 0 3px var(--brass),
+      0 0 0 20px rgba(164, 129, 63, 0);
+  }
 }
 .cover[data-lift] .cover__body {
   box-shadow:
@@ -1558,6 +1588,22 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
   background-color: #16100a;
   /* 손가락으로 좌우로 넘기는 화면이라 세로 스크롤을 잠급니다. */
   overscroll-behavior: contain; touch-action: pan-y;
+  /*
+    **서가 위로 덮이는 것이라 그렇게 보여야 합니다.** 한 번에 나타나면 화면이 갈아
+    끼워진 것처럼 읽히는데, 이 화면은 서가를 떠난 것이 아니라 그 앞에 선 것입니다.
+    바탕이 옅게 깔리면서 선반이 살짝 다가오면 덮였다는 것이 그대로 보입니다.
+  */
+  animation: nearby-open 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes nearby-open {
+  from { opacity: 0; transform: scale(1.012); }
+  to { opacity: 1; transform: none; }
+}
+
+/** 뒤로 가기. 화살표 하나라 정사각형에 가깝게 둡니다. */
+.chip--icon {
+  padding: 6px 10px; font-size: 15px; line-height: 1;
+  font-family: var(--display);
 }
 .nearby__close { position: absolute; top: 12px; left: 12px; z-index: 2; }
 
@@ -1687,3 +1733,20 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
 .nearby__step:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
 .nearby__step--back { left: 8px; }
 .nearby__step--next { right: 8px; }
+
+/*
+  **움직임을 줄여 달라고 한 사람에게는 걸지 않습니다.** 멀미나 어지럼을 겪는 사람에게
+  큰 화면이 미끄러지는 것은 읽기 어려운 정도가 아니라 못 쓰는 상태가 됩니다. 스크롤이
+  미끄러지는 것은 `domain/glide.ts` 가 같은 설정을 보고 따로 끕니다.
+*/
+@media (prefers-reduced-motion: reduce) {
+  .cover[data-found] .cover__body,
+  .nearby {
+    animation: none;
+  }
+  .nearby__ruler > span,
+  .shelf-head__big,
+  .shelf-head__small {
+    transition: none;
+  }
+}

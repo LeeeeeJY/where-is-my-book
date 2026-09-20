@@ -36,6 +36,7 @@ export function ShelfNearby({
   library,
   onClose,
   onMove,
+  onShowOnShelf,
 }: {
   meta: ShelfMeta;
   room: ShelfRoom;
@@ -44,6 +45,14 @@ export function ShelfNearby({
   library: Library | undefined;
   onClose: () => void;
   onMove: (index: number) => void;
+  /**
+   * 지금 보고 있는 책 앞에 서면서 서가로 돌아갑니다.
+   *
+   * <p><b>뒤로 가기와 다른 일입니다.</b> 뒤로 가기는 열었던 자리로 돌아가는 것이고,
+   * 이것은 옆으로 걸어온 만큼 옮겨 간 <b>지금 이 책</b> 앞에 서는 것입니다. 화살표로
+   * 백 권을 넘긴 뒤라면 두 자리가 아주 멉니다.
+   */
+  onShowOnShelf: (index: number) => void;
 }) {
   const [chunks, setChunks] = useState<Map<number, ShelfBook[]>>(new Map());
   const [finding, setFinding] = useState(false);
@@ -141,8 +150,19 @@ export function ShelfNearby({
         같은 통로를 쓰므로 정보나루 호출은 여기서도 0건입니다.
       */}
       <div className="nearby__bar">
-        <button type="button" className="nearby__close chip chip--sm" onClick={onClose}>
-          서가로 돌아가기
+        {/*
+          **뒤로 가기는 화살표 하나입니다.** 열었던 자리로 되돌아가는 것뿐이라 글자로
+          설명할 것이 없고, 머리 줄의 자리도 아껴야 찾기가 제 줄을 씁니다. 눈으로
+          보이지 않는 이름은 `aria-label` 이 답니다.
+        */}
+        <button
+          type="button"
+          className="nearby__back chip chip--sm chip--icon"
+          onClick={onClose}
+          aria-label="서가로 돌아가기"
+          title="서가로 돌아가기"
+        >
+          <span aria-hidden="true">←</span>
         </button>
         {(meta.shapeVersion ?? 0) >= SHELF_SHAPE_FINDABLE && (
           <ShelfSearch
@@ -272,6 +292,18 @@ export function ShelfNearby({
               거둬들여야 합니다.
             */}
             <p className="nearby__go chips">
+              {/*
+                **「서가에서 보기」는 이 책에 관한 일이라 책 옆에 둡니다.** 머리 줄의
+                뒤로 가기는 열었던 자리로 돌아가는 것이고, 이것은 지금 보고 있는 이 책
+                앞에 서는 것입니다. 둘을 한자리에 두면 같은 말처럼 읽힙니다.
+              */}
+              <button
+                type="button"
+                className="chip"
+                onClick={() => onShowOnShelf(index)}
+              >
+                서가에서 보기
+              </button>
               <LoanCheck libCode={meta.libCode} isbn13List={[center.isbn]} />
               <a
                 className="chip chip--strong chip--go chip--wrap"

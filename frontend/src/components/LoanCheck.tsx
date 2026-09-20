@@ -22,6 +22,27 @@ import type { LoanPhrase } from '../domain/loanStatus';
 export function LoanCheck({ libCode, isbn13List }: { libCode: string; isbn13List: string[] }) {
   const [state, setState] = useState<'idle' | 'asking' | 'failed'>('idle');
   const [status, setStatus] = useState<LoanStatus | null>(null);
+
+  /*
+    **책이 바뀌면 답을 버립니다.**
+
+    이 단추가 한자리에 머문 채 밑에 깔린 책만 바뀌는 화면이 있습니다. 「이 책 주변
+    서가」에서 화살표로 넘기거나 옆 책을 누를 때가 그렇습니다. 그때 답을 그대로 두면
+    **앞 책의 대출 상태가 새 책의 것처럼 보입니다.** 「대출 가능」이라 적힌 것을 믿고
+    갔는데 그 책이 아닌 셈이라, 이 도구가 가장 하면 안 되는 일을 합니다.
+
+    **부르는 쪽에 `key` 를 맡기지 않습니다.** 한자리에 머무는 화면이 또 생겼을 때
+    빠뜨리면 조용히 같은 일이 되풀이되고, 화면에는 아무 이상이 없어 보입니다. 물어본
+    책이 무엇이었는지를 여기서 들고 있으면 어느 화면에서 써도 어긋나지 않습니다.
+  */
+  const book = isbn13List.join(',');
+  const [asked, setAsked] = useState(book);
+  if (asked !== book) {
+    setAsked(book);
+    setStatus(null);
+    setState('idle');
+  }
+
   const asking = state === 'asking';
 
   if (isbn13List.length === 0) return null;
