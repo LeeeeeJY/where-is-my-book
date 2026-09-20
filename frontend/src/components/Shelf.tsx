@@ -22,7 +22,7 @@ import {
   visibleRows,
 } from '../domain/shelfLayout';
 import { glideTo } from '../domain/glide';
-import { sectionLabel } from '../domain/shelfSection';
+import { sectionLabel, sectionsWorthShowing } from '../domain/shelfSection';
 import { ShelfCover } from './ShelfCover';
 import { ShelfNearby } from './ShelfNearby';
 import { ShelfOpening } from './ShelfOpening';
@@ -768,7 +768,15 @@ function SectionPick({
   // 갈래가 하나뿐이면 고를 것이 없습니다. 갈래 구간이 생기기 전에 세운 서가도 여깁니다.
   if (!sections || sections.length <= 1) return null;
 
+  /*
+    **작은 갈래는 목록에서 뺍니다.** 실측으로 한 자료실에 예순세 가지가 있었고 그중
+    서른네 가지가 한 자릿수 권수였습니다. 첫 줄이 「중국문학 · 르포르타주 및 기타
+    (2권)」이었는데, 그것을 고르려고 목록을 여는 사람은 없습니다. 지금 서 있는 갈래만은
+    작아도 남깁니다. 목록이 보여 주는 값이 곧 「지금 어느 갈래 앞인가」라서입니다.
+  */
   const standing = sections.find((one) => one.name === here);
+  const worth = sectionsWorthShowing(sections, here);
+  if (worth.length <= 1) return null;
   return (
     <select
       className="shelf-head__pick shelf-head__pick--section"
@@ -784,7 +792,7 @@ function SectionPick({
         그때 첫 갈래가 골라진 것처럼 보이면 안 되므로 빈 자리를 둡니다.
       */}
       {!standing && <option value="">갈래</option>}
-      {sections.map((one) => (
+      {worth.map((one) => (
         <option key={one.name + one.at} value={one.name}>
           {`${sectionLabel(one.name)} (${one.count.toLocaleString('ko-KR')}권)`}
         </option>

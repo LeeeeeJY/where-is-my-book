@@ -1,7 +1,9 @@
 package kr.wimb.shelf;
 
 import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.util.List;
 import java.util.Map;
@@ -31,10 +33,33 @@ final class ShelfMetaReader {
     /** 못 읽으면 비어 있습니다. <b>예외를 올리지 않습니다.</b> */
     static Optional<ShelfMeta> parse(byte[] json) {
         try {
-            return Optional.ofNullable(JSON.readValue(json, ShelfMeta.class)).map(ShelfMetaReader::filled);
+            JsonNode tree = JSON.readTree(json);
+            if (tree == null || !tree.isObject()) return Optional.empty();
+            return Optional.ofNullable(JSON.treeToValue(migrated((ObjectNode) tree), ShelfMeta.class))
+                    .map(ShelfMetaReader::filled);
         } catch (Exception e) {
             return Optional.empty();
         }
+    }
+
+    /**
+     * 예전 이름으로 적힌 값을 <b>지금 이름으로 옮겨 읽습니다.</b>
+     *
+     * <p>항목 이름을 바꾸면 이미 적어 둔 파일은 그대로 남습니다. 옮겨 읽지 않으면 그
+     * 서가는 <b>실제로 가지고 있는 것을 없는 것으로</b> 답하게 되고, 화면은 그 단추를
+     * 내리지 않습니다. 실제로 {@code findable} 을 {@link ShelfMeta#SHAPE_VERSION} 으로
+     * 합치면서 이 길을 만들지 않아, <b>찾기 색인이 멀쩡히 있는 서가가 다시 세우기 전까지
+     * 「책 찾기」를 잃었습니다.</b>
+     *
+     * <p>다시 세우면 어차피 낫는다는 것이 이유가 되지 않습니다. 세우는 데 몇십 초가
+     * 걸리고 그동안 사람은 <b>기능이 사라진 화면</b>을 봅니다.
+     */
+    private static ObjectNode migrated(ObjectNode meta) {
+        // `findable: true` 는 찾기 색인이 있다는 뜻이었습니다. 그것이 판 번호 1 입니다.
+        if (!meta.hasNonNull("shapeVersion") && meta.path("findable").asBoolean(false)) {
+            meta.put("shapeVersion", 1);
+        }
+        return meta;
     }
 
     /**
