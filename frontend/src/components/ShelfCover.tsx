@@ -23,6 +23,21 @@ import { coverPaper } from '../domain/coverPaper';
  * <p>색은 <b>분류번호에서 정합니다.</b> 「이 책 주변 서가」와 같은 규칙을 써야 하므로
  * {@code domain/coverPaper.ts} 한 곳에 두었습니다. 갈리면 녹색 책을 눌렀는데 갈색
  * 책이 열립니다.
+ *
+ * <h2>누르는 자리가 둘입니다</h2>
+ *
+ * <p><b>표지는 열고 서표는 지웁니다.</b> 한때 표지 하나로 둘을 다 하게 해서, 짚어 둔
+ * 책을 다시 누르면 열리지 않고 표시만 지워졌습니다. 지울 길이 생긴 대신
+ * <b>「책 찾기」로 찾아간 책을 여는 데 두 번이 들었습니다.</b> 찾아간 책은 이미 짚어
+ * 둔 상태인데, 찾은 사람이 그다음에 하려는 일은 지우는 것이 아니라 여는 것입니다.
+ *
+ * <p>그래서 <b>일을 자리로 가릅니다.</b> 표지는 상태와 무관하게 늘 짚으면서 열고,
+ * 지우는 일은 서표가 맡습니다. 서표는 짚어 둔 책에만 있으므로 <b>지울 것이 있을 때만
+ * 나타나는 단추</b>이고, 눌러서 지우면 그 단추도 함께 사라집니다.
+ *
+ * <p>그래서 <b>서표가 표지 단추 안에 들어가면 안 됩니다.</b> 단추 안의 단추는 없는
+ * 구조라 화면을 읽어 주는 쪽에서 둘째 것을 잃습니다. 표지 단추를 한 겹 안으로
+ * 넣고 바깥 칸이 기울기를 맡으면, 서표가 책과 함께 기울면서도 제 단추로 남습니다.
  */
 export function ShelfCover({
   book,
@@ -30,6 +45,7 @@ export function ShelfCover({
   lifted,
   found,
   onPick,
+  onClear,
 }: {
   book: ShelfBook;
   /** 초성을 골랐는데 이 책이 아닐 때. 흐리게 물러납니다. */
@@ -46,28 +62,69 @@ export function ShelfCover({
    * 방금 본 책을 찾으려고 같은 자리를 또 누릅니다.
    */
   found?: boolean;
+  /** 표지를 눌렀을 때. 짚어 둔 책이든 아니든 <b>늘 같은 일을 합니다.</b> */
   onPick: () => void;
+  /** 서표를 눌렀을 때. 표시만 지우고 <b>열지 않습니다.</b> */
+  onClear: () => void;
 }) {
   const [failed, setFailed] = useState(false);
   const showImage = Boolean(book.cover) && !failed;
 
   return (
-    <button
-      type="button"
+    /*
+      **기울기와 자리는 바깥 칸이 맡습니다.** 표지와 서표가 함께 기울어야 서표가 그
+      책에 꽂힌 것으로 보입니다. 서표만 똑바로 서 있으면 다른 책의 것처럼 읽힙니다.
+    */
+    <span
       className="cover"
       data-dim={dimmed ? '' : undefined}
       data-lift={lifted ? '' : undefined}
       data-found={found ? '' : undefined}
-      onClick={onPick}
-      /*
-        **누르면 무슨 일이 일어나는지가 상태마다 다르므로 그것까지 읽어 줍니다.**
-        짚어 둔 책은 누르면 표시가 지워지고 나머지는 열립니다. 눈으로 보는 사람에게는
-        기울어 선 것이 그 차이를 말하지만, **화면을 읽어 주는 사람에게는 기울기가
-        아무 말도 하지 않습니다.** 글자를 감춘 만큼 여기에 실어야 한다는 규칙이
-        제목·저자·청구기호에만 적용되는 것이 아닙니다.
-      */
-      aria-label={found ? `${describe(book)}, 짚어 둔 책입니다. 누르면 표시를 지웁니다` : describe(book)}
     >
+      <button
+        type="button"
+        className="cover__open"
+        onClick={onPick}
+        /*
+          **짚어 둔 책이라는 것은 말하되 할 일은 같습니다.** 기울어 선 것이 눈으로
+          보는 사람에게 알려 주는 것을 화면을 읽어 주는 사람에게도 알려 줍니다.
+          글자를 감춘 만큼 여기에 실어야 한다는 규칙이 제목·저자·청구기호에만
+          적용되는 것이 아닙니다.
+        */
+        aria-label={found ? `${describe(book)}, 짚어 둔 책입니다` : describe(book)}
+      >
+        <span
+          className="cover__body"
+          style={showImage ? undefined : { backgroundImage: coverPaper(book) }}
+        >
+          {showImage ? (
+            /*
+              **나타나는 효과를 붙이지 마세요.** 보이는 줄만 그리므로 스크롤하면 표지가
+              끊임없이 새로 붙는데, 그때마다 투명도가 0 에서 시작하면 **줄이 지나갈 때마다
+              네 권이 한꺼번에 깜빡입니다.** 자리는 `cover__art` 의 `aspect-ratio` 가 이미
+              잡아 두므로 배치는 흔들리지 않습니다.
+            */
+            <img
+              className="cover__art"
+              src={book.cover}
+              alt=""
+              loading="lazy"
+              decoding="async"
+              onError={() => setFailed(true)}
+            />
+          ) : (
+            /*
+              대체 표지. 실제 책의 장정처럼 제목이 위쪽에, 저자가 아래쪽에 놓입니다.
+              표지가 있는 책과 같은 칸을 쓰므로 서가의 줄이 흐트러지지 않습니다.
+            */
+            <span className="cover__made">
+              <span className="cover__made-title">{book.title}</span>
+              {book.author && <span className="cover__made-author">{book.author}</span>}
+            </span>
+          )}
+        </span>
+      </button>
+
       {/*
         **찾은 책에는 서표를 끼웁니다.** 테두리만으로는 찾은 것이 보이지 않습니다.
         실제 서가에서 「토지」를 찾으면 **같은 표지가 열여덟 권 나란히** 서 있는데,
@@ -77,39 +134,22 @@ export function ShelfCover({
         서표는 책 위로 삐져나오므로 줄 안에서 혼자 튀어 보이고, 도서관 책에 실제로
         꽂혀 있는 것이라 이 화면의 말과도 맞습니다. **자리는 차지하지 않습니다.**
         띄워 두었으므로(`position: absolute`) 줄 높이가 변하지 않습니다.
+
+        **보이는 띠와 누르는 자리를 갈라 둡니다.** 띠는 412px 화면에서 15px 폭이라
+        손가락이 집을 수 없고, `clip-path` 로 제비꼬리를 잘라내면 **잘려 나간 자리는
+        누름도 받지 않습니다.** 그래서 단추는 자르지 않은 채 두고 안쪽 띠만 자릅니다.
       */}
-      {found && <span className="cover__mark" aria-hidden="true" />}
-      <span
-        className="cover__body"
-        style={showImage ? undefined : { backgroundImage: coverPaper(book) }}
-      >
-        {showImage ? (
-          /*
-            **나타나는 효과를 붙이지 마세요.** 보이는 줄만 그리므로 스크롤하면 표지가
-            끊임없이 새로 붙는데, 그때마다 투명도가 0 에서 시작하면 **줄이 지나갈 때마다
-            네 권이 한꺼번에 깜빡입니다.** 자리는 `cover__art` 의 `aspect-ratio` 가 이미
-            잡아 두므로 배치는 흔들리지 않습니다.
-          */
-          <img
-            className="cover__art"
-            src={book.cover}
-            alt=""
-            loading="lazy"
-            decoding="async"
-            onError={() => setFailed(true)}
-          />
-        ) : (
-          /*
-            대체 표지. 실제 책의 장정처럼 제목이 위쪽에, 저자가 아래쪽에 놓입니다.
-            표지가 있는 책과 같은 칸을 쓰므로 서가의 줄이 흐트러지지 않습니다.
-          */
-          <span className="cover__made">
-            <span className="cover__made-title">{book.title}</span>
-            {book.author && <span className="cover__made-author">{book.author}</span>}
-          </span>
-        )}
-      </span>
-    </button>
+      {found && (
+        <button
+          type="button"
+          className="cover__mark"
+          onClick={onClear}
+          aria-label={`${book.title}, 짚어 둔 표시를 지웁니다`}
+        >
+          <span className="cover__mark-art" aria-hidden="true" />
+        </button>
+      )}
+    </span>
   );
 }
 
