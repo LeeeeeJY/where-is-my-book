@@ -32,6 +32,10 @@ COPY --from=build /src/build/libs/*.jar /app/app.jar
 RUN mkdir -p /data && chown wimb /data
 VOLUME /data
 ENV WIMB_HOLDINGS_CACHE_PATH=/data/holding-cache.tsv.gz
+# **서가도 같은 볼륨입니다.** 도서관 한 곳이 20만 권이라 다시 받는 데 정보나루 호출이
+# 수천 건 나갑니다. 볼륨을 붙이지 않으면 배포 몇 번으로 하루 한도가 사라집니다.
+# 수집은 저절로 돌지 않습니다. WIMB_SHELF_HARVEST 를 준 컨테이너만 일하고 끝나면 나갑니다.
+ENV WIMB_SHELF_DATA_DIR=/data/shelf
 
 USER wimb
 

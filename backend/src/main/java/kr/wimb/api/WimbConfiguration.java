@@ -5,6 +5,8 @@ import kr.wimb.holdings.CachingHoldingsClient;
 import kr.wimb.holdings.HoldingsLookup;
 import kr.wimb.ingest.ApiBudget;
 import kr.wimb.ingest.InMemoryApiBudget;
+import kr.wimb.shelf.ShelfHarvester;
+import kr.wimb.shelf.ShelfStore;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -13,6 +15,7 @@ import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
+import java.nio.file.Path;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -182,6 +185,31 @@ public class WimbConfiguration implements WebMvcConfigurer {
         return new CachingHoldingsClient(
                 client.asHoldingsClient(ApiBudget.Priority.USER),
                 HOLDINGS_CACHE_TTL, HOLDINGS_CACHE_MAX_ENTRIES, Clock.systemUTC());
+    }
+
+    /**
+     * 서가 파일을 두는 곳. <b>컨테이너 안이 아니라 볼륨이어야 합니다.</b>
+     *
+     * <p>컨테이너 파일 시스템은 컨테이너와 함께 사라지므로, 배포할 때마다 20만 권을
+     * 다시 받게 됩니다. 한 번에 몇천 번을 부르는 일이라 하루 예산이 배포 몇 번으로
+     * 사라집니다. 소장 캐시 스냅샷이 쓰는 {@code wimb-data} 볼륨을 함께 씁니다.
+     *
+     * <p>아래 값은 로컬에서 개발할 때 쓰는 상대 경로입니다. 이미지가
+     * {@code WIMB_SHELF_DATA_DIR=/data/shelf} 로 덮습니다.
+     */
+    @Bean
+    public ShelfStore shelfStore(@Value("${wimb.shelf.data-dir:data/shelf}") String dataDir) {
+        return new ShelfStore(Path.of(dataDir));
+    }
+
+    /**
+     * 서가 수집기. <b>빈으로 두지만 저절로 돌지는 않습니다.</b>
+     * {@code --wimb.shelf.harvest=<도서관부호>} 로 띄울 때만 일합니다.
+     */
+    @Bean
+    public ShelfHarvester shelfHarvester(Data4LibraryClient client,
+                                         @Value("${wimb.shelf.data-dir:data/shelf}") String dataDir) {
+        return new ShelfHarvester(client, Path.of(dataDir), Clock.systemUTC());
     }
 
     @Bean

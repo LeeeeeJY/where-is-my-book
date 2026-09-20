@@ -9,6 +9,7 @@ import kr.wimb.opac.Homepage;
 import kr.wimb.opac.DetailResolver;
 import kr.wimb.opac.OpacLink;
 import kr.wimb.opac.OpacTemplates;
+import kr.wimb.shelf.ShelfStore;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
@@ -50,6 +51,9 @@ public class WimbController {
 
     /** 주소별 호출 제한. {@code /api/status} 가 지금 세고 있는 주소 수를 내보냅니다. */
     private final RateLimit rateLimit;
+
+    /** 적어 둔 서가. {@code /api/status} 가 몇 곳인지 내보냅니다. */
+    private final ShelfStore shelfStore;
     private final OpacTemplates opacTemplates;
 
     /** 누를 때 검색 결과에서 상세 링크를 뽑는 쪽. 규칙 표만으로는 상세에 닿지 못합니다. */
@@ -98,9 +102,9 @@ public class WimbController {
                           MultiCheckService multiCheckService, ApiBudget budget,
                           OpacTemplates opacTemplates, DetailResolver detailResolver,
                           CachingHoldingsClient holdingsCache,
-                          RateLimit rateLimit) {
+                          RateLimit rateLimit, ShelfStore shelfStore) {
         this(client, searchService, multiCheckService, budget, opacTemplates, detailResolver,
-                holdingsCache, rateLimit, Clock.systemUTC());
+                holdingsCache, rateLimit, shelfStore, Clock.systemUTC());
     }
 
     /** 재시도 시각을 시험할 수 있도록 시계를 받는 생성자입니다. */
@@ -108,7 +112,8 @@ public class WimbController {
                    MultiCheckService multiCheckService, ApiBudget budget,
                    OpacTemplates opacTemplates, DetailResolver detailResolver,
                    CachingHoldingsClient holdingsCache,
-                   RateLimit rateLimit, Clock clock) {
+                   RateLimit rateLimit, ShelfStore shelfStore, Clock clock) {
+        this.shelfStore = shelfStore;
         this.rateLimit = rateLimit;
         this.holdingsCache = holdingsCache;
         this.opacTemplates = opacTemplates;
@@ -467,6 +472,11 @@ public class WimbController {
         // 것인지 캐시가 원래 안 도는 것인지 구별할 수 없어 추측하게 됩니다.
         // 배포 직후 이 값이 0이면 스냅샷을 잃은 것입니다.
         out.put("holdingCacheEntries", holdingsCache.size());
+        // **서가를 적어 둔 도서관 수.** 소장 캐시와 같은 볼륨에 있어서, 볼륨이 붙지
+        // 않은 채 뜨면 둘이 함께 0 이 됩니다. 배포 직후 이 값이 0 이면 수집을 다시
+        // 돌릴 것이 아니라 볼륨부터 보세요. 20만 권을 다시 받는 일이라 하루 예산이
+        // 배포 몇 번으로 사라집니다.
+        out.put("shelfLibraries", shelfStore.size());
         // OPAC 규칙이 실제로 실려 있는지. 배포 직후 0이면 규칙 파일을 잃은 것이고(예전에
         // .gitignore 가 삼킨 적이 있습니다), 상세 해석의 성적은 어디서 새는지를 말합니다.
         // resolved 는 상세로 갔고, missed 는 페이지는 받았는데 링크가 없었고(그 판이 없거나

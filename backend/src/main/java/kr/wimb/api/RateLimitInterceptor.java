@@ -37,6 +37,10 @@ public final class RateLimitInterceptor implements HandlerInterceptor {
         if (path.startsWith("/api/loan")) return 20;
         if (path.startsWith("/api/search")) return 8;
         if (path.startsWith("/api/holdings")) return 4;
+        // **서가는 정보나루를 한 번도 부르지 않습니다.** 미리 적어 둔 파일을 그대로
+        // 흘려보내는 것이라 하루 예산이 줄지 않습니다. 그래도 0 은 아닙니다. 파일을
+        // 읽는 일도 우리 서버의 몫을 쓰고, 스크롤하면 요청이 잇따라 나갑니다.
+        if (path.startsWith("/api/shelf")) return 1;
         // 진단은 열 때마다 정보나루를 한 번 씁니다. 자동으로 새로 고치면 안 되는 화면이라
         // 사람이 누르는 속도보다 빠르면 막습니다.
         if (path.startsWith("/api/diagnose")) return 5;

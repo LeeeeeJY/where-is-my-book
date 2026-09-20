@@ -1,0 +1,305 @@
+package kr.wimb.shelf;
+
+import kr.wimb.data4library.BookInfo;
+import kr.wimb.data4library.Data4LibraryClient;
+import kr.wimb.ingest.ApiBudget;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.io.IOException;
+import java.io.Writer;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.time.Clock;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+
+/**
+ * 도서관 장서 전체를 받아 <b>서가 순서로 정렬해 파일로 적어 둡니다.</b>
+ *
+ * <h2>왜 미리 받아 두나</h2>
+ *
+ * <p>서가를 청구기호 순으로 보여 주려면 전체를 한 줄로 세워야 하는데, 정보나루는 두
+ * 가지를 해 주지 않습니다. <b>정렬해서 주지 않고</b>({@code itemSrch} 에 정렬 항목이
+ * 없습니다), <b>한 번에 몇백 권씩만 줍니다.</b> 20만 권이면 수백~수천 번을 불러야 하고
+ * 한 번이 3초쯤 걸립니다. 화면을 열 때마다 그럴 수는 없습니다.
+ *
+ * <p>그래서 사람이 한 번 돌려 두면, 그 뒤로 서가를 몇 명이 몇 번을 열든 <b>정보나루
+ * 호출이 한 건도 나가지 않습니다.</b>
+ *
+ * <h2>등록된 IP 에서만 돌립니다</h2>
+ *
+ * <p>정보나루 한도는 등록한 IP 에서 나갈 때만 하루 30,000건이고 아니면 500건입니다.
+ * 수집은 수천 번을 부르므로 <b>반드시 배포된 서버에서</b> 돌려야 합니다. GitHub
+ * Actions 는 러너 IP 가 고정되지 않아 조용히 500건으로 떨어집니다.
+ *
+ * <h2>배경 작업입니다</h2>
+ *
+ * <p>{@link ApiBudget.Priority#BACKGROUND} 로 부릅니다. 사람이 기다리는 검색이 있으면
+ * 그쪽이 먼저이고, 하루 한도의 80% 에 닿으면 수집이 먼저 멈춥니다. 수집은 내일 다시
+ * 돌리면 되지만 검색은 그 사람이 지금 기다리고 있습니다.
+ */
+public class ShelfHarvester {
+
+    private static final Logger log = LoggerFactory.getLogger(ShelfHarvester.class);
+
+    /** 기준일은 한국 날짜입니다. 화면에 그대로 나갑니다. */
+    private static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
+
+    /**
+     * 한 조각에 담는 권수. 화면이 한 번에 받아 오는 단위입니다.
+     *
+     * <p>200권이면 JSON 이 45KB 안팎이고 gzip 으로 12KB 남짓입니다. 더 작게 자르면
+     * 스크롤할 때 요청이 잦아지고, 더 크게 자르면 첫 화면이 늦습니다. 한 줄에 4권씩
+     * 세우므로 200권은 50줄이고, 손가락으로 몇 번 밀 분량입니다.
+     */
+    static final int CHUNK = 200;
+
+    /**
+     * 한 번에 달라고 해 볼 쪽 크기.
+     *
+     * <p><b>매뉴얼은 기본값이 100 이라고만 적어 두고 상한을 말하지 않습니다.</b> 그래서
+     * 큰 값으로 물어보고 <b>실제로 몇 건이 왔는지 세어</b> 정합니다. 500건을 받아 주면
+     * 호출이 5분의 1로 줄고, 더 작게 잘라 주면 그 수를 한 쪽 분량으로 삼습니다.
+     * 서버가 준 것보다 많이 왔다고 가정하면 그만큼이 통째로 빠지는데, 빠진 책은
+     * 서가에 없으므로 <b>아무도 눈치채지 못합니다.</b> 소장 조회가 {@code numFound} 를
+     * 다루는 규칙과 같은 모양입니다.
+     */
+    static final int WANTED_PAGE_SIZE = 500;
+
+    /**
+     * 한꺼번에 내보낼 쪽 수. 정보나루에 동시에 나가는 요청 수는 전송 계층이
+     * {@code max-in-flight} 로 따로 묶으므로, 여기서는 그보다 넉넉하게 잡아도
+     * 그 값을 넘지 않습니다.
+     */
+    private static final int PAGES_IN_FLIGHT = 12;
+
+    /** 조각 사이를 끊는 글자. 어떤 값에도 나오지 않습니다. */
+    private static final char PACK = '\u0000';
+
+    private final Data4LibraryClient client;
+    private final Path dataDir;
+    private final Clock clock;
+
+    public ShelfHarvester(Data4LibraryClient client, Path dataDir, Clock clock) {
+        this.client = client;
+        this.dataDir = dataDir;
+        this.clock = clock;
+    }
+
+    /**
+     * 그 도서관 장서를 전부 받아 서가 파일로 적습니다.
+     *
+     * <p><b>다 만든 뒤에 한 번에 갈아 끼웁니다.</b> 임시 자리에 적고 마지막에 이름을
+     * 바꾸므로, 화면에 답하고 있는 서버가 반쯤 쓰인 서가를 읽는 일이 없습니다. 수집은
+     * 십 분 넘게 걸리는데 그동안 서가가 비어 보이면 고장으로 읽힙니다.
+     *
+     * @return 적어 둔 서가의 요약
+     */
+    public ShelfMeta harvest(String libCode) throws IOException {
+        long startedAt = System.nanoTime();
+
+        int pageSize = probePageSize(libCode);
+        int total = client.catalogCount(libCode, null, ApiBudget.Priority.BACKGROUND);
+        if (total <= 0) throw new IOException("장서 건수를 받지 못했습니다: 도서관 " + libCode);
+
+        int pages = (total + pageSize - 1) / pageSize;
+        log.info("서가 수집을 시작합니다. 도서관 {}, 장서 {}건, 쪽 크기 {}, {}쪽",
+                libCode, total, pageSize, pages);
+
+        List<String> packed = collect(libCode, pages, pageSize);
+        // 서가 순서는 열쇠의 글자 순서 그대로입니다. 여기서 한 번만 세웁니다.
+        packed.sort(null);
+
+        ShelfMeta meta = write(libCode, packed, total);
+        log.info("서가 수집을 마쳤습니다. 도서관 {}, 복본 {}권, 자료실 {}곳, {}초",
+                libCode, meta.count(), meta.rooms().size(),
+                (System.nanoTime() - startedAt) / 1_000_000_000L);
+        return meta;
+    }
+
+    // ── 받아 오기 ────────────────────────────────────────────────────────
+
+    /**
+     * 쪽 크기를 실제로 재 봅니다. <b>달라는 대로 준다고 믿지 않습니다.</b>
+     * 첫 쪽을 크게 물어보고 몇 건이 왔는지 셉니다.
+     */
+    private int probePageSize(String libCode) {
+        List<BookInfo> first = client.catalogPage(libCode, null, 1, WANTED_PAGE_SIZE,
+                ApiBudget.Priority.BACKGROUND);
+        int got = first.size();
+        if (got >= WANTED_PAGE_SIZE) return WANTED_PAGE_SIZE;
+        if (got <= 0) return WANTED_PAGE_SIZE;   // 빈 쪽이면 건수로 다시 판단합니다.
+        log.info("쪽 크기 {}을 물었더니 {}건이 왔습니다. 그 수를 한 쪽 분량으로 씁니다.",
+                WANTED_PAGE_SIZE, got);
+        return got;
+    }
+
+    private List<String> collect(String libCode, int pages, int pageSize) throws IOException {
+        List<String> packed = new ArrayList<>();
+        try (var pool = Executors.newVirtualThreadPerTaskExecutor()) {
+            for (int from = 1; from <= pages; from += PAGES_IN_FLIGHT) {
+                List<Future<List<BookInfo>>> batch = new ArrayList<>();
+                for (int page = from; page < from + PAGES_IN_FLIGHT && page <= pages; page++) {
+                    int at = page;
+                    batch.add(pool.submit(() -> client.catalogPage(libCode, null, at, pageSize,
+                            ApiBudget.Priority.BACKGROUND)));
+                }
+                for (Future<List<BookInfo>> future : batch) {
+                    for (BookInfo book : get(future)) {
+                        for (ShelfItem item : ShelfItem.of(book)) packed.add(pack(item));
+                    }
+                }
+                if ((from / PAGES_IN_FLIGHT) % 20 == 0) {
+                    log.info("  {}/{}쪽, 지금까지 {}권", Math.min(from + PAGES_IN_FLIGHT - 1, pages),
+                            pages, packed.size());
+                }
+            }
+        }
+        return packed;
+    }
+
+    private static List<BookInfo> get(Future<List<BookInfo>> future) throws IOException {
+        try {
+            return future.get();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("서가 수집이 중단되었습니다.", e);
+        } catch (ExecutionException e) {
+            // **한 쪽이라도 빠지면 서가에 구멍이 납니다.** 빠진 책은 목록에 없으므로
+            // 아무도 눈치채지 못한 채 「그 자리에 없다」가 됩니다. 반쪽짜리를 내보내느니
+            // 통째로 실패하는 편이 낫습니다.
+            throw new IOException("장서 한 쪽을 받지 못했습니다.", e.getCause());
+        }
+    }
+
+    // ── 메모리에 담는 모양 ───────────────────────────────────────────────
+
+    /**
+     * 한 권을 문자열 하나로 눌러 담습니다.
+     *
+     * <p><b>20만 권을 객체로 들고 있으면 힙이 모자랍니다.</b> 기계가 메모리 1GB 이고
+     * 힙은 그 절반입니다. {@link ShelfItem} 을 그대로 쌓으면 한 권에 600바이트 가까이
+     * 들어 20만 권이 120MB 인데, 소장 캐시와 도서관 마스터가 같은 힙에 있습니다.
+     * 문자열 하나로 누르면 한 권이 250바이트 안팎이라 넉넉합니다.
+     *
+     * <p>맨 앞이 정렬 열쇠라 <b>이 문자열을 그냥 글자 순으로 세우면 서가 순서가
+     * 됩니다.</b> 끊는 글자({@code \u0000})가 어떤 값보다도 작아서, 열쇠 하나가 다른
+     * 열쇠의 앞머리일 때도 짧은 쪽이 먼저입니다.
+     */
+    private static String pack(ShelfItem item) {
+        return String.join(String.valueOf(PACK),
+                item.sortKey(),
+                nullToEmpty(item.roomCode()),
+                nullToEmpty(item.chosung()),
+                nullToEmpty(item.roomName()),
+                nullToEmpty(item.callText()),
+                ShelfJson.item(item));
+    }
+
+    /** 눌러 담은 조각의 자리. 이름을 붙여 두어야 숫자를 잘못 세지 않습니다. */
+    private static final int SORT_KEY = 0, ROOM_CODE = 1, CHOSUNG = 2,
+            ROOM_NAME = 3, CALL_TEXT = 4, JSON = 5;
+
+    // ── 파일로 적기 ──────────────────────────────────────────────────────
+
+    private ShelfMeta write(String libCode, List<String> packed, int reported) throws IOException {
+        Path target = dataDir.resolve(libCode);
+        Path staging = dataDir.resolve(libCode + ".new");
+        deleteTree(staging);
+        Files.createDirectories(staging);
+
+        List<ShelfMeta.Room> rooms = new ArrayList<>();
+        int at = 0;
+        while (at < packed.size()) {
+            String roomKey = field(packed.get(at), ROOM_CODE);
+            int end = at;
+            while (end < packed.size() && field(packed.get(end), ROOM_CODE).equals(roomKey)) end++;
+
+            rooms.add(writeRoom(staging, "r" + rooms.size(), packed.subList(at, end)));
+            at = end;
+        }
+
+        ShelfMeta meta = new ShelfMeta(libCode, today().toString(), CHUNK, packed.size(),
+                reported, List.copyOf(rooms));
+        Files.writeString(staging.resolve("meta.json"), ShelfJson.meta(meta),
+                StandardCharsets.UTF_8);
+
+        // 마지막 한 걸음만 갈아 끼웁니다. 그 전까지는 예전 서가가 그대로 답합니다.
+        Path retired = dataDir.resolve(libCode + ".old");
+        deleteTree(retired);
+        if (Files.exists(target)) Files.move(target, retired, StandardCopyOption.ATOMIC_MOVE);
+        Files.move(staging, target, StandardCopyOption.ATOMIC_MOVE);
+        deleteTree(retired);
+        return meta;
+    }
+
+    private ShelfMeta.Room writeRoom(Path staging, String slug, List<String> rows)
+            throws IOException {
+        Path dir = staging.resolve(slug);
+        Files.createDirectories(dir);
+
+        Map<String, Integer> chosungAt = new LinkedHashMap<>();
+        for (int i = 0; i < rows.size(); i++) {
+            String chosung = field(rows.get(i), CHOSUNG);
+            // **첫 자리만 담습니다.** 색인을 눌렀을 때 가는 곳이라 그 초성이 처음
+            // 나오는 자리 하나면 충분합니다.
+            if (!chosung.isEmpty()) chosungAt.putIfAbsent(chosung, i);
+        }
+
+        int chunks = 0;
+        for (int from = 0; from < rows.size(); from += CHUNK) {
+            int to = Math.min(from + CHUNK, rows.size());
+            try (Writer out = Files.newBufferedWriter(
+                    dir.resolve(chunks + ".json"), StandardCharsets.UTF_8)) {
+                out.write('[');
+                for (int i = from; i < to; i++) {
+                    if (i > from) out.write(',');
+                    out.write(field(rows.get(i), JSON));
+                }
+                out.write(']');
+            }
+            chunks++;
+        }
+
+        String first = rows.get(0);
+        String last = rows.get(rows.size() - 1);
+        return new ShelfMeta.Room(slug, field(first, ROOM_CODE), field(first, ROOM_NAME),
+                rows.size(), chunks,
+                field(first, CALL_TEXT), field(last, CALL_TEXT), chosungAt);
+    }
+
+    /** 눌러 담은 문자열에서 {@code index} 번째 조각을 꺼냅니다. */
+    private static String field(String packed, int index) {
+        int from = 0;
+        for (int i = 0; i < index; i++) from = packed.indexOf(PACK, from) + 1;
+        int to = packed.indexOf(PACK, from);
+        return to < 0 ? packed.substring(from) : packed.substring(from, to);
+    }
+
+    private LocalDate today() {
+        return LocalDate.ofInstant(clock.instant(), SEOUL);
+    }
+
+    private static String nullToEmpty(String value) {
+        return value == null ? "" : value;
+    }
+
+    static void deleteTree(Path root) throws IOException {
+        if (!Files.exists(root)) return;
+        try (var walk = Files.walk(root)) {
+            for (Path path : walk.sorted(java.util.Comparator.reverseOrder()).toList()) {
+                Files.deleteIfExists(path);
+            }
+        }
+    }
+}

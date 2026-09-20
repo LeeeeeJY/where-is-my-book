@@ -47,6 +47,19 @@ wimb:
     # 종료 훅만으로는 부족해서 주기적으로도 저장합니다. 배포 스크립트가 컨테이너를
     # 바꿀 때 쓰는 docker rm -f 는 SIGKILL 이라 종료 훅이 돌 기회가 없습니다.
     save-interval-ms: 60000
+  shelf:
+    # **서가 파일을 두는 곳.** 수집기가 여기에 적고 화면이 여기서 읽습니다.
+    # 컨테이너 안에 두면 배포할 때마다 20만 권을 다시 받게 되므로 반드시 볼륨이어야
+    # 합니다. 소장 캐시 스냅샷이 쓰는 wimb-data 볼륨을 함께 씁니다.
+    #   WIMB_SHELF_DATA_DIR=/data/shelf
+    data-dir: data/shelf
+    # **수집은 저절로 돌지 않습니다.** 이 값을 주고 띄운 컨테이너만 일하고 끝나면
+    # 나갑니다. 화면에서 부를 수 있게 하면 아무나 정보나루 호출 수천 건을 태울 수
+    # 있고, 자동으로 돌리면 실패했을 때 아무도 모릅니다.
+    #   docker run --rm -v wimb-data:/data -e D4L_AUTH_KEY=... \
+    #       ghcr.io/leeeeejy/where-is-my-book:latest --wimb.shelf.harvest=141321
+    harvest: ""
+
   rate-limit:
     # **주소 하나가 하루 몫을 통째로 태우지 못하게 막습니다.**
     # 우리 API 는 인증이 없고 주소는 번들에 박혀 있어 감출 수 없습니다. 감추는 것이 아니라
