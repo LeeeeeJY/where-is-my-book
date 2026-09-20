@@ -1738,6 +1738,13 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
   from { opacity: 0; }
   to { opacity: 1; }
 }
+/*
+  **덮개 자신에는 테두리를 그리지 않습니다.** 열릴 때 이 화면이 키보드를 넘겨받으므로
+  (`ShelfNearby` 의 `tabIndex={-1}`) 포커스가 여기 놓이는데, 그것은 탭으로 짚어 온 것이
+  아니라 화면이 열린 것이라 **화면 네 귀퉁이에 테두리를 두를 일이 아닙니다.** 안쪽의
+  단추와 링크는 저마다 `:focus-visible` 테두리를 그대로 가지고 있습니다.
+*/
+.nearby:focus { outline: none; }
 
 /*
   **층마다 제 시간에 들어옵니다.** 순서는 눈이 좇는 순서입니다. 선반 라벨과 판이 먼저

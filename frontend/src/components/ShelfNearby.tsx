@@ -11,6 +11,7 @@ import type { Library } from '../domain/types';
 import { coverPaper } from '../domain/coverPaper';
 import { linkBadge, linkLabel } from '../domain/opacLink';
 import { locate } from '../domain/shelfLayout';
+import { NOT_SWIPE_FROM, swipeStep } from '../domain/shelfSwipe';
 import { LoanCheck } from './LoanCheck';
 import { ShelfSearch } from './ShelfSearch';
 
@@ -105,8 +106,14 @@ export function ShelfNearby({
   /*
     **좌우로 넘깁니다.** 서가 앞에서 옆으로 걸어가는 동작이라, 위아래가 아니라
     좌우여야 합니다. 손가락과 키보드 양쪽을 받습니다.
+
+    **다만 넘기는 자리는 서가뿐입니다.** 어디서 시작했는지를 `null` 로 적어 두고,
+    규칙은 `domain/shelfSwipe` 한 곳에 있습니다.
   */
   const touchFrom = useRef<number | null>(null);
+
+  /** 덮개 자신. 열릴 때와 덮개 안을 누를 때 키보드를 여기로 데려옵니다. */
+  const dialog = useRef<HTMLDivElement>(null);
 
   /*
     **넘어간 방향과 걸음 수.** 미끄러지는 것은 여기서 넘긴 걸음뿐입니다. 「책 찾기」로
@@ -177,11 +184,56 @@ export function ShelfNearby({
   */
   useEffect(() => () => walking.current?.cancel(), []);
 
+  /*
+    **열리면 이 화면이 키보드를 넘겨받습니다.** 서가의 표지를 눌러 여는 화면이라
+    그냥 두면 <b>포커스가 덮개 뒤의 그 표지 단추에 그대로 남습니다.</b> 실측으로 열린
+    직후 `document.activeElement` 가 `cover__open` 이었습니다. 화면은 덮어 놓고
+    키보드만 뒤에 두고 온 셈이라, 탭은 보이지도 않는 서가를 돌아다니고 화면을 읽어
+    주는 쪽도 덮인 서가를 계속 읽습니다. `aria-modal` 을 달아 놓고 그렇게 두면 그
+    표시가 거짓말이 됩니다.
+
+    **그리고 손짓 한 번이 그 포커스마저 떨어뜨립니다.** 시트처럼 포커스를 받지 않는
+    자리를 누르거나 끌면 포커스가 `<body>` 로 내려앉는데(실측), 화면 안의 아무것도
+    키보드를 들고 있지 않은 그 상태에서는 <b>브라우저가 첫 방향키를 「어디에 줄지」
+    정하는 데 써 버리는 일이 있습니다.</b> 화면에는 아무 일도 일어나지 않아서
+    <b>두 번 눌러야 넘어가는 것처럼 보입니다.</b> 그래서 덮개 안을 누를 때마다
+    키보드를 이 화면으로 데려옵니다(아래 `onPointerDown`).
+
+    **떠날 때는 열었던 자리에 돌려줍니다.** 그러지 않으면 닫은 사람이 서가 맨
+    처음부터 다시 탭을 눌러 그 책을 찾아가야 합니다. 돌려줄 때 `preventScroll` 을
+    빠뜨리지 마세요. 포커스는 그 자리를 화면 안으로 끌어오므로, 「서가에서 보기」로
+    다른 자리에 미끄러져 가는 중이라면 <b>그 이동이 통째로 되돌려집니다.</b>
+  */
+  useEffect(() => {
+    const opener = document.activeElement;
+    dialog.current?.focus({ preventScroll: true });
+    return () => {
+      if (opener instanceof HTMLElement && opener.isConnected) {
+        opener.focus({ preventScroll: true });
+      }
+    };
+  }, []);
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'ArrowLeft') step(-1);
-      else if (event.key === 'ArrowRight') step(1);
-      else if (event.key === 'Escape') onClose();
+      /*
+        **글자를 적는 중이면 넘기지 않습니다.** 「책 찾기」 칸이 이 화면 안에 있어서,
+        적던 것을 고치려고 화살표로 글자 사이를 오가면 그때마다 책이 넘어갑니다.
+        적는 자리는 그대로인데 밑의 책만 바뀌므로 무엇을 찾고 있었는지를 잃습니다.
+      */
+      if (typingIn(event.target)) return;
+      if (event.key === 'ArrowLeft') {
+        /*
+          **기본 동작을 막습니다.** 막지 않으면 덮개 뒤의 서가가 화살표를 함께 먹어
+          스크롤이 움직입니다. 닫고 돌아왔을 때 보던 줄이 사라져 있는데, 이 화면은
+          「뒤로 가면 보던 자리가 그대로 있어야 한다」를 위해 덮는 것입니다.
+        */
+        event.preventDefault();
+        step(-1);
+      } else if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        step(1);
+      } else if (event.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -190,19 +242,47 @@ export function ShelfNearby({
   return (
     <div
       className="nearby"
+      ref={dialog}
       role="dialog"
       aria-modal="true"
       aria-label="이 책 주변 서가"
+      /*
+        **덮개 자신이 포커스를 받을 수 있어야 합니다.** 탭 차례에는 끼지 않으므로
+        `-1` 입니다. 받을 수 있는 자리가 없으면 위의 효과가 키보드를 데려올 곳이
+        없습니다.
+      */
+      tabIndex={-1}
+      onPointerDown={(event) => {
+        /*
+          **누를 때마다 키보드를 이 화면으로 데려옵니다.** 단추나 링크를 누른 것이면
+          그것이 이미 받았으므로 두지 않습니다. 그 밖의 자리(시트의 글자, 서가의
+          어두운 곳)는 포커스를 받지 못해서, 누르는 순간 포커스가 화면 밖으로
+          떨어집니다. 그 상태에서 방향키가 한 번 먹히지 않는 것이 위에 적어 둔
+          「두 번 눌러야 넘어간다」입니다.
+        */
+        if (
+          event.target instanceof Element &&
+          event.target.closest('a, button, input, select, textarea')
+        ) {
+          return;
+        }
+        dialog.current?.focus({ preventScroll: true });
+      }}
       onTouchStart={(event) => {
-        touchFrom.current = event.touches[0]?.clientX ?? null;
+        /*
+          **넘기는 자리인지는 손가락을 댄 자리가 정합니다.** 하단 시트와 머리 줄에서
+          시작한 것은 넘기는 것이 아니므로 `null` 로 적어 둡니다. 규칙과 그 이유는
+          `domain/shelfSwipe` 에 있습니다.
+        */
+        const at = event.target instanceof Element ? event.target : null;
+        touchFrom.current = at?.closest(NOT_SWIPE_FROM)
+          ? null
+          : (event.touches[0]?.clientX ?? null);
       }}
       onTouchEnd={(event) => {
-        const from = touchFrom.current;
-        const to = event.changedTouches[0]?.clientX;
+        const by = swipeStep(touchFrom.current, event.changedTouches[0]?.clientX);
         touchFrom.current = null;
-        // 짧은 움직임은 넘긴 것이 아니라 누른 것입니다.
-        if (from === null || to === undefined || Math.abs(to - from) < 40) return;
-        step(to < from ? 1 : -1);
+        if (by) step(by);
       }}
     >
       {/*
@@ -423,4 +503,16 @@ export function ShelfNearby({
       </button>
     </div>
   );
+}
+
+/**
+ * 글자를 적는 칸에서 난 키인지.
+ *
+ * <p>그 안의 화살표는 <b>글자 사이를 오가는 것</b>이지 책을 넘기라는 뜻이 아닙니다.
+ * 이 화면 안에 「책 찾기」 칸이 있어서 실제로 겹칩니다.
+ */
+function typingIn(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const tag = target.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
 }
