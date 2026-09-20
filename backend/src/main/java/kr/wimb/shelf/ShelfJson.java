@@ -41,6 +41,16 @@ final class ShelfJson {
         next(out, "cover", item.coverUrl());
         next(out, "call", item.callText());
         next(out, "chosung", item.chosung());
+        /*
+          **분류명을 한 권마다 싣습니다.** 같은 조각 안에서 거의 같은 값이 되풀이되지만,
+          서가의 큰 제목이 「지금 어느 갈래 앞에 서 있는가」를 말하는 자리라 스크롤하는
+          동안 바뀌어야 합니다. 되풀이되는 글자는 gzip 이 거의 그대로 지웁니다.
+
+          **우리가 분류번호로 갈래 이름을 지어내지 않습니다.** 정보나루가 class_nm 으로
+          주는 값이고, KDC 표를 우리가 들고 있으면 그 표가 틀리는 날 서가가 엉뚱한
+          이름을 답합니다.
+        */
+        next(out, "classNm", item.classNm());
         return out.append('}').toString();
     }
 

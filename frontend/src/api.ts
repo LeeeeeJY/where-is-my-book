@@ -227,6 +227,103 @@ export async function searchBooks(
 }
 
 /**
+ * 서가 화면이 받아 가는 것. **정보나루를 한 번도 부르지 않습니다.**
+ *
+ * <p>서버가 미리 받아 적어 둔 파일을 그대로 흘려보냅니다. 서가를 몇 번을 열든 하루
+ * 호출 예산이 줄지 않고, 정보나루가 멈춰 있어도 서가는 평소대로 열립니다.
+ */
+export type ShelfBook = {
+  isbn: string;
+  title: string;
+  author?: string;
+  publisher?: string;
+  year?: string;
+  /** 표지 주소. **없을 수 있습니다.** 그때는 화면이 제목과 저자로 대신 그립니다. */
+  cover?: string;
+  /** 조립한 청구기호. 「813.6 김56ㅁ」 */
+  call?: string;
+  /** 저자 초성. 도서기호 첫 글자에서 뽑은 것이고, 한글이 아니면 없습니다. */
+  chosung?: string;
+  /**
+   * 분류명. 「문학 > 한국문학 > 소설」처럼 옵니다.
+   *
+   * <p>서가의 큰 제목이 이것입니다. 스크롤하면서 바뀌어 「지금 어느 갈래 앞에 서
+   * 있는가」를 말합니다. **정보나루가 준 값이고 우리가 분류번호로 지어내지 않습니다.**
+   */
+  classNm?: string;
+};
+
+/** 자료실 한 곳. **서가를 고르는 단위입니다.** 층이 다르면 아예 다른 서가입니다. */
+export type ShelfRoom = {
+  /** 조각 파일이 놓인 자리. 주소에 그대로 들어갑니다. */
+  slug: string;
+  code?: string;
+  name?: string;
+  count: number;
+  chunks: number;
+  /** 선반 라벨의 왼쪽 끝. */
+  firstCall?: string;
+  /** 선반 라벨의 오른쪽 끝. */
+  lastCall?: string;
+  /**
+   * 초성 → 그 초성이 처음 나오는 자리.
+   *
+   * <p>**없는 초성은 담기지 않습니다.** 화면은 담기지 않은 줄을 흐리게 그려
+   * 「누를 수 있지만 갈 곳이 없다」가 아니라 「여기엔 없다」로 보이게 합니다.
+   */
+  chosungAt: Record<string, number>;
+};
+
+export type ShelfMeta = {
+  libCode: string;
+  /**
+   * **장서 데이터 기준일.** 수집을 끝낸 날입니다. 화면 머리에 그대로 적습니다.
+   *
+   * <p>실시간이 아니라는 것을 숨기지 않으려는 표시입니다. 그 뒤에 들어온 새 책은
+   * 다음 수집까지 서가에 없습니다.
+   */
+  asOf: string;
+  chunkSize: number;
+  count: number;
+  reported: number;
+  rooms: ShelfRoom[];
+};
+
+/**
+ * 서가를 적어 둔 도서관. **고른 도서관 가운데 어느 곳을 열 수 있는지**를 이것으로 압니다.
+ *
+ * <p>아직 수집하지 않은 도서관은 여기에 없습니다. 그것은 고장이 아니라 「아직 만들지
+ * 않았다」이고, 화면이 그렇게 말합니다.
+ */
+export async function fetchShelfLibraries(): Promise<string[]> {
+  const response = await get<{ libCodes?: string[] }>('/api/shelf/libraries');
+  return response.libCodes ?? [];
+}
+
+export async function fetchShelfMeta(libCode: string): Promise<ShelfMeta> {
+  return get<ShelfMeta>(`/api/shelf/${encodeURIComponent(libCode)}/meta`);
+}
+
+/**
+ * 서가의 한 조각. 스크롤하면서 필요한 것만 받습니다.
+ *
+ * <p>**기준일을 주소에 붙입니다.** 서버는 그 값을 쓰지 않습니다. 조각은 하루 동안
+ * 브라우저가 기억해 두는데, 수집을 다시 돌렸을 때 주소가 달라지지 않으면 예전 조각을
+ * 그대로 씁니다. 그러면 서가 한가운데만 옛날 책이 남습니다.
+ */
+export async function fetchShelfChunk(
+  libCode: string,
+  roomSlug: string,
+  chunk: number,
+  asOf: string,
+): Promise<ShelfBook[]> {
+  return get<ShelfBook[]>(
+    `/api/shelf/${encodeURIComponent(libCode)}/${encodeURIComponent(roomSlug)}/${chunk}` +
+      `?v=${encodeURIComponent(asOf)}`,
+  );
+}
+
+/**
  * 도서관으로 넘기는 링크.
  *
  * <p>책을 함께 넘기면 서버가 그 도서관의 주소 규칙을 보고 **그 책의 페이지나 검색 결과**로
