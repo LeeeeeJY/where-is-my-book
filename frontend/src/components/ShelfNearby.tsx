@@ -255,7 +255,7 @@ export function ShelfNearby({
       {/*
         **눈금은 읽는 것이지 끄는 것이 아닙니다.** 이 서가 전체에서 지금 어디쯤인지를
         말합니다. 좌우로 넘기다 보면 어디까지 왔는지를 잃는데, 숫자만으로는 감이 오지
-        않고 막대가 있으면 한눈에 들어옵니다.
+        않고 선이 있으면 한눈에 들어옵니다.
 
         **한때 손으로 끌 수 있었는데 걷어냈습니다.** 수천 권짜리 서가를 가로지르는
         길이 필요해서 붙였던 것인데, 「책 찾기」가 그 일을 훨씬 정확하게 합니다. 끌기는
@@ -264,10 +264,12 @@ export function ShelfNearby({
         좌우 스와이프와 부딪혀 한 번 끌 때 자리가 두 번 움직이지 않도록 따로 막아야
         했습니다. **읽는 일만 남기면 그 둘이 함께 사라집니다.**
 
-        자리를 읽어 주는 것은 바로 아래 「n / 전체」가 이미 하므로 여기는 감춥니다.
+        **차오르는 값이 바로 아래 숫자와 같아야 합니다.** 선과 「1,276 / 4,000」이 한
+        자리에 붙어 있는데 계산이 갈리면 둘 중 어느 쪽이 맞는지 알 방법이 없습니다.
+        자리를 읽어 주는 것은 그 숫자가 이미 하므로 선은 감춥니다.
       */}
       <div className="nearby__ruler" aria-hidden="true">
-        <span style={{ left: `${(index / Math.max(1, room.count - 1)) * 100}%` }} />
+        <span style={{ width: `${((index + 1) / Math.max(1, room.count)) * 100}%` }} />
       </div>
       <p className="nearby__where muted">
         {(index + 1).toLocaleString('ko-KR')} / {room.count.toLocaleString('ko-KR')}

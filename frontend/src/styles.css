@@ -1692,27 +1692,27 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
 
 /* 이 서가 전체에서 지금 어디쯤인지. 넘기다 보면 어디까지 왔는지를 잃습니다. */
 /*
-  **눈금은 손으로 끄는 자리입니다.** 그래서 보이는 선은 3px 이지만 누르는 자리는 44px 로
-  잡습니다. 선만 한 자리는 손가락으로 집을 수 없습니다. 선 자체는 `::before` 가 그리므로
-  자리를 키워도 굵어지지 않습니다.
-
-  `touch-action: none` 이 꼭 필요합니다. 없으면 브라우저가 가로로 끄는 것을 스크롤로 먼저
-  가져가서, 자리는 안 움직이고 화면만 흔들립니다.
-*/
-/*
-  **읽는 눈금입니다. 누르는 자리가 아닙니다.** 손으로 끌 수 있던 때에는 손가락이 집을
+  **읽는 선입니다. 누르는 자리가 아닙니다.** 손으로 끌 수 있던 때에는 손가락이 집을
   수 있게 44px 을 차지했는데, 「책 찾기」가 가로지르는 일을 맡으면서 그 높이가 무대를
-  밀어낼 이유가 없어졌습니다. 보이는 선 그대로만 씁니다.
+  밀어낼 이유가 없어졌습니다.
+
+  **그런데 끌기를 걷어내도 끌게 생긴 것이 남아 있었습니다.** 끝에서 끝까지 깔린 홈에
+  손잡이가 얹힌 모양은 웹에서 **끄는 것의 생김새**라, 끌 수 없게 해 두면 사용자가 한 번
+  잡아 보고 「고장 났나」 합니다. 그래서 홈도 손잡이도 없애고 **지나온 만큼 놋쇠로
+  차오르는 실선 하나**만 둡니다. 글을 읽을 때 위에 차오르는 그 선과 같은 관용구라
+  잡을 생각이 들지 않으면서 「3분의 1쯤 왔다」는 한눈에 들어옵니다.
+
+  **차지하는 높이는 그대로 13px 입니다.** 선이 2px 로 얇아진 만큼을 위아래 여백이
+  받아 내므로, 무대와 숫자 사이가 벌어지거나 좁아지지 않습니다.
 */
-.nearby__ruler { position: relative; height: 13px; margin: 0 16px; box-sizing: border-box; }
-.nearby__ruler::before {
-  content: ''; position: absolute; left: 0; right: 0; top: 5px; height: 3px;
-  background: rgba(246, 241, 230, 0.16); border-radius: 999px;
+.nearby__ruler {
+  position: relative; height: 2px; margin: 6px 16px 5px; border-radius: 999px;
+  background: rgba(246, 241, 230, 0.12); overflow: hidden;
 }
 .nearby__ruler > span {
-  position: absolute; top: 0; width: 4px; height: 13px; border-radius: 999px;
-  background: var(--brass); transform: translateX(-2px);
-  transition: left 0.18s ease;
+  position: absolute; left: 0; top: 0; bottom: 0; border-radius: 999px;
+  background: linear-gradient(90deg, rgba(164, 129, 63, 0.35), var(--brass));
+  transition: width 0.18s ease;
 }
 .nearby__where {
   margin: 0; text-align: center; font-size: 11px;
