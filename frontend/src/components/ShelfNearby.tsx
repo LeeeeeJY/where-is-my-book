@@ -214,6 +214,44 @@ export function ShelfNearby({
     };
   }, []);
 
+  /*
+    **넘기고 나서 누르는 첫 탭이 사라지는 것을 막습니다.** 빠르게 끄는 손짓은 브라우저에
+    <b>관성</b>을 남기는데, 크로미움은 **관성이 도는 동안 들어온 첫 탭을 「관성을 멈추라」는
+    뜻으로 보고 클릭으로 만들지 않습니다.** 그래서 좌우 화살표를 눌러도 `touchstart` 와
+    `touchend` 만 도착하고 `click` 은 영영 오지 않아, **두 번 눌러야 넘어가는 것처럼
+    보입니다.** 실측으로 끈 뒤 60ms 와 150ms 에 누른 탭은 클릭이 0건이고 250ms 부터
+    돌아왔습니다. 안드로이드 크롬에서 나온 말인데, **앱을 걷어낸 빈 페이지에서도 똑같이
+    재현됩니다.** 우리 코드가 하는 일이 아닙니다.
+
+    **보통 페이지에서는 이것이 맞는 동작입니다.** 관성이 눈에 보이게 굴러가고 있으니 첫
+    탭이 그것을 멈추는 것으로 읽힙니다. 그런데 이 화면은 좌우로 넘기는 것을 우리가 직접
+    처리하고 브라우저가 밀 것은 없어서, **아무것도 움직이지 않는데 탭만 사라진 것**으로
+    보입니다. 그 잠깐 동안은 화살표뿐 아니라 뒤로 가기도 옆 책도 한 번은 먹지 않습니다.
+
+    **`touch-action` 으로는 풀리지 않습니다.** `none` 으로 바꿔도 관성은 그대로 생깁니다.
+    손짓을 우리가 가져갔다고 브라우저에 말해 주어야 하고, 그 말이 `touchmove` 의
+    `preventDefault()` 입니다.
+
+    **React 의 `onTouchMove` 로 옮기지 마세요.** React 는 `touchmove` 를 **passive 로**
+    답니다. 코드는 그대로인데 `preventDefault()` 가 아무 일도 하지 않고, **화면에도
+    콘솔에도 아무것도 남지 않아** 고친 사람은 고쳐졌다고 믿습니다. 그래서 여기서 직접
+    답니다.
+
+    **우리 손짓일 때만 막습니다.** 시트와 머리 줄에서 시작한 것은 브라우저의 몫이라 그대로
+    둡니다. 거기까지 막으면 시트의 청구기호를 손가락으로 골라 복사하는 것이 함께 막힙니다.
+    가르는 것은 `onTouchStart` 가 이미 적어 둔 값 하나이고, 규칙은 `domain/shelfSwipe` 에
+    있습니다.
+  */
+  useEffect(() => {
+    const el = dialog.current;
+    if (!el) return;
+    const hold = (event: TouchEvent) => {
+      if (touchFrom.current !== null) event.preventDefault();
+    };
+    el.addEventListener('touchmove', hold, { passive: false });
+    return () => el.removeEventListener('touchmove', hold);
+  }, []);
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       /*
