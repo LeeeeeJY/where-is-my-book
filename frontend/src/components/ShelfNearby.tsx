@@ -30,6 +30,15 @@ import { ShelfSearch } from './ShelfSearch';
  * <p>서가는 이미 청구기호 순으로 잘라 둔 파일이라, 옆자리는 <b>그 파일의 앞뒤 칸</b>
  * 입니다. 새로 물어볼 것이 없고 조각 경계를 넘을 때만 이웃 조각을 한 번 더 받습니다.
  */
+/**
+ * 나가는 애니메이션이 끝났다는 말이 오지 않을 때 <b>그래도 내보내는</b> 시각.
+ *
+ * <p>탭이 숨겨져 있으면 애니메이션이 돌지 않아 `animationend` 가 오지 않습니다. 그때
+ * 덮개가 영영 남으면 서가로 돌아갈 길이 없어집니다. **CSS 의 길이를 베낀 숫자가 아니라
+ * 그보다 넉넉한 상한**이라, 나가는 차례를 고쳐도 여기를 따라 고칠 일이 없습니다.
+ */
+const LEAVE_GIVE_UP_MS = 900;
+
 export function ShelfNearby({
   meta,
   room,
@@ -124,8 +133,77 @@ export function ShelfNearby({
   const stage = useRef<HTMLDivElement>(null);
   const walking = useRef<Animation | null>(null);
 
+  /*
+    **나가는 것도 들어온 것처럼 짓습니다.** 들어올 때는 어둠이 깔리고 층이 차례로
+    내려앉는데, 나갈 때는 <b>한 프레임에 통째로 사라지고 있었습니다.</b> 실측으로 뒤로
+    가기를 누른 지 50ms 만에 덮개가 DOM 에서 없어집니다. 들어갈 때는 무대가 서고 나올
+    때는 툭 끊기는 셈이라, 같은 화면인데 오갈 때의 무게가 다릅니다.
+
+    **그래서 들어온 순서의 반대로 물러나고 어둠이 마지막에 걷힙니다.** 머리 줄과
+    화살표 → 시트와 눈금 → 옆 책 → 가운데 책 → 라벨과 선반 → 어둠입니다. 차례는
+    `styles.css` 의 `.nearby--leaving` 이 잡습니다. 어둠이 걷히면 서가가 드러나고 방금
+    보던 책이 기울어 선 채 그 자리에 있어서, 뽑아 든 책을 도로 꽂는 것으로 읽힙니다.
+
+    **들어오는 것보다 짧아야 합니다.** 들어올 때는 무대가 서기를 기다리지만 나갈 때
+    기다릴 것은 없습니다. 들어오는 것이 480ms, 나가는 것이 300ms 입니다.
+
+    **언마운트를 미루는 것이라 그동안은 덮개가 그대로 입력을 받습니다.** 여기에
+    `pointer-events: none` 을 걸면 나가는 동안 밑의 표지를 누를 수 있게 되는데, 그러면
+    새로 연 책이 잠시 뒤 이 타이머에 닫힙니다. 300ms 는 사람이 그 사이를 노리기
+    어렵습니다.
+
+    **움직임을 줄여 달라고 한 사람에게는 이 클래스가 아예 붙지 않습니다.** 그래서
+    CSS 쪽에 같은 조건을 또 두지 않았습니다. 가는 길이 하나뿐이라 둘이 갈릴 자리가
+    없습니다.
+  */
+  const [leaving, setLeaving] = useState(false);
+  /** 어둠이 다 걷히면 부를 것. **나가는 중인지도 이 값으로 압니다.** */
+  const leavingTo = useRef<(() => void) | null>(null);
+  const leaveTimer = useRef<number | null>(null);
+
+  const shut = useCallback(() => {
+    const go = leavingTo.current;
+    if (!go) return;
+    leavingTo.current = null;
+    if (leaveTimer.current !== null) {
+      clearTimeout(leaveTimer.current);
+      leaveTimer.current = null;
+    }
+    go();
+  }, []);
+
+  const leave = useCallback(
+    (go: () => void) => {
+      if (leavingTo.current) return;
+      if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+        go();
+        return;
+      }
+      leavingTo.current = go;
+      setLeaving(true);
+      /*
+        **애니메이션이 끝났다는 말만 믿지 않습니다.** 탭이 숨겨져 있으면 애니메이션이
+        돌지 않아 `animationend` 가 오지 않고, 그러면 덮개가 영영 남습니다. 이 숫자는
+        CSS 의 길이를 베낀 것이 아니라 **그보다 넉넉한 상한**이라, 차례를 고쳐도 따라
+        고칠 일이 없습니다. 「내 위치 다시 잡기」가 브라우저의 시계만 믿지 않는 것과
+        같습니다.
+      */
+      leaveTimer.current = window.setTimeout(shut, LEAVE_GIVE_UP_MS);
+    },
+    [shut],
+  );
+
+  useEffect(
+    () => () => {
+      if (leaveTimer.current !== null) clearTimeout(leaveTimer.current);
+    },
+    [],
+  );
+
   const step = useCallback(
     (by: number) => {
+      /* 나가는 중에 책이 바뀌면 사라지는 화면이 다른 책을 보여 주게 됩니다. */
+      if (leavingTo.current) return;
       const next = index + by;
       if (next < 0 || next >= room.count) return;
       walked.current = by;
@@ -214,6 +292,44 @@ export function ShelfNearby({
     };
   }, []);
 
+  /*
+    **넘기고 나서 누르는 첫 탭이 사라지는 것을 막습니다.** 빠르게 끄는 손짓은 브라우저에
+    <b>관성</b>을 남기는데, 크로미움은 **관성이 도는 동안 들어온 첫 탭을 「관성을 멈추라」는
+    뜻으로 보고 클릭으로 만들지 않습니다.** 그래서 좌우 화살표를 눌러도 `touchstart` 와
+    `touchend` 만 도착하고 `click` 은 영영 오지 않아, **두 번 눌러야 넘어가는 것처럼
+    보입니다.** 실측으로 끈 뒤 60ms 와 150ms 에 누른 탭은 클릭이 0건이고 250ms 부터
+    돌아왔습니다. 안드로이드 크롬에서 나온 말인데, **앱을 걷어낸 빈 페이지에서도 똑같이
+    재현됩니다.** 우리 코드가 하는 일이 아닙니다.
+
+    **보통 페이지에서는 이것이 맞는 동작입니다.** 관성이 눈에 보이게 굴러가고 있으니 첫
+    탭이 그것을 멈추는 것으로 읽힙니다. 그런데 이 화면은 좌우로 넘기는 것을 우리가 직접
+    처리하고 브라우저가 밀 것은 없어서, **아무것도 움직이지 않는데 탭만 사라진 것**으로
+    보입니다. 그 잠깐 동안은 화살표뿐 아니라 뒤로 가기도 옆 책도 한 번은 먹지 않습니다.
+
+    **`touch-action` 으로는 풀리지 않습니다.** `none` 으로 바꿔도 관성은 그대로 생깁니다.
+    손짓을 우리가 가져갔다고 브라우저에 말해 주어야 하고, 그 말이 `touchmove` 의
+    `preventDefault()` 입니다.
+
+    **React 의 `onTouchMove` 로 옮기지 마세요.** React 는 `touchmove` 를 **passive 로**
+    답니다. 코드는 그대로인데 `preventDefault()` 가 아무 일도 하지 않고, **화면에도
+    콘솔에도 아무것도 남지 않아** 고친 사람은 고쳐졌다고 믿습니다. 그래서 여기서 직접
+    답니다.
+
+    **우리 손짓일 때만 막습니다.** 시트와 머리 줄에서 시작한 것은 브라우저의 몫이라 그대로
+    둡니다. 거기까지 막으면 시트의 청구기호를 손가락으로 골라 복사하는 것이 함께 막힙니다.
+    가르는 것은 `onTouchStart` 가 이미 적어 둔 값 하나이고, 규칙은 `domain/shelfSwipe` 에
+    있습니다.
+  */
+  useEffect(() => {
+    const el = dialog.current;
+    if (!el) return;
+    const hold = (event: TouchEvent) => {
+      if (touchFrom.current !== null) event.preventDefault();
+    };
+    el.addEventListener('touchmove', hold, { passive: false });
+    return () => el.removeEventListener('touchmove', hold);
+  }, []);
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       /*
@@ -233,16 +349,25 @@ export function ShelfNearby({
       } else if (event.key === 'ArrowRight') {
         event.preventDefault();
         step(1);
-      } else if (event.key === 'Escape') onClose();
+      } else if (event.key === 'Escape') leave(onClose);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [step, onClose]);
+  }, [step, onClose, leave]);
 
   return (
     <div
-      className="nearby"
+      className={leaving ? 'nearby nearby--leaving' : 'nearby'}
       ref={dialog}
+      /*
+        **어둠이 다 걷힌 뒤에 내보냅니다.** 길이를 대본에 또 적으면 차례를 고칠 때마다
+        두 곳을 맞춰야 하고, 어긋나도 화면에는 아무 표시가 나지 않습니다. 끝났다는 말을
+        그대로 듣는 편이 갈릴 자리가 없습니다. 자식들의 `animationend` 도 여기까지
+        올라오므로 **덮개 자신의 것인지 보고** 받습니다.
+      */
+      onAnimationEnd={(event) => {
+        if (event.target === dialog.current && event.animationName === 'nearby-shut') shut();
+      }}
       role="dialog"
       aria-modal="true"
       aria-label="이 책 주변 서가"
@@ -304,7 +429,7 @@ export function ShelfNearby({
         <button
           type="button"
           className="nearby__back chip chip--sm chip--icon"
-          onClick={onClose}
+          onClick={() => leave(onClose)}
           aria-label="서가로 돌아가기"
           title="서가로 돌아가기"
         >
@@ -458,7 +583,7 @@ export function ShelfNearby({
               <button
                 type="button"
                 className="chip"
-                onClick={() => onShowOnShelf(index)}
+                onClick={() => leave(() => onShowOnShelf(index))}
               >
                 서가에서 보기
               </button>
