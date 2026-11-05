@@ -343,6 +343,25 @@ def check_import(work: str) -> list[str]:
               f"경고 {'있음' if warned else '없음'}")
         if not ok:
             failures.append(f"받기:{label}")
+
+    # 쉼표가 든 주소. 서버는 앞의 쉼표 셋에서만 자르고 따옴표를 모르므로, 따옴표로 감싸면
+    # `"https://...` 로 시작하는 링크가 나갑니다(강동, 2026-11-05). 써 준 줄을 서버처럼 읽어
+    # 주소가 그대로 돌아오는지, 그리고 스크립트가 읽는 쪽(template_rows)도 같은지 봅니다.
+    comma_url = "https://www.lib.example.go.kr/s?manage_code=MA,MB&q={isbn13}"
+    path = os.path.join(work, "findings.txt")
+    open(path, "w").write(f"www.lib.example.go.kr | ISBN_SEARCH | UTF-8 | {comma_url}\n")
+    buf, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(err):
+        od.import_findings(path, libs)
+    rows = [l for l in buf.getvalue().splitlines() if l.strip()]
+    csv_path = os.path.join(work, "comma.csv")
+    open(csv_path, "w", encoding="utf-8").write("# 머리말\n" + "\n".join(rows) + "\n")
+    server_urls = {l.split(",", 3)[3].strip() for l in rows}
+    read_back = {r[3] for r in od.template_rows(csv_path)}
+    ok = len(rows) == 2 and server_urls == {comma_url} and read_back == {comma_url}
+    print(f"  {'✓' if ok else '✗'} {'쉼표 든 주소':22s} {sorted(server_urls)}")
+    if not ok:
+        failures.append("받기:쉼표 든 주소")
     return failures
 
 

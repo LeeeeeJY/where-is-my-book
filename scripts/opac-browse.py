@@ -86,7 +86,6 @@ robots.txt 를 받아 거부된 경로는 건드리지 않습니다. 한 묶음�
 from __future__ import annotations
 
 import argparse
-import csv
 import importlib.util
 import json
 import os
@@ -253,8 +252,11 @@ def detail_rule(browser, template: str, books: list[str], pacer, timeout: float)
             here = next((o.url for o in context.pages if books[0] in o.url and o is not page),
                         page.url)
             detail = templatize(here, books[0])
-            # 검색 결과 주소와 같으면 상세로 간 것이 아닙니다.
-            if not detail or detail == template:
+            # 검색 결과 주소와 같으면 상세로 간 것이 아닙니다. `#` 뒤는 떼고 견줍니다.
+            # 결과 화면의 `href="#"` 를 누르면 같은 검색 주소에 `#` 만 붙는데, 그대로 견주면
+            # 다른 주소로 보여 검색 결과가 `ISBN_DETAIL` 로 들어갑니다(기장, 2026-11-05).
+            if not detail or (urllib.parse.urldefrag(detail)[0]
+                              == urllib.parse.urldefrag(template)[0]):
                 return None
             # 다른 책으로 바꿔 새 창에서 열어 그 책이 나와야 하고, **처음 책의 제목이 섞이면 안
             # 됩니다.** 주소의 ISBN 을 무시하고 목록을 뿌리는 페이지면 둘 다 보이기 때문입니다.
@@ -700,9 +702,8 @@ def ruled_codes(csv_path: str) -> set[str]:
     out: set[str] = set()
     if not os.path.exists(csv_path):
         return out
-    for row in csv.reader(open(csv_path, encoding="utf-8")):
-        if row and not row[0].lstrip().startswith("#") and len(row) >= 4:
-            out.add(row[0].strip())
+    for row in od.template_rows(csv_path):
+        out.add(row[0])
     return out
 
 
@@ -840,11 +841,9 @@ def find_patterns(work: str, csv_path: str, patterns_csv: str, host_delay: float
     by_code = {l["libCode"]: l for l in libs}
 
     by_template: dict[str, list[dict]] = defaultdict(list)
-    for row in csv.reader(open(csv_path, encoding="utf-8")):
-        if not row or row[0].lstrip().startswith("#") or len(row) < 4:
-            continue
-        if row[1].strip() == "ISBN_SEARCH" and row[0].strip() in by_code:
-            by_template[row[3].strip()].append(by_code[row[0].strip()])
+    for row in od.template_rows(csv_path):
+        if row[1] == "ISBN_SEARCH" and row[0] in by_code:
+            by_template[row[3]].append(by_code[row[0]])
 
     existing = od.existing_patterns(patterns_csv)
     results_path = os.path.join(work, "patterns.jsonl")
@@ -916,9 +915,8 @@ def check_gaps(work: str, csv_path: str, host_delay: float, timeout: float) -> i
 
     libs = od.load_libraries(work)
     rules: dict[str, str] = {}
-    for row in csv.reader(open(csv_path, encoding="utf-8")):
-        if row and not row[0].lstrip().startswith("#") and len(row) >= 4:
-            rules[row[0].strip()] = row[3]
+    for row in od.template_rows(csv_path):
+        rules[row[0]] = row[3]
 
     org_rule, org_key, by_org = {}, {}, defaultdict(list)
     for l in libs:
