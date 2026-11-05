@@ -125,9 +125,15 @@ public class DiagnoseController {
         // 함께 적어, 여기서 통과한 규칙이 곧 서비스에 반영된 것으로 읽히지 않게 합니다.
         var rules = opacTemplates.asIfEnabled();
         out.put("linksEnabled", opacTemplates.linksEnabled());
+        // 지금 화면이 실제로 보내는 단계. 아래 kind 와 다르면 스위치나 허용 목록이 막고 있는
+        // 것이라, 「진단은 통과하는데 화면은 홈페이지로 간다」를 여기서 갈라 읽습니다.
+        out.put("liveKind", opacTemplates.kindFor(lib).name());
         if (!opacTemplates.linksEnabled()) {
             out.put("liveNote", "지금은 규칙을 꺼 두어 화면의 링크는 홈페이지로 갑니다. "
                     + "아래는 규칙을 켰을 때 어떻게 되는지입니다.");
+        } else if (opacTemplates.kindFor(lib) != rules.kindFor(lib)) {
+            out.put("liveNote", "이 도서관의 호스트는 허용 목록(wimb.opac.enabled-hosts)에 없어 "
+                    + "화면의 링크는 홈페이지로 갑니다. 아래는 목록에 넣었을 때 어떻게 되는지입니다.");
         }
         out.put("kind", rules.kindFor(lib).name());
         var link = rules.bestFor(lib, isbn, null);

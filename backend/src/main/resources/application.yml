@@ -39,6 +39,12 @@ wimb:
     # 확인이 끝난 뒤에 켜면 됩니다.
     #   WIMB_OPAC_LINKS_ENABLED=true
     links-enabled: false
+    # **켤 때는 확인한 시스템만 켭니다.** 규칙 주소의 호스트(필요하면 호스트/경로조각, 상세
+    # 패턴의 열쇠와 같은 모양)를 쉼표로 적습니다. 비어 있으면 전부입니다. 스위치 하나로는
+    # 「확인한 만큼씩 켜라」를 지킬 수 없고, 전부 켜 놓으면 어느 규칙이 틀렸는지 알 방법이
+    # 없습니다. 목록 밖의 도서관은 꺼 둔 것과 똑같이 홈페이지로 갑니다.
+    #   WIMB_OPAC_ENABLED_HOSTS=www.unilib.dobong.kr,library.suncheon.go.kr,www.uilib.go.kr/main
+    enabled-hosts: ""
   holdings:
     # 소장 캐시 스냅샷을 두는 곳. **컨테이너 안에 두면 재배포 때 함께 사라집니다.**
     # 이미지가 WIMB_HOLDINGS_CACHE_PATH=/data/... 로 덮고, 배포 스크립트가 거기에
