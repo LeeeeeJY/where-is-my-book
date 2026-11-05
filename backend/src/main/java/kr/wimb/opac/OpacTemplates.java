@@ -16,6 +16,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
@@ -60,6 +62,16 @@ import java.util.regex.PatternSyntaxException;
  * 인지 「파일을 잃어서 0」인지 가르는 근거, 그리고 배포된 서버에서 규칙을 시험하는
  * {@code /api/diagnose/opac} 입니다. 진단은 {@link #asIfEnabled()} 로 스위치를 건너뛰므로
  * <b>끈 상태에서도 한 줄씩 확인해 가며 채울 수 있습니다.</b>
+ *
+ * <h2>확인한 시스템만 켜는 허용 목록 ({@code wimb.opac.enabled-hosts})</h2>
+ *
+ * <p>스위치가 하나뿐이면 「확인한 만큼씩 켜라」를 지킬 방법이 없습니다. 전부 켜 놓으면 어느
+ * 규칙이 틀렸는지 알 수 없고, 확인이 끝난 시스템이 있어도 나머지가 남아 있는 동안 켤 수
+ * 없습니다. 그래서 규칙 주소의 호스트(필요하면 {@code 호스트/경로조각}, 상세 패턴의 열쇠와
+ * 같은 모양)를 적은 허용 목록을 둡니다. <b>목록이 비어 있으면 전부</b>이고, 적혀 있으면 그
+ * 호스트의 규칙만 링크로 씁니다. 목록 밖의 도서관은 스위치를 꺼 둔 것과 똑같이 규칙이 없는
+ * 도서관으로 보여 홈페이지로 갑니다. 스위치({@code links-enabled})가 꺼져 있으면 목록이
+ * 무엇이든 전부 꺼집니다. 진단({@link #asIfEnabled()})은 둘 다 건너뜁니다.
  */
 public final class OpacTemplates {
 
@@ -78,11 +90,21 @@ public final class OpacTemplates {
      */
     private final boolean linksEnabled;
 
+    /**
+     * 링크로 쓸 규칙의 호스트. <b>비어 있으면 전부</b>입니다. 열쇠 모양은 상세 패턴과 같아서
+     * {@code lib.example.kr} 또는 {@code lib.example.kr/main} 이고, 규칙 주소의 호스트·경로가
+     * 그 열쇠와 같거나 {@code 열쇠/} 로 시작하면 그 규칙을 씁니다. 위의 「확인한 시스템만
+     * 켜는 허용 목록」을 보세요.
+     */
+    private final Set<String> enabledHosts;
+
     private OpacTemplates(Map<String, Map<OpacLink.Kind, Template>> byLibCode,
-                          Map<String, DetailPattern> patterns, boolean linksEnabled) {
+                          Map<String, DetailPattern> patterns, boolean linksEnabled,
+                          Set<String> enabledHosts) {
         this.byLibCode = byLibCode;
         this.patterns = patterns;
         this.linksEnabled = linksEnabled;
+        this.enabledHosts = Set.copyOf(enabledHosts);
     }
 
     /** 자원에서 읽어 들입니다. 파일이 없으면 규칙이 하나도 없는 것으로 보고 넘어갑니다. */
@@ -92,11 +114,35 @@ public final class OpacTemplates {
 
     /** 규칙을 읽어 들이되 링크로 쓸지 말지를 정합니다. 설정이 그 값을 넘깁니다. */
     public static OpacTemplates load(boolean linksEnabled) {
-        return load("/opac/templates.csv", "/opac/detail-patterns.csv", linksEnabled);
+        return load(linksEnabled, Set.of());
+    }
+
+    /** 규칙을 읽어 들이되, 링크로 쓸지와 어느 호스트의 규칙만 쓸지를 함께 정합니다. */
+    public static OpacTemplates load(boolean linksEnabled, Set<String> enabledHosts) {
+        return load("/opac/templates.csv", "/opac/detail-patterns.csv", linksEnabled, enabledHosts);
     }
 
     static OpacTemplates load(String templatesPath, String patternsPath, boolean linksEnabled) {
-        return of(readLines(templatesPath), readLines(patternsPath), linksEnabled);
+        return load(templatesPath, patternsPath, linksEnabled, Set.of());
+    }
+
+    static OpacTemplates load(String templatesPath, String patternsPath, boolean linksEnabled,
+                              Set<String> enabledHosts) {
+        return of(readLines(templatesPath), readLines(patternsPath), linksEnabled, enabledHosts);
+    }
+
+    /**
+     * 설정 문자열(쉼표로 나눈 호스트들)을 허용 목록으로. 빈 칸과 빈 문자열은 버리고, 대소문자와
+     * 끝의 {@code /} 는 상세 패턴 열쇠와 같은 규칙으로 고릅니다. 비어 있으면 「전부」입니다.
+     */
+    public static Set<String> parseEnabledHosts(String commaSeparated) {
+        Set<String> out = new TreeSet<>();
+        if (commaSeparated == null) return out;
+        for (String part : commaSeparated.split(",")) {
+            String key = normalizeKey(part);
+            if (!key.isEmpty()) out.add(key);
+        }
+        return out;
     }
 
     private static List<String> readLines(String resourcePath) {
@@ -124,6 +170,12 @@ public final class OpacTemplates {
     /** 규칙 표와 상세 패턴을 글줄로 받고, 그것을 링크로 쓸지까지 정합니다. */
     public static OpacTemplates of(List<String> templateLines, List<String> patternLines,
                                    boolean linksEnabled) {
+        return of(templateLines, patternLines, linksEnabled, Set.of());
+    }
+
+    /** 규칙 표와 상세 패턴을 글줄로 받고, 링크로 쓸지와 어느 호스트만 쓸지까지 정합니다. */
+    public static OpacTemplates of(List<String> templateLines, List<String> patternLines,
+                                   boolean linksEnabled, Set<String> enabledHosts) {
         List<String> problems = new ArrayList<>();
         Map<String, Map<OpacLink.Kind, Template>> templates = parseTemplates(templateLines, problems);
         Map<String, DetailPattern> patterns = parsePatterns(patternLines, problems);
@@ -134,7 +186,7 @@ public final class OpacTemplates {
             throw new IllegalStateException(
                     "OPAC 주소 규칙을 읽지 못했습니다:\n  " + String.join("\n  ", problems));
         }
-        return new OpacTemplates(templates, patterns, linksEnabled);
+        return new OpacTemplates(templates, patterns, linksEnabled, enabledHosts);
     }
 
     private static Map<String, Map<OpacLink.Kind, Template>> parseTemplates(
@@ -248,8 +300,8 @@ public final class OpacTemplates {
      * 그 도서관으로 보낼 가장 좋은 링크.
      *
      * <p>상세 → ISBN 검색 → 제목 검색 순으로 내려가고, 규칙이 하나도 없으면 비어 있는 값을
-     * 돌려줍니다. 그때는 부르는 쪽이 홈페이지로 보내면 됩니다. <b>스위치가 꺼져 있으면 규칙이
-     * 있어도 비어 있는 값입니다.</b> 부르는 쪽에서 보면 규칙이 없는 도서관과 같아서, 홈페이지로
+     * 돌려줍니다. 그때는 부르는 쪽이 홈페이지로 보내면 됩니다. <b>스위치가 꺼져 있거나 허용
+     * 목록 밖의 호스트면 규칙이 있어도 비어 있는 값입니다.</b> 부르는 쪽에서 보면 규칙이 없는 도서관과 같아서, 홈페이지로
      * 내려앉는 길을 새로 만들 필요가 없습니다. {@code DETAIL_LOOKUP} 은
      * 여기서 나오지 않습니다. ISBN 검색 링크를 받은 쪽이 {@link #detailPatternFor} 로 패턴을
      * 얻어 {@link DetailResolver} 에 넘기면 그것이 상세 조회입니다.
@@ -261,7 +313,7 @@ public final class OpacTemplates {
 
         for (OpacLink.Kind kind : OpacLink.Kind.values()) {
             Template template = templates.get(kind);
-            if (template == null) continue;
+            if (template == null || !allowed(template)) continue;
             String value = kind == OpacLink.Kind.TITLE_SEARCH ? title : isbn13;
             if (value == null || value.isBlank()) continue;   // 값이 없으면 다음 단계로
             return Optional.of(new OpacLink(fill(template, value, kind), kind));
@@ -282,7 +334,7 @@ public final class OpacTemplates {
         if (templates == null) return OpacLink.Kind.HOMEPAGE;
         for (OpacLink.Kind kind : OpacLink.Kind.values()) {
             Template template = templates.get(kind);
-            if (template == null) continue;
+            if (template == null || !allowed(template)) continue;
             if (kind == OpacLink.Kind.ISBN_SEARCH && detailPatternFor(template.urlTemplate()).isPresent()) {
                 return OpacLink.Kind.DETAIL_LOOKUP;
             }
@@ -300,6 +352,41 @@ public final class OpacTemplates {
      */
     public Optional<DetailPattern> detailPatternFor(String url) {
         if (patterns.isEmpty() || url == null) return Optional.empty();
+        String hostPath = hostPathOf(url);
+
+        DetailPattern best = null;
+        for (DetailPattern candidate : patterns.values()) {
+            String key = candidate.key();
+            if (keyCovers(key, hostPath) && (best == null || key.length() > best.key().length())) {
+                best = candidate;
+            }
+        }
+        return Optional.ofNullable(best);
+    }
+
+    /**
+     * 이 규칙을 링크로 써도 되는지. 허용 목록이 비어 있으면 전부이고, 적혀 있으면 규칙 주소의
+     * 호스트·경로가 그중 하나에 덮여야 합니다. 상세 패턴의 열쇠와 같은 규칙으로 견줍니다.
+     */
+    private boolean allowed(Template template) {
+        if (enabledHosts.isEmpty()) return true;
+        String hostPath = hostPathOf(template.urlTemplate());
+        for (String key : enabledHosts) {
+            if (keyCovers(key, hostPath)) return true;
+        }
+        return false;
+    }
+
+    private static boolean keyCovers(String key, String hostPath) {
+        return hostPath.equals(key) || hostPath.startsWith(key + "/");
+    }
+
+    /**
+     * 주소의 {@code 호스트/경로} 를 소문자로. 질의와 조각은 떼고 끝의 {@code /} 도 뗍니다.
+     * 자리표가 든 규칙 주소({@code /KeywordSearchResult/{isbn13}})도 받아야 하므로 URI 로
+     * 파싱하지 않고 글자로 자릅니다.
+     */
+    private static String hostPathOf(String url) {
         String rest = url.strip();
         int scheme = rest.indexOf("://");
         if (scheme >= 0) rest = rest.substring(scheme + 3);
@@ -309,14 +396,7 @@ public final class OpacTemplates {
         String host = (slash >= 0 ? rest.substring(0, slash) : rest).toLowerCase(Locale.ROOT);
         String hostPath = host + (slash >= 0 ? rest.substring(slash) : "");
         while (hostPath.endsWith("/")) hostPath = hostPath.substring(0, hostPath.length() - 1);
-
-        DetailPattern best = null;
-        for (DetailPattern candidate : patterns.values()) {
-            String key = candidate.key();
-            boolean matches = hostPath.equals(key) || hostPath.startsWith(key + "/");
-            if (matches && (best == null || key.length() > best.key().length())) best = candidate;
-        }
-        return Optional.ofNullable(best);
+        return hostPath;
     }
 
     private static int indexOfAny(String s, char a, char b) {
@@ -339,7 +419,16 @@ public final class OpacTemplates {
     }
 
     /**
-     * 스위치를 건너뛰고 규칙을 그대로 쓰는 사본. <b>{@code /api/diagnose/opac} 전용입니다.</b>
+     * 링크로 쓰는 호스트의 허용 목록. 비어 있으면 「전부」입니다. {@code /api/status} 가
+     * 내보내 어느 시스템이 켜져 있는지를 서버가 말하게 합니다. 호스트는 비밀이 아닙니다.
+     */
+    public Set<String> enabledHosts() {
+        return new TreeSet<>(enabledHosts);
+    }
+
+    /**
+     * 스위치와 허용 목록을 건너뛰고 규칙을 그대로 쓰는 사본. <b>{@code /api/diagnose/opac}
+     * 전용입니다.</b>
      *
      * <p>규칙을 꺼 둔 채로 보완하려면 배포된 서버에서 한 줄씩 시험해 볼 수 있어야 합니다.
      * 서버가 그 OPAC 에 닿는지는 배포된 곳의 나가는 IP 에 달려 있어 로컬에서 확인한 것으로는
@@ -347,7 +436,8 @@ public final class OpacTemplates {
      * 경로에서 부르지 마세요.</b> 그 순간 스위치가 아무것도 막지 못합니다.
      */
     public OpacTemplates asIfEnabled() {
-        return linksEnabled ? this : new OpacTemplates(byLibCode, patterns, true);
+        if (linksEnabled && enabledHosts.isEmpty()) return this;
+        return new OpacTemplates(byLibCode, patterns, true, Set.of());
     }
 
     /** 규칙을 넣어 둔 도서관 수. 뜰 때 로그로 남겨 두면 빠진 것을 알아차립니다. */

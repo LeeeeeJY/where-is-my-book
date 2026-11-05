@@ -486,6 +486,9 @@ public class WimbController {
         // 규칙 파일을 잃었나 의심하게 됩니다. 실제로 .gitignore 가 CSV 를 삼킨 적이 있어서
         // 그쪽을 먼저 떠올리게 됩니다.
         out.put("opacLinksEnabled", opacTemplates.linksEnabled());
+        // 켜 둔 호스트 목록. 비어 있으면 전부입니다. 켰는데 어떤 도서관만 홈페이지로 가면
+        // 여기에 그 호스트가 없는 것이고, 규칙 파일이나 코드를 뒤질 일이 아닙니다.
+        out.put("opacEnabledHosts", List.copyOf(opacTemplates.enabledHosts()));
         out.put("opacRuleLibraries", opacTemplates.size());
         out.put("opacDetailPatterns", opacTemplates.patternCount());
         out.putAll(detailResolver.stats());

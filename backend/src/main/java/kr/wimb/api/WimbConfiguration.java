@@ -146,6 +146,15 @@ public class WimbConfiguration implements WebMvcConfigurer {
     private boolean opacLinksEnabled;
 
     /**
+     * 켜되 <b>확인한 시스템만</b> 켜는 허용 목록. 규칙 주소의 호스트(필요하면 호스트/경로조각)를
+     * 쉼표로 적습니다. <b>비어 있으면 전부</b>입니다. 스위치 하나로는 「확인한 만큼씩 켜라」를
+     * 지킬 수 없어서 둔 것이고, 목록 밖의 도서관은 꺼 둔 것과 똑같이 홈페이지로 갑니다.
+     *   WIMB_OPAC_ENABLED_HOSTS=www.unilib.dobong.kr,library.suncheon.go.kr
+     */
+    @Value("${wimb.opac.enabled-hosts:}")
+    private String opacEnabledHosts;
+
+    /**
      * 도서관별 OPAC 주소 규칙. 정보나루가 홈페이지 주소만 주기 때문에 우리가 들고 있어야
      * 합니다. 규칙이 잘못된 줄이 있으면 여기서 예외가 나 서버가 뜨지 않는데, 조용히 빠진
      * 채로 배포되는 것보다 낫습니다. <b>스위치를 꺼도 읽는 것은 그대로입니다.</b> 잘못된 줄은
@@ -153,7 +162,8 @@ public class WimbConfiguration implements WebMvcConfigurer {
      */
     @Bean
     public kr.wimb.opac.OpacTemplates opacTemplates() {
-        return kr.wimb.opac.OpacTemplates.load(opacLinksEnabled);
+        return kr.wimb.opac.OpacTemplates.load(
+                opacLinksEnabled, kr.wimb.opac.OpacTemplates.parseEnabledHosts(opacEnabledHosts));
     }
 
     /**

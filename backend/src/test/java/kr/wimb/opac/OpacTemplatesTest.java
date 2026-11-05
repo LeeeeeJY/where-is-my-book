@@ -4,6 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -180,6 +181,80 @@ class OpacTemplatesTest {
         assertThrows(IllegalStateException.class, () -> OpacTemplates.of(
                 List.of("111111,ISBN_SEARCH,UTF-8,https://lib.example.kr/search?q=고정"),
                 List.of(), false));
+    }
+
+    // ── 확인한 시스템만 켜는 허용 목록 ────────────────────────────────────
+
+    private static final List<String> TWO_HOSTS = List.of(
+            "111111,ISBN_SEARCH,UTF-8,https://lib.example.kr/search?q={isbn13}",
+            "222222,ISBN_SEARCH,UTF-8,https://Other.example.kr/main/search?q={isbn13}",
+            "333333,ISBN_SEARCH,UTF-8,https://other.example.kr/english/search?q={isbn13}");
+
+    @Test
+    @DisplayName("허용 목록이 비어 있으면 전부 켠다")
+    void emptyAllowlistMeansAll() {
+        var all = OpacTemplates.of(TWO_HOSTS, List.of(), true, Set.of());
+        assertEquals(OpacLink.Kind.ISBN_SEARCH, all.kindFor("111111"));
+        assertEquals(OpacLink.Kind.ISBN_SEARCH, all.kindFor("222222"));
+        assertTrue(all.enabledHosts().isEmpty());
+    }
+
+    @Test
+    @DisplayName("허용 목록에 적힌 호스트의 규칙만 링크로 쓴다")
+    void allowlistLimitsToListedHosts() {
+        // 스위치 하나로는 「확인한 만큼씩 켜라」를 지킬 수 없습니다. 전부 켜 놓으면 어느 규칙이
+        // 틀렸는지 알 방법이 없고, 확인이 끝난 시스템이 있어도 나머지 때문에 켤 수 없습니다.
+        var some = OpacTemplates.of(TWO_HOSTS, List.of(), true,
+                OpacTemplates.parseEnabledHosts("lib.example.kr"));
+
+        assertEquals(OpacLink.Kind.ISBN_SEARCH, some.kindFor("111111"));
+        assertEquals("https://lib.example.kr/search?q=9788983711892",
+                some.bestFor("111111", "9788983711892", null).orElseThrow().url());
+        // 목록 밖은 **규칙이 없는 도서관과 똑같이** 보여야 합니다. 그래야 부르는 쪽이 이미
+        // 가지고 있는 홈페이지 폴백을 그대로 탑니다.
+        assertEquals(OpacLink.Kind.HOMEPAGE, some.kindFor("222222"));
+        assertTrue(some.bestFor("222222", "9788983711892", "코스모스").isEmpty());
+        // 규칙 수는 그대로입니다. 목록으로 줄인 것과 파일을 잃은 것이 구별되어야 합니다.
+        assertEquals(3, some.size());
+    }
+
+    @Test
+    @DisplayName("허용 목록의 열쇠는 상세 패턴과 같은 모양이라 경로로 좁힐 수 있다")
+    void allowlistKeyMayNarrowByPath() {
+        // 한 호스트에 시스템이 둘인 곳(의정부 /main 과 /english)에서 확인한 쪽만 켭니다.
+        // 대소문자와 끝의 / 는 가리지 않습니다.
+        var some = OpacTemplates.of(TWO_HOSTS, List.of(), true,
+                OpacTemplates.parseEnabledHosts(" Other.example.kr/main/ , "));
+
+        assertEquals(Set.of("other.example.kr/main"), some.enabledHosts());
+        assertEquals(OpacLink.Kind.ISBN_SEARCH, some.kindFor("222222"));
+        assertEquals(OpacLink.Kind.HOMEPAGE, some.kindFor("333333"));
+        assertEquals(OpacLink.Kind.HOMEPAGE, some.kindFor("111111"));
+        // 「other.example.kr/mainx」처럼 글자만 이어지는 것은 덮지 않습니다.
+        var prefixOnly = OpacTemplates.of(
+                List.of("444444,ISBN_SEARCH,UTF-8,https://other.example.kr/mainx/s?q={isbn13}"),
+                List.of(), true, OpacTemplates.parseEnabledHosts("other.example.kr/main"));
+        assertEquals(OpacLink.Kind.HOMEPAGE, prefixOnly.kindFor("444444"));
+    }
+
+    @Test
+    @DisplayName("스위치가 꺼져 있으면 허용 목록이 무엇이든 전부 꺼진다")
+    void switchOffBeatsAllowlist() {
+        var off = OpacTemplates.of(TWO_HOSTS, List.of(), false,
+                OpacTemplates.parseEnabledHosts("lib.example.kr"));
+        assertEquals(OpacLink.Kind.HOMEPAGE, off.kindFor("111111"));
+        assertTrue(off.bestFor("111111", "9788983711892", null).isEmpty());
+    }
+
+    @Test
+    @DisplayName("진단은 허용 목록도 건너뛴다")
+    void diagnosisIgnoresAllowlist() {
+        // 목록에 넣기 전에 배포된 서버에서 그 호스트를 시험해 봐야 넣을 수 있습니다.
+        var some = OpacTemplates.of(TWO_HOSTS, List.of(), true,
+                OpacTemplates.parseEnabledHosts("lib.example.kr"));
+        assertEquals(OpacLink.Kind.ISBN_SEARCH, some.asIfEnabled().kindFor("222222"));
+        // 원본은 그대로입니다.
+        assertEquals(OpacLink.Kind.HOMEPAGE, some.kindFor("222222"));
     }
 
     // ── 상세 패턴 ──────────────────────────────────────────────────────────

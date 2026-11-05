@@ -62,7 +62,6 @@
 from __future__ import annotations
 
 import argparse
-import csv
 import html
 import json
 import os
@@ -690,9 +689,8 @@ def gaps(csv_path: str, libs: list[dict]) -> int:
     검색 결과 화면에 그 분관 이름이 실제로 보이는지 봐야 합니다.
     """
     have: set[str] = set()
-    for row in csv.reader(open(csv_path, encoding="utf-8")):
-        if row and not row[0].lstrip().startswith("#") and len(row) >= 4:
-            have.add(row[0].strip())
+    for row in template_rows(csv_path):
+        have.add(row[0])
 
     by_org: dict[str, list[dict]] = defaultdict(list)
     for l in libs:
@@ -713,17 +711,45 @@ def gaps(csv_path: str, libs: list[dict]) -> int:
     return 0
 
 
+def template_rows(csv_path: str) -> list[list[str]]:
+    """templates.csv 를 **서버와 같은 방식으로** 읽습니다. 앞의 쉼표 셋에서만 자릅니다.
+
+    csv.reader 로 읽으면 쉼표가 든 주소가 첫 쉼표에서 잘려, 패턴 조사와 `--gaps` 가 잘린
+    주소로 검색하게 됩니다. 서버가 읽는 모양과 갈리지 않게 여기 한 곳에서 읽습니다.
+    """
+    rows = []
+    for raw in open(csv_path, encoding="utf-8"):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = [p.strip() for p in line.split(",", 3)]
+        if len(parts) == 4:
+            rows.append(parts)
+    return rows
+
+
+def template_row(code: str, kind: str, encoding: str, url: str) -> str:
+    """templates.csv 한 줄. **csv.writer 를 쓰지 마세요.**
+
+    서버(`OpacTemplates.parseTemplates`)는 따옴표 규칙을 모르고 앞의 쉼표 셋에서만 자릅니다.
+    csv.writer 는 쉼표가 든 주소(`manage_code=MH,MF,...`)를 따옴표로 감싸는데, 그러면 서버가
+    따옴표까지 주소로 읽어 `"https://...` 로 시작하는 링크가 나갑니다. 자리표는 있으므로 서버는
+    뜨고 테스트도 통과해서, 눌러 보기 전에는 아무도 모릅니다(강동, 2026-11-05).
+    detail-patterns.csv 를 글자 그대로 쓰는 것과 같은 이유입니다.
+    """
+    return f"{code},{kind},{encoding.upper()},{url}"
+
+
 def emit(results_path: str) -> int:
     if not os.path.exists(results_path):
         print("조사 결과가 없습니다. 먼저 --limit 이나 --all 로 도세요.", file=sys.stderr)
         return 1
-    writer = csv.writer(sys.stdout, lineterminator="\n")
     covered = 0
     for line in open(results_path):
         r = json.loads(line)
         for rule in r["rules"]:
             for code in r["libCodes"]:
-                writer.writerow([code, rule["kind"], rule["encoding"].upper(), rule["template"]])
+                print(template_row(code, rule["kind"], rule["encoding"], rule["template"]))
                 covered += 1
     print(f"# 도서관 {covered}곳", file=sys.stderr)
     return 0
@@ -884,7 +910,6 @@ def import_findings(path: str, libs: list[dict]) -> int:
     index = group_index(groups)
 
     kinds = {"ISBN_DETAIL", "ISBN_SEARCH", "TITLE_SEARCH"}
-    writer = csv.writer(sys.stdout, lineterminator="\n")
     problems, taken, covered, patterns = [], 0, 0, 0
     seen: dict[tuple[str, str], str] = {}
     for lineno, raw in enumerate(open(path, encoding="utf-8"), 1):
@@ -949,7 +974,7 @@ def import_findings(path: str, libs: list[dict]) -> int:
                                     f"이미 다른 주소로 잡혀 있습니다 — {before[:60]}")
                 continue
             seen[slot] = url
-            writer.writerow([lib["libCode"], kind, encoding.upper(), url])
+            print(template_row(lib["libCode"], kind, encoding, url))
             covered += 1
 
     print(f"# 묶음 {taken}개 → 도서관 {covered}곳", file=sys.stderr)
