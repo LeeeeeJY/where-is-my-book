@@ -630,10 +630,13 @@ public final class DetailResolver {
 
             @Override public Page fetch(URI url, String method, String body, String contentType)
                     throws IOException, InterruptedException {
+                // JSON 검색은 GET 이어도 Accept 가 JSON 이어야 합니다. 시흥의 Pyxis 는 text/html 을
+                // 받겠다고 하면 406 을 돌려주었습니다(2026-11-06 배포 서버 진단).
+                boolean wantsJson = contentType != null && contentType.contains("json");
                 HttpRequest.Builder builder = HttpRequest.newBuilder(url)
                         .timeout(FETCH_TIMEOUT)
                         .header("User-Agent", USER_AGENT)
-                        .header("Accept", body == null ? "text/html,application/xhtml+xml" : "application/json")
+                        .header("Accept", wantsJson ? "application/json" : "text/html,application/xhtml+xml")
                         .header("Accept-Language", "ko");
                 if ("POST".equals(method)) {
                     builder.header("Content-Type", contentType == null ? "application/json" : contentType)
