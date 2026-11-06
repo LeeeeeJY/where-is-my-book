@@ -33,7 +33,7 @@ import java.util.regex.PatternSyntaxException;
  * 갑니다. 그래서 조사 도구({@code scripts/opac-onclick-probe.py})가 실제로 만든 주소를 열어 그 책이
  * 나오고 다른 책은 나오지 않는 것을 본 것만 넣습니다.
  */
-public sealed interface DetailRule permits DetailRule.Href, DetailRule.OnclickForm, DetailRule.Template {
+public sealed interface DetailRule permits DetailRule.Href, DetailRule.OnclickForm, DetailRule.Template, DetailRule.Json {
 
     /** 정규식 하나. 그룹 하나가 href 입니다. */
     record Href(Pattern regex) implements DetailRule {
@@ -50,6 +50,26 @@ public sealed interface DetailRule permits DetailRule.Href, DetailRule.OnclickFo
         @Override public String describe() { return TEMPLATE_PREFIX + regex.pattern() + TEMPLATE_SEPARATOR + urlTemplate; }
     }
 
+    /**
+     * {@code @json:METHOD 주소 [본문] => 목록경로 => 상세주소틀} — 결과를 자바스크립트로 그리는 OPAC.
+     *
+     * <p>노원·부천·서초·안산(ALPAS-Q)과 구로·시흥(Pyxis)은 검색 결과 HTML 에 책이 없고 화면이 JSON 을
+     * 받아 그립니다. 서버가 그 JSON 검색을 대신 불러(주소의 {@code {isbn13}} 과 본문의 {@code {isbn13}} 을
+     * 채워) 목록경로({@code contents.bookList})의 항목에서 열쇠를 꺼내 상세주소틀의 {@code {bookKey}}
+     * 같은 자리에 끼웁니다. 항목이 여럿이면 <b>누른 도서관의 {@code libCode} 가 같은 것</b>, 없으면
+     * <b>ISBN 이 같은 것</b>, 그것도 없으면 첫 항목입니다. 부천·서초·안산은 소장본마다 정보나루
+     * 도서관부호를 {@code libCode} 로 함께 주어서, 누른 분관의 소장본 상세로 바로 보낼 수 있습니다.
+     * 본문은 공백 없는 JSON 한 덩이이고 GET 이면 생략합니다.
+     */
+    record Json(String method, String url, String body, String listPath, String urlTemplate) implements DetailRule {
+        @Override public String describe() {
+            return JSON_PREFIX + method + " " + url + (body == null ? "" : " " + body)
+                    + TEMPLATE_SEPARATOR + listPath + TEMPLATE_SEPARATOR + urlTemplate;
+        }
+    }
+
+    String JSON_PREFIX = "@json:";
+    Pattern FIELD_PLACEHOLDER = Pattern.compile("\\{([A-Za-z_][\\w]*)}");
     String ONCLICK_PREFIX = "@onclick:";
     String TEMPLATE_PREFIX = "@template:";
     String TEMPLATE_SEPARATOR = " => ";
@@ -73,6 +93,37 @@ public sealed interface DetailRule permits DetailRule.Href, DetailRule.OnclickFo
                 throw new IllegalArgumentException("@onclick: 뒤에는 자바스크립트 함수 이름이 와야 합니다 — " + text);
             }
             return new OnclickForm(function);
+        }
+        if (value.toLowerCase(Locale.ROOT).startsWith(JSON_PREFIX)) {
+            String[] parts = value.substring(JSON_PREFIX.length()).split(Pattern.quote(TEMPLATE_SEPARATOR.strip()), -1);
+            if (parts.length != 3) {
+                throw new IllegalArgumentException("@json: 은 「METHOD 주소 [본문] => 목록경로 => 상세주소틀」이어야 합니다 — " + text);
+            }
+            String[] request = parts[0].strip().split("\\s+", 3);
+            if (request.length < 2) throw new IllegalArgumentException("@json: 요청은 「METHOD 주소」로 시작해야 합니다 — " + text);
+            String method = request[0].toUpperCase(Locale.ROOT);
+            if (!method.equals("GET") && !method.equals("POST")) {
+                throw new IllegalArgumentException("@json: 의 METHOD 는 GET 또는 POST 입니다 — " + text);
+            }
+            String url = request[1];
+            if (!url.startsWith("http://") && !url.startsWith("https://")) {
+                throw new IllegalArgumentException("@json: 의 주소는 http(s):// 로 시작해야 합니다 — " + text);
+            }
+            if (!url.contains("{isbn13}") && (request.length < 3 || !request[2].contains("{isbn13}"))) {
+                throw new IllegalArgumentException("@json: 의 주소나 본문에 {isbn13} 자리표가 있어야 합니다 — " + text);
+            }
+            String body = request.length == 3 ? request[2].strip() : null;
+            if (method.equals("GET") && body != null) throw new IllegalArgumentException("@json: GET 에는 본문이 없습니다 — " + text);
+            if (method.equals("POST") && body == null) throw new IllegalArgumentException("@json: POST 에는 본문이 있어야 합니다 — " + text);
+            String listPath = parts[1].strip();
+            if (listPath.isEmpty() || !listPath.matches("[A-Za-z_][\\w.]*")) {
+                throw new IllegalArgumentException("@json: 의 목록경로는 contents.bookList 처럼 점으로 이은 이름이어야 합니다 — " + text);
+            }
+            String template = parts[2].strip();
+            if (!FIELD_PLACEHOLDER.matcher(template).find()) {
+                throw new IllegalArgumentException("@json: 의 상세주소틀에 {bookKey} 같은 자리표가 없습니다 — " + text);
+            }
+            return new Json(method, url, body, listPath, template);
         }
         if (value.toLowerCase(Locale.ROOT).startsWith(TEMPLATE_PREFIX)) {
             String rest = value.substring(TEMPLATE_PREFIX.length());

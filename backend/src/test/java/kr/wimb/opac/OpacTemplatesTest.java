@@ -365,4 +365,18 @@ class OpacTemplatesTest {
         assertThrows(IllegalStateException.class, () -> OpacTemplates.of(tmpl, List.of("lib.example.kr,@template:(x*) => d?a={1}"), true),
                 "빈 문자열에 맞는 정규식");
     }
+
+    @Test
+    @DisplayName("@json: 규칙 줄은 요청·목록경로·상세주소틀 셋이 다 있어야 하고 METHOD 와 자리표를 검사한다")
+    void parsesAndRejectsJsonRules() {
+        var tmpl = List.of("111111,ISBN_SEARCH,UTF-8,https://lib.example.kr/search?q={isbn13}");
+        var ok = OpacTemplates.of(tmpl, List.of(
+                "lib.example.kr,@json:POST https://lib.example.kr/api/search {\"k\":\"{isbn13}\"} => contents.bookList => /detail/{bookKey}"), true);
+        assertInstanceOf(DetailRule.Json.class, ok.detailPatternFor("https://lib.example.kr/search?q=1").orElseThrow().rule());
+        assertThrows(IllegalStateException.class, () -> OpacTemplates.of(tmpl, List.of("lib.example.kr,@json:POST https://x.kr/a {\"k\":\"{isbn13}\"} => list"), true), "셋이 아님");
+        assertThrows(IllegalStateException.class, () -> OpacTemplates.of(tmpl, List.of("lib.example.kr,@json:PUT https://x.kr/a {} => list => /d/{id}"), true), "METHOD");
+        assertThrows(IllegalStateException.class, () -> OpacTemplates.of(tmpl, List.of("lib.example.kr,@json:GET https://x.kr/a?q=1 => list => /d/{id}"), true), "{isbn13} 없음");
+        assertThrows(IllegalStateException.class, () -> OpacTemplates.of(tmpl, List.of("lib.example.kr,@json:GET https://x.kr/a?q={isbn13} => list => /d/none"), true), "상세 자리표 없음");
+        assertThrows(IllegalStateException.class, () -> OpacTemplates.of(tmpl, List.of("lib.example.kr,@json:POST https://x.kr/a => list => /d/{id}"), true), "POST 본문 없음");
+    }
 }

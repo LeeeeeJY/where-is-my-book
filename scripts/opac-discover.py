@@ -371,6 +371,7 @@ PYTHON_ONLY_REGEX = ("(?P<", "(?P=", "(?#")
 
 ONCLICK_PREFIX = "@onclick:"
 TEMPLATE_PREFIX = "@template:"
+JSON_PREFIX = "@json:"
 TEMPLATE_SEPARATOR = "=>"
 
 
@@ -386,6 +387,31 @@ def pattern_problem(regex: str) -> str | None:
     if regex.lower().startswith(ONCLICK_PREFIX):
         fn = regex[len(ONCLICK_PREFIX):].strip()
         return None if re.fullmatch(r"[A-Za-z_$][\w$.]*", fn) else f"@onclick: 뒤에는 자바스크립트 함수 이름이 와야 합니다 ({fn!r})"
+    if regex.lower().startswith(JSON_PREFIX):
+        # @json:METHOD 주소 [본문] => 목록경로 => 상세주소틀 (서버의 DetailRule.Json 과 같은 조건)
+        parts = regex[len(JSON_PREFIX):].split(TEMPLATE_SEPARATOR)
+        if len(parts) != 3:
+            return "@json: 은 「METHOD 주소 [본문] => 목록경로 => 상세주소틀」이어야 합니다"
+        request = parts[0].strip().split(None, 2)
+        if len(request) < 2:
+            return "@json: 요청은 「METHOD 주소」로 시작해야 합니다"
+        method, url = request[0].upper(), request[1]
+        body = request[2].strip() if len(request) == 3 else None
+        if method not in ("GET", "POST"):
+            return "@json: 의 METHOD 는 GET 또는 POST 입니다"
+        if not url.startswith(("http://", "https://")):
+            return "@json: 의 주소는 http(s):// 로 시작해야 합니다"
+        if "{isbn13}" not in url and not (body and "{isbn13}" in body):
+            return "@json: 의 주소나 본문에 {isbn13} 자리표가 있어야 합니다"
+        if method == "GET" and body:
+            return "@json: GET 에는 본문이 없습니다"
+        if method == "POST" and not body:
+            return "@json: POST 에는 본문이 있어야 합니다"
+        if not re.fullmatch(r"[A-Za-z_][\w.]*", parts[1].strip()):
+            return "@json: 의 목록경로는 contents.bookList 처럼 점으로 이은 이름이어야 합니다"
+        if not re.search(r"\{[A-Za-z_]\w*}", parts[2]):
+            return "@json: 의 상세주소틀에 {bookKey} 같은 자리표가 없습니다"
+        return None
     if regex.lower().startswith(TEMPLATE_PREFIX):
         rest = regex[len(TEMPLATE_PREFIX):]
         if TEMPLATE_SEPARATOR not in rest:

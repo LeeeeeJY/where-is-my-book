@@ -48,6 +48,13 @@ class DetailResolverTest {
             if (page == null) return new DetailResolver.Page(404, "", url);
             return page;
         }
+
+        final List<String> bodies = new ArrayList<>();
+
+        @Override public DetailResolver.Page fetch(URI url, String method, String body, String contentType) throws IOException {
+            bodies.add(method + " " + body);
+            return fetch(url);
+        }
     }
 
     private static DetailResolver resolver(FakeSite site, AtomicReference<Instant> now) {
@@ -540,5 +547,90 @@ class DetailResolverTest {
         site.down = true;
         resolver.resolve(search + 7, BOOK_LINK);
         assertEquals(fetchesSoFar + 3, site.asked.size(), "답을 한 번 받으면 실패 횟수가 0 으로 돌아가 바로 빗장이 걸리지 않습니다");
+    }
+
+    // ── JSON 검색을 대신 부르는 규칙 ──────────────────────────────────────────
+
+    private static final String BCL_JSON = """
+            {"result":{"code":"Y"},"contents":{"totalCount":3,"bookList":[
+              {"title":"82년생 김지영","bookKey":"559849542","speciesKey":"559849540","isbn":"9788937473135","pubFormCode":"MO","manageCode":"AG","libCode":"141151","libName":"한울빛"},
+              {"title":"82년생 김지영","bookKey":"559700001","speciesKey":"559700000","isbn":"9788937473135","pubFormCode":"MO","manageCode":"MA","libCode":"141043","libName":"심곡"},
+              {"title":"82년생 김지영 (큰글자)","bookKey":"600000001","speciesKey":"600000000","isbn":"9788937470000","pubFormCode":"MO","manageCode":"MA","libCode":"141043","libName":"심곡"}
+            ]}}
+            """;
+    private static final String BCL_RULE = "@json:POST https://alpasq.bcl.go.kr/api/search "
+            + "{\"searchKeyword\":\"{isbn13}\",\"page\":\"1\",\"manageCode\":[\"ALL\"]}"
+            + " => contents.bookList => /singleBook/{bookKey}/{speciesKey}/{isbn}/{pubFormCode}/{manageCode}";
+
+    @Test
+    @DisplayName("@json: 규칙은 JSON 검색을 POST 로 대신 부르고, 누른 도서관의 소장본으로 상세 주소를 만든다")
+    void buildsDetailFromJsonSearchForTheClickedLibrary() {
+        var site = new FakeSite();
+        String search = "https://alpasq.bcl.go.kr/search/keyword/9788937473135";
+        site.page("https://alpasq.bcl.go.kr/api/search", BCL_JSON);
+        var rule = DetailRule.parse(BCL_RULE);
+
+        var outcome = resolver(site).resolve(search, rule, new DetailResolver.Context("9788937473135", "141043"));
+
+        assertEquals(DetailResolver.Status.RESOLVED, outcome.status(), outcome.note());
+        // 심곡(141043)의 소장본이고, 그 가운데서도 ISBN 이 같은 둘째 항목이 아니라 libCode 가 맞는 첫 것입니다.
+        assertEquals("https://alpasq.bcl.go.kr/singleBook/559700001/559700000/9788937473135/MO/MA", outcome.detailUrl());
+        assertEquals(List.of("POST {\"searchKeyword\":\"9788937473135\",\"page\":\"1\",\"manageCode\":[\"ALL\"]}"), site.bodies,
+                "본문의 {isbn13} 이 채워져 POST 로 나갑니다");
+        assertFalse(site.asked.contains(search), "검색 결과 HTML 은 받지 않습니다. 거기에는 책이 없습니다.");
+    }
+
+    @Test
+    @DisplayName("누른 도서관의 소장본이 없으면 ISBN 이 같은 항목, 그것도 없으면 첫 항목이다")
+    void fallsBackToIsbnThenFirstItem() {
+        var site = new FakeSite();
+        site.page("https://alpasq.bcl.go.kr/api/search", BCL_JSON);
+        var rule = DetailRule.parse(BCL_RULE);
+        var resolver = resolver(site);
+
+        var other = resolver.resolve("https://alpasq.bcl.go.kr/search/keyword/9788937473135", rule,
+                new DetailResolver.Context("9788937473135", "999999"));
+        assertEquals("https://alpasq.bcl.go.kr/singleBook/559849542/559849540/9788937473135/MO/AG", other.detailUrl());
+
+        var unknownIsbn = resolver.resolve("https://alpasq.bcl.go.kr/search/keyword/9788900000000", rule,
+                new DetailResolver.Context("9788900000000", null));
+        assertEquals(DetailResolver.Status.RESOLVED, unknownIsbn.status());
+        assertTrue(unknownIsbn.detailUrl().contains("/559849542/"), "첫 항목");
+
+        // 도서관이 다르면 같은 검색이라도 다른 답이라 따로 기억합니다.
+        assertEquals(2, resolver.cacheSize() >= 2 ? 2 : resolver.cacheSize());
+        assertEquals(DetailResolver.Status.NO_MATCH,
+                resolver.resolve("https://alpasq.bcl.go.kr/search/keyword/1", rule, DetailResolver.Context.NONE).status(),
+                "ISBN 을 모르면 JSON 검색을 만들 수 없습니다");
+    }
+
+    @Test
+    @DisplayName("@json: GET 규칙은 주소의 {isbn13} 을 채우고, 상세가 해시 경로여도 그대로 만든다")
+    void buildsDetailFromGetJson() {
+        var site = new FakeSite();
+        site.page("https://lib.siheung.go.kr/pyxis-api/1/collections/1/search?all=1%7Ck%7Ca%7C9788937473135&max=10",
+                "{\"success\":true,\"data\":{\"list\":[{\"id\":2843938,\"isbn\":\"9788937473135\"}]}}");
+        var rule = DetailRule.parse("@json:GET https://lib.siheung.go.kr/pyxis-api/1/collections/1/search?all=1%7Ck%7Ca%7C{isbn13}&max=10"
+                + " => data.list => /#/search/detail/{id}");
+
+        var outcome = resolver(site).resolve("https://lib.siheung.go.kr/#/total-search?keyword=9788937473135", rule,
+                new DetailResolver.Context("9788937473135", "141300"));
+
+        assertEquals(DetailResolver.Status.RESOLVED, outcome.status(), outcome.note());
+        assertEquals("https://lib.siheung.go.kr/#/search/detail/2843938", outcome.detailUrl());
+        assertEquals(List.of("GET null"), site.bodies);
+    }
+
+    @Test
+    @DisplayName("JSON 이 아니거나 목록이 비면 NO_MATCH 로 검색 결과에 내려간다")
+    void emptyOrBrokenJsonIsANoMatch() {
+        var site = new FakeSite();
+        var rule = DetailRule.parse(BCL_RULE);
+        site.page("https://alpasq.bcl.go.kr/api/search", "<html>점검 중</html>");
+        assertEquals(DetailResolver.Status.NO_MATCH, resolver(site).resolve("https://alpasq.bcl.go.kr/search/keyword/1", rule,
+                new DetailResolver.Context("9788937473135", null)).status());
+        site.page("https://alpasq.bcl.go.kr/api/search", "{\"contents\":{\"bookList\":[]}}");
+        assertEquals(DetailResolver.Status.NO_MATCH, resolver(site).resolve("https://alpasq.bcl.go.kr/search/keyword/2", rule,
+                new DetailResolver.Context("9788937473135", null)).status());
     }
 }

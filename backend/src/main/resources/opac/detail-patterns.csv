@@ -11,6 +11,14 @@
 #                                이 모양입니다. scripts/opac-onclick-probe.py 가 확인해 냅니다.
 #   @template:정규식 => 주소틀   열쇠가 <a> 의 속성에 있고 스크립트가 그것으로 주소를 만드는 OPAC
 #                                (포항). 그룹을 {1} {2} 에 끼우고 검색 주소 기준으로 풉니다.
+#   @json:METHOD 주소 [본문] => 목록경로 => 상세주소틀
+#                                결과를 자바스크립트로 그려 HTML 에 책이 없는 OPAC(부천·서초·안산의
+#                                ALPAS-Q, 시흥의 Pyxis). 서버가 그 OPAC 의 JSON 검색을 대신 불러
+#                                ({isbn13} 을 채워) 목록 항목의 열쇠를 상세주소틀에 끼웁니다. 항목이
+#                                여럿이면 누른 도서관의 libCode 가 같은 것 → ISBN 이 같은 것 → 첫 것.
+#                                부천·서초·안산의 libCode 는 정보나루 도서관부호와 같아서 누른 분관의
+#                                소장본으로 바로 갑니다. 본문은 공백 없는 JSON 한 덩이입니다.
+#                                노원·구로도 같은 모양이지만 robots.txt 가 Disallow: / 라 넣지 않습니다.
 #
 # 열쇠   검색 규칙(templates.csv 의 ISBN_SEARCH 주소)의 호스트입니다. 한 호스트에 시스템이 둘
 #        있으면 「호스트/경로조각」으로 좁힙니다. 여럿이 맞으면 가장 긴 열쇠를 씁니다.
@@ -74,3 +82,17 @@ www.ulsannamgu.go.kr,@onclick:goArticle
 www.sblib.seoul.kr,@onclick:fnSearchDetailView
 www.hscitylib.or.kr,@onclick:fnDetail
 sejong.nl.go.kr,href=["'](/search/searchDetail\.do\?rec_key=[^"']*)["']
+public.seocholib.or.kr,@json:POST https://public.seocholib.or.kr/api/search/seocho {"searchKeyword":"{isbn13}","page":"1","display":"100","article":"SCORE","order":"DESC","manageCode":["ALL"],"pubFormCode":"ALL","signal":{}} => contents.bookList => /bookDetail/{pubFormCode}/{bookKey}/{speciesKey}/{isbn}
+naegok.seocholib.or.kr,@json:POST https://public.seocholib.or.kr/api/search/seocho {"searchKeyword":"{isbn13}","page":"1","display":"100","article":"SCORE","order":"DESC","manageCode":["ALL"],"pubFormCode":"ALL","signal":{}} => contents.bookList => /bookDetail/{pubFormCode}/{bookKey}/{speciesKey}/{isbn}
+jamwon.seocholib.or.kr,@json:POST https://public.seocholib.or.kr/api/search/seocho {"searchKeyword":"{isbn13}","page":"1","display":"100","article":"SCORE","order":"DESC","manageCode":["ALL"],"pubFormCode":"ALL","signal":{}} => contents.bookList => /bookDetail/{pubFormCode}/{bookKey}/{speciesKey}/{isbn}
+seocho.seocholib.or.kr,@json:POST https://public.seocholib.or.kr/api/search/seocho {"searchKeyword":"{isbn13}","page":"1","display":"100","article":"SCORE","order":"DESC","manageCode":["ALL"],"pubFormCode":"ALL","signal":{}} => contents.bookList => /bookDetail/{pubFormCode}/{bookKey}/{speciesKey}/{isbn}
+seoi.seocholib.or.kr,@json:POST https://public.seocholib.or.kr/api/search/seocho {"searchKeyword":"{isbn13}","page":"1","display":"100","article":"SCORE","order":"DESC","manageCode":["ALL"],"pubFormCode":"ALL","signal":{}} => contents.bookList => /bookDetail/{pubFormCode}/{bookKey}/{speciesKey}/{isbn}
+umyeon.seocholib.or.kr,@json:POST https://public.seocholib.or.kr/api/search/seocho {"searchKeyword":"{isbn13}","page":"1","display":"100","article":"SCORE","order":"DESC","manageCode":["ALL"],"pubFormCode":"ALL","signal":{}} => contents.bookList => /bookDetail/{pubFormCode}/{bookKey}/{speciesKey}/{isbn}
+yangjae.seocholib.or.kr,@json:POST https://public.seocholib.or.kr/api/search/seocho {"searchKeyword":"{isbn13}","page":"1","display":"100","article":"SCORE","order":"DESC","manageCode":["ALL"],"pubFormCode":"ALL","signal":{}} => contents.bookList => /bookDetail/{pubFormCode}/{bookKey}/{speciesKey}/{isbn}
+lib.ansan.go.kr/smalllib,@json:POST https://lib.ansan.go.kr/api/search {"searchKeyword":"{isbn13}","page":"1","display":"100","article":"SCORE","order":"DESC","manageCode":["ALL"],"pubFormCode":"ALL"} => contents.bookList => /smalllib/bookDetail/{pubFormCode}/{bookKey}/{speciesKey}/{isbn}
+lib.ansan.go.kr/jungang,@json:POST https://lib.ansan.go.kr/api/search {"searchKeyword":"{isbn13}","page":"1","display":"100","article":"SCORE","order":"DESC","manageCode":["ALL"],"pubFormCode":"ALL"} => contents.bookList => /jungang/bookDetail/{pubFormCode}/{bookKey}/{speciesKey}/{isbn}
+lib.ansan.go.kr/gwansan,@json:POST https://lib.ansan.go.kr/api/search {"searchKeyword":"{isbn13}","page":"1","display":"100","article":"SCORE","order":"DESC","manageCode":["ALL"],"pubFormCode":"ALL"} => contents.bookList => /gwansan/bookDetail/{pubFormCode}/{bookKey}/{speciesKey}/{isbn}
+lib.ansan.go.kr/gamgol,@json:POST https://lib.ansan.go.kr/api/search {"searchKeyword":"{isbn13}","page":"1","display":"100","article":"SCORE","order":"DESC","manageCode":["ALL"],"pubFormCode":"ALL"} => contents.bookList => /gamgol/bookDetail/{pubFormCode}/{bookKey}/{speciesKey}/{isbn}
+lib.ansan.go.kr/banwol,@json:POST https://lib.ansan.go.kr/api/search {"searchKeyword":"{isbn13}","page":"1","display":"100","article":"SCORE","order":"DESC","manageCode":["ALL"],"pubFormCode":"ALL"} => contents.bookList => /banwol/bookDetail/{pubFormCode}/{bookKey}/{speciesKey}/{isbn}
+lib.siheung.go.kr,@json:GET https://lib.siheung.go.kr/pyxis-api/1/collections/1/search?all=1%7Ck%7Ca%7C{isbn13}&facet=false&max=10 => data.list => /#/search/detail/{id}
+alpasq.bcl.go.kr,@json:POST https://alpasq.bcl.go.kr/api/search {"searchKeyword":"{isbn13}","page":"1","display":"100","article":"LOANABLE","order":"DESC","manageCode":["ALL"],"kidYn":"","pubFormCode":"ALL"} => contents.bookList => /singleBook/{bookKey}/{speciesKey}/{isbn}/{pubFormCode}/{manageCode}

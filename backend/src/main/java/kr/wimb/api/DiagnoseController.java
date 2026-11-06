@@ -158,7 +158,7 @@ public class DiagnoseController {
         // 어느 종류의 규칙으로 갔는지. @onclick 이 「함수 본문을 못 찾았다」로 끝나면 스크립트
         // 쪽 문제이고, 정규식이 NO_MATCH 면 패턴 쪽 문제라 고칠 자리가 다릅니다.
         out.put("rule", pattern.get().rule().describe());
-        var outcome = detailResolver.probe(link.get().url(), pattern.get().rule());
+        var outcome = detailResolver.probe(link.get().url(), pattern.get().rule(), new DetailResolver.Context(isbn, lib));
         out.put("status", outcome.status().name());
         out.put("detailUrl", outcome.detailUrl());
         out.put("note", outcome.note());
