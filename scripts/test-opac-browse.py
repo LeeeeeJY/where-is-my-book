@@ -179,6 +179,10 @@ def make_handler(flavor: str):
                 return
 
             term = (urllib.parse.parse_qs(query).get("searchKeyword") or [""])[0]
+            if flavor == "titleonly":
+                # 김해 모양. 통합검색이 ISBN 을 색인하지 않아 제목으로만 나옵니다. 제목 규칙이 나와야 합니다.
+                self.send(results([t for t in BOOKS.values() if term == t]))
+                return
             if flavor in ("postonly", "nobook"):
                 # postonly 는 POST 만 받습니다. nobook 은 어떤 검색에도 그 책이 나오지 않습니다.
                 self.send(results([]))
@@ -266,6 +270,7 @@ CASES = [
     ("posttoken", {"ISBN_SEARCH"}, "POST 는 토큰을 검사하지만 GET 은 토큰 없이 열립니다"),
     ("isbnselect", {"ISBN_SEARCH"}, "ISBN 항목을 골라야 찾습니다"),
     ("nobook", set(), "같은 창에서도 안 나오는 곳을 세션 문제로 적으면 안 됩니다", "같은 창에서도"),
+    ("titleonly", {"TITLE_SEARCH"}, "ISBN 을 색인하지 않는 OPAC 은 제목 규칙으로 갑니다"),
     ("detailisbn", {"ISBN_DETAIL", "ISBN_SEARCH"}, "상세 주소에 ISBN 이 있으면 거기까지 갑니다"),
     ("detailkey", {"ISBN_SEARCH", "DETAIL_PATTERN"}, "내부 키면 검색 결과에서 뽑는 패턴을 얻어야 합니다"),
     ("detailspa", {"ISBN_SEARCH"}, "자바스크립트가 그린 링크는 서버에 없으니 패턴을 버려야 합니다"),

@@ -178,21 +178,48 @@ def submit(page, box, value: str, timeout: float) -> str:
     return page.url
 
 
-def templatize(url: str, value: str) -> str | None:
+def templatize(url: str, value: str, placeholder: str = "{isbn13}") -> str | None:
     """주소에서 검색어 자리를 찾아 자리표로 바꿉니다. 못 찾으면 규칙이 될 수 없습니다."""
     for form in (value, urllib.parse.quote(value), urllib.parse.quote_plus(value)):
         if form and form in url:
-            return url.replace(form, "{isbn13}")
+            return url.replace(form, placeholder)
     return None
 
 
-def opens_fresh(browser, template: str, isbn: str, title: str, pacer, timeout: float):
+def templatize_title(url: str, title: str) -> tuple[str, str] | None:
+    """제목 검색의 주소에서 제목 자리를 찾아 ({title} 자리표 주소, 인코딩) 을 돌려줍니다.
+
+    한글은 주소에 퍼센트 부호로 남는데 **UTF-8 과 EUC-KR 이 다릅니다.** 어느 쪽인지 틀리면 그
+    OPAC 은 200 을 주면서 결과만 0건이라 눈에 띄지 않습니다(CLAUDE.md). 그래서 사람이 넣는
+    제목 규칙은 인코딩을 꼭 보라고 했는데, 여기서는 주소창의 글자를 보고 기계가 가립니다.
+    """
+    for enc, label in (("utf-8", "UTF-8"), ("euc-kr", "EUC-KR"), ("cp949", "EUC-KR")):
+        try:
+            raw = title.encode(enc)
+        except UnicodeEncodeError:
+            continue
+        for form in (urllib.parse.quote(raw), urllib.parse.quote_plus(raw), urllib.parse.quote(raw).replace("%20", "+")):
+            if form in url:
+                return url.replace(form, "{title}"), label
+    if title in url:
+        return url.replace(title, "{title}"), "UTF-8"
+    return None
+
+
+def fill(template: str, value: str, encoding: str = "UTF-8") -> str:
+    """규칙 주소에 값을 끼웁니다. 서버(OpacTemplates.fill)와 같이 자리표의 인코딩으로 퍼센트 부호를 씁니다."""
+    if "{title}" not in template:
+        return template.replace("{isbn13}", value)
+    return template.replace("{title}", urllib.parse.quote(value.encode("euc-kr" if encoding.upper() == "EUC-KR" else "utf-8")))
+
+
+def opens_fresh(browser, template: str, isbn: str, title: str, pacer, timeout: float, encoding: str = "UTF-8"):
     """**쿠키 없는 새 창**에서 열어 봅니다. (그 책이 나왔나, 없다고 했나) 를 돌려줍니다.
 
     같은 창에서 확인하면 검색어를 세션에 담아 두는 OPAC 이 통과해 버립니다. 그런 규칙은
     사용자에게 죽은 링크로 나갑니다.
     """
-    url = template.replace("{isbn13}", isbn)
+    url = fill(template, isbn, encoding)
     context = browser.new_context()
     try:
         page = context.new_page()
@@ -572,6 +599,52 @@ def investigate(browser, key: str, members: list[dict], rep: dict, books: list[s
         title = od.PROBE_BOOKS[books[0]]
         notes: list[str] = []
 
+        def title_rule(home: str, n: int) -> dict | None:
+            """같은 칸에 제목을 넣어 제목 규칙을 시험합니다. 통과하면 out, 아니면 None(사유는 notes 에)."""
+            try:
+                pacer.wait(host)
+                page.goto(home, timeout=timeout * 1000, wait_until="domcontentloaded")
+                again = search_boxes(page)
+                if n >= len(again):
+                    return None
+                box = again[n]
+            except Exception:
+                return None
+            recorder.seen.clear()
+            url = submit(page, box, title, timeout)
+            if not shows_anywhere(context, title):
+                return None
+            made = templatize_title(url, title)
+            if made is None:
+                for req in recorder.seen:
+                    if req["type"] == "document" and req["method"] == "GET":
+                        made = templatize_title(req["url"], title)
+                        if made:
+                            break
+            if made is None:
+                notes.append("제목으로는 나오지만 주소에 제목이 남지 않습니다")
+                return None
+            template, encoding = strip_tokens(made[0]), made[1]
+            if od.blocked(template, disallows):
+                notes.append("robots.txt 가 막은 경로입니다")
+                return None
+            second_title = od.PROBE_BOOKS[books[1]]
+            hit, _, fresh = opens_fresh(browser, template, title, title, pacer, timeout, encoding)
+            if network_failure(fresh) or not hit:
+                notes.append("제목 검색 주소를 새 창에서 열면 그 책이 나오지 않습니다")
+                return None
+            ghost, _, _ = opens_fresh(browser, template, od.ABSENT_TITLE, title, pacer, timeout, encoding)
+            if ghost:
+                notes.append("제목 검색이 검색어를 무시하고 목록을 뿌립니다")
+                return None
+            again_hit, _, _ = opens_fresh(browser, template, second_title, second_title, pacer, timeout, encoding)
+            if not again_hit:
+                notes.append("제목 검색이 다른 책으로는 확인되지 않았습니다")
+                return None
+            out["rules"] = [{"kind": "TITLE_SEARCH", "encoding": encoding, "url": template, "via": "제목"}]
+            out["detailNote"] = "제목 규칙은 상세까지 가지 않습니다"
+            return out
+
         def try_boxes(home: str, boxes: list) -> dict | None:
             """그 페이지의 검색창들로 세 겹 확인까지. 규칙을 얻으면 out, 아니면 None(사유는 notes 에)."""
             for n, box in enumerate(boxes[:3]):
@@ -601,6 +674,14 @@ def investigate(browser, key: str, members: list[dict], rep: dict, books: list[s
                 # 「새 창에서 열면 안 나온다」로 적으면 세션 문제로 읽혀 엉뚱한 곳을 고치게 됩니다.
                 # 2026-09-11 에 그 사유로 끝난 14묶음 가운데 세션 문제로 확인된 곳은 없었습니다.
                 if not shows_anywhere(context, title):
+                    # ISBN 으로는 안 나오는 OPAC 이 많습니다. 김해의 통합검색은 항목이 전체·표제·저자·
+                    # 출판사·키워드뿐이라 ISBN 을 넣으면 0건이고, 제목을 넣으면 바로 나옵니다(2026-11-06).
+                    # 2026-11-05 조사에서 「그 책이 나오지 않습니다」로 끝난 612곳의 상당수가 이 모양입니다.
+                    # 그런 곳은 제목 규칙({title})으로만 갈 수 있으므로 같은 칸에 제목을 넣어 다시 봅니다.
+                    # 검증은 ISBN 과 같이 세 겹이고, 인코딩은 주소창의 퍼센트 부호로 가립니다.
+                    titled = title_rule(home, n)
+                    if titled is not None:
+                        return titled
                     notes.append("같은 창에서도 그 책이 나오지 않습니다 "
                                  "(검색 항목이나 범위, 또는 그 OPAC 에 자료가 없음)")
                     continue
