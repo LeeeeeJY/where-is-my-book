@@ -509,4 +509,36 @@ class DetailResolverTest {
         assertEquals(List.of("111976081", "111976083", "BO"), call.args());
         assertEquals(List.of("a,b", "c"), OnclickFormReader.splitArgs("'a,b', \"c\""));
     }
+
+    @Test
+    @DisplayName("연속 세 번 닿지 않은 호스트는 한 시간 동안 받아 보지 않고 바로 검색 결과로 보낸다")
+    void skipsHostsThatKeepTimingOut() {
+        var site = new FakeSite();
+        site.down = true;
+        var now = new AtomicReference<>(Instant.parse("2026-11-06T00:00:00Z"));
+        var resolver = resolver(site, now);
+        String search = "https://blocked.example.kr/search?q=";
+
+        for (int i = 1; i <= 3; i++) resolver.resolve(search + i, BOOK_LINK);
+        int fetchesSoFar = site.asked.size();
+        var skipped = resolver.resolve(search + 4, BOOK_LINK);
+
+        assertEquals(DetailResolver.Status.FETCH_FAILED, skipped.status());
+        assertTrue(skipped.note().contains("건너뜁니다"), skipped.note());
+        assertEquals(fetchesSoFar, site.asked.size(), "빗장이 걸린 동안은 그 호스트로 요청을 보내지 않습니다");
+        assertEquals(1L, resolver.stats().get("opacDetailSkippedDown"));
+
+        // 진단은 빗장을 건너뛰고 실제로 받아 봅니다.
+        resolver.probe(search + 5, BOOK_LINK);
+        assertEquals(fetchesSoFar + 1, site.asked.size());
+
+        // 한 시간이 지나면 다시 받아 보고, 답이 오면 빗장이 풀립니다.
+        now.set(now.get().plus(Duration.ofHours(1)).plusSeconds(1));
+        site.down = false;
+        site.page(search + 6, "<a href='/book/1'>책</a>");
+        assertEquals(DetailResolver.Status.RESOLVED, resolver.resolve(search + 6, BOOK_LINK).status());
+        site.down = true;
+        resolver.resolve(search + 7, BOOK_LINK);
+        assertEquals(fetchesSoFar + 3, site.asked.size(), "답을 한 번 받으면 실패 횟수가 0 으로 돌아가 바로 빗장이 걸리지 않습니다");
+    }
 }

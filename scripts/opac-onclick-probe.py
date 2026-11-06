@@ -315,10 +315,18 @@ def main() -> int:
     print("# opac-onclick-probe.py 가 서버와 같은 방식으로 확인한 @onclick 규칙입니다.")
     print("# --import-patterns 로 넣습니다.")
     found = 0
+    pacer = od.Pacer(args.host_delay)
     for host, (key, template, books) in sorted(targets.items()):
         isbn, isbn2 = books[0], books[1]
+        # 서버는 robots.txt 가 막은 경로를 받지 않습니다. 여기서 확인해 넣어도 늘 검색 결과로 내려가고
+        # 배지만 「상세」라고 거짓말하게 되므로(서대문·포항, 2026-11-06), 막힌 호스트는 보지 않습니다.
+        search_url = template.replace("{isbn13}", isbn)
+        parsed = urlsplit(search_url)
+        if od.blocked(search_url, od.robots_disallows(f"{parsed.scheme}://{parsed.netloc}", pacer)):
+            print(f"# {host}: robots.txt 가 검색 결과 경로를 막습니다 (서버가 받을 수 없어 넣지 않습니다)", file=sys.stderr)
+            continue
         try:
-            raw, final = get(template.replace("{isbn13}", isbn), args.timeout)
+            raw, final = get(search_url, args.timeout)
         except Exception as e:
             print(f"# {host}: 검색 결과를 받지 못했습니다 ({str(e)[:70]})", file=sys.stderr)
             continue

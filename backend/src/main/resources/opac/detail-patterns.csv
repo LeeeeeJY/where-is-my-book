@@ -68,11 +68,9 @@ gjl.gimje.go.kr,@onclick:viewDetail
 lib.gunsan.go.kr,@onclick:fnDetail
 lib.jeonju.go.kr,@onclick:viewDetail
 lib.junggu.ulsan.kr,@onclick:fn_view
-lib.sdm.or.kr,@onclick:fnDetail
 www.eplib.or.kr,@onclick:fnDetail
 www.goyanglib.or.kr,@onclick:fnDetail
 www.ulsannamgu.go.kr,@onclick:goArticle
 www.sblib.seoul.kr,@onclick:fnSearchDetailView
 www.hscitylib.or.kr,@onclick:fnDetail
 sejong.nl.go.kr,href=["'](/search/searchDetail\.do\?rec_key=[^"']*)["']
-phlib.pohang.go.kr,@template:isbn="(\d+)"[^>]*regNo="([^"]+)"[^>]*manageCode="([^"]+)"[^>]*class="goDetail" => detail.do?regNo={2}&isbn={1}&menu_idx=297&manageCode={3}&booktype=BOOK

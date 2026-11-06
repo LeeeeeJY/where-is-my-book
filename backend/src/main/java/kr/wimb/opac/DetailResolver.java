@@ -115,6 +115,21 @@ public final class DetailResolver {
     static final Duration SCRIPT_TTL = Duration.ofDays(1);
     static final int MAX_SCRIPTS_CACHED = 500;
 
+    /**
+     * 닿지 않는 호스트를 잠시 건너뛰는 빗장. 연속 {@value #DOWN_AFTER_FAILURES}번 받지 못하면
+     * {@link #DOWN_FOR} 동안 그 호스트는 받아 보지 않고 바로 실패로 답해 검색 결과로 보냅니다.
+     *
+     * <p>왜 필요한가. 서버는 미국 리전이고 국내 공공도서관 상당수가 해외 IP 를 막습니다. 2026-11-06 에
+     * 배포된 서버에서 확인하니 화성·군산·김제·전주·성북·세종이 <b>접속 시간 초과</b>였습니다. 규칙은
+     * 맞지만 서버가 닿지 못하는 것인데, 빗장이 없으면 그 도서관을 누르는 사람마다 접속 시간 초과
+     * 3초를 기다린 뒤에야 검색 결과로 갑니다. 규칙이 없을 때(바로 검색 결과)보다 나빠지는 셈입니다.
+     * 진단({@link #probe})은 빗장을 건너뜁니다. 「지금 닿는가」를 보는 자리이기 때문입니다.
+     */
+    static final int DOWN_AFTER_FAILURES = 3;
+    static final Duration DOWN_FOR = Duration.ofHours(1);
+
+    private record HostHealth(int failures, Instant downUntil) {}
+
     private record Robots(List<String> disallows, Instant expiresAt) {}
 
     private final Fetcher fetcher;
@@ -122,6 +137,8 @@ public final class DetailResolver {
     private final Map<String, Cached> cache = new ConcurrentHashMap<>();
     private final Map<String, Robots> robots = new ConcurrentHashMap<>();
     private final Map<String, Script> scripts = new ConcurrentHashMap<>();
+    private final Map<String, HostHealth> health = new ConcurrentHashMap<>();
+    private final AtomicLong skippedDown = new AtomicLong();
     private final Map<String, Semaphore> perHost = new ConcurrentHashMap<>();
     private final AtomicLong resolved = new AtomicLong();
     private final AtomicLong missed = new AtomicLong();
@@ -153,18 +170,19 @@ public final class DetailResolver {
                     ? new Outcome(Status.NO_MATCH, null, "기억해 둔 답: 링크 없음", true)
                     : new Outcome(Status.RESOLVED, hit.detailUrl(), "기억해 둔 답", true);
         }
-        return fetchAndRemember(searchUrl, rule);
+        return fetchAndRemember(searchUrl, rule, true);
     }
 
     /**
      * 기억해 둔 답을 쓰지 않고 실제로 받아 봅니다. 진단용입니다. 「지금 서버가 그 OPAC 에
-     * 닿는가」를 알아야 하는 자리라, 캐시가 답하면 아무것도 확인한 것이 아닙니다.
+     * 닿는가」를 알아야 하는 자리라, 캐시가 답하면 아무것도 확인한 것이 아니고 닿지 않는
+     * 호스트의 빗장도 건너뜁니다.
      */
     public Outcome probe(String searchUrl, DetailRule rule) {
-        return fetchAndRemember(searchUrl, rule);
+        return fetchAndRemember(searchUrl, rule, false);
     }
 
-    private Outcome fetchAndRemember(String searchUrl, DetailRule rule) {
+    private Outcome fetchAndRemember(String searchUrl, DetailRule rule, boolean honourBreaker) {
         URI search;
         try {
             search = URI.create(searchUrl);
@@ -176,6 +194,15 @@ public final class DetailResolver {
         if (host == null) {
             failed.incrementAndGet();
             return Outcome.of(Status.FETCH_FAILED, "호스트가 없습니다: " + searchUrl);
+        }
+        String hostKey = host.toLowerCase(Locale.ROOT);
+        if (honourBreaker) {
+            HostHealth h = health.get(hostKey);
+            if (h != null && h.downUntil() != null && h.downUntil().isAfter(clock.instant())) {
+                skippedDown.incrementAndGet();
+                return Outcome.of(Status.FETCH_FAILED, "최근 " + DOWN_AFTER_FAILURES + "번 연속 닿지 않아 "
+                        + "건너뜁니다 (" + h.downUntil() + " 까지)");
+            }
         }
         if (disallowed(search)) {
             failed.incrementAndGet();
@@ -197,6 +224,7 @@ public final class DetailResolver {
         }
         try {
             Page page = fetcher.fetch(search);
+            health.remove(hostKey);                       // 답을 받았으면 닿는 것입니다. 상태 코드와 무관합니다.
             if (page.status() != 200) {
                 failed.incrementAndGet();
                 return Outcome.of(Status.FETCH_FAILED, "HTTP " + page.status());
@@ -209,9 +237,10 @@ public final class DetailResolver {
             failed.incrementAndGet();
             return Outcome.of(Status.FETCH_FAILED, "중단되었습니다");
         } catch (Exception e) {
-            // 시간 초과, 접속 거부, TLS. 실패는 기억하지 않습니다. 잠깐 흔들린 뒤에도 한동안
-            // 검색 결과로만 보내게 되기 때문입니다.
+            // 시간 초과, 접속 거부, TLS. 답 자체는 기억하지 않습니다. 잠깐 흔들린 뒤에도 한동안
+            // 검색 결과로만 보내게 되기 때문입니다. 다만 연속으로 닿지 않는 호스트는 빗장을 겁니다.
             failed.incrementAndGet();
+            markUnreachable(hostKey);
             return Outcome.of(Status.FETCH_FAILED, e.getClass().getSimpleName()
                     + (e.getMessage() == null ? "" : ": " + e.getMessage()));
         } finally {
@@ -353,6 +382,14 @@ public final class DetailResolver {
         return URI.create(base.getScheme() + "://" + base.getRawAuthority() + path + href);
     }
 
+    private void markUnreachable(String hostKey) {
+        health.compute(hostKey, (k, h) -> {
+            int failures = (h == null ? 0 : h.failures()) + 1;
+            Instant downUntil = failures >= DOWN_AFTER_FAILURES ? clock.instant().plus(DOWN_FOR) : null;
+            return new HostHealth(failures, downUntil);
+        });
+    }
+
     private void remember(String searchUrl, Outcome outcome) {
         Instant now = clock.instant();
         if (outcome.status() == Status.RESOLVED) {
@@ -462,6 +499,8 @@ public final class DetailResolver {
         out.put("opacDetailMissed", missed.get());
         out.put("opacDetailFailed", failed.get());
         out.put("opacDetailCacheHits", cacheHits.get());
+        // 닿지 않아 건너뛴 횟수. 이것이 쌓이면 코드가 아니라 회선(나가는 IP)이 막힌 것입니다.
+        out.put("opacDetailSkippedDown", skippedDown.get());
         out.put("opacDetailCacheEntries", cache.size());
         return out;
     }
