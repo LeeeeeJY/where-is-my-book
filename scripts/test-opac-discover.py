@@ -464,6 +464,12 @@ def check_import_patterns(work: str) -> list[str]:
         ('@template:regNo="([^"]+)" => detail.do?a={2}', False),    # 없는 그룹
         ('@template:regNo="([^"]+)" => detail.do', False),          # 자리표 없음
         ('@template:(x*) => d?a={1}', False),                       # 빈 문자열에 맞음
+        ('@json:POST https://x.kr/api/search {"k":"{isbn13}"} => contents.bookList => /detail/{bookKey}', True),
+        ('@json:GET https://x.kr/api?q={isbn13} => data.list => /#/detail/{id}', True),
+        ('@json:GET https://x.kr/api?q=1 => data.list => /#/detail/{id}', False),      # {isbn13} 없음
+        ('@json:PUT https://x.kr/api?q={isbn13} => data.list => /#/detail/{id}', False),
+        ('@json:POST https://x.kr/api => list => /d/{id}', False),                     # POST 본문 없음
+        ('@json:GET https://x.kr/api?q={isbn13} => list', False),                      # 셋이 아님
     ]
     for rule, want_ok in grammar:
         problem = od.pattern_problem(rule)

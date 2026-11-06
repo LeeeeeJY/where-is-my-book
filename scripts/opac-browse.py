@@ -565,116 +565,133 @@ def investigate(browser, key: str, members: list[dict], rep: dict, books: list[s
             page.wait_for_load_state("networkidle", timeout=timeout * 1000)
         except Exception:
             pass
+        home_html = page.content()
         boxes = search_boxes(page)
-        if not boxes:
-            # 첫 화면에 검색창이 없는 홈페이지가 있습니다(김해는 「자료검색」 메뉴 뒤에 있습니다).
-            # 폼을 읽는 조사(opac-discover.py)가 하듯 검색 페이지로 보이는 링크를 몇 개 따라가
-            # 봅니다. 그래도 없으면 그때 포기합니다.
-            for link in od.search_page_links(page.content(), page.url, 3):
+        org = od.registrable_domain(host)
+        recorder = SearchRequests(context, books[0], org)
+        title = od.PROBE_BOOKS[books[0]]
+        notes: list[str] = []
+
+        def try_boxes(home: str, boxes: list) -> dict | None:
+            """그 페이지의 검색창들로 세 겹 확인까지. 규칙을 얻으면 out, 아니면 None(사유는 notes 에)."""
+            for n, box in enumerate(boxes[:3]):
+                if n:
+                    # 앞의 칸으로 이미 화면을 옮겼으므로 다시 돌아와야 합니다. 안 그러면 남은
+                    # 칸들은 사라진 자리를 가리켜 전부 조용히 실패합니다.
+                    pacer.wait(host)
+                    page.goto(home, timeout=timeout * 1000, wait_until="domcontentloaded")
+                    boxes = search_boxes(page)
+                    if n >= len(boxes):
+                        break
+                    box = boxes[n]
+                recorder.seen.clear()
+                option = choose_isbn_option(page, box)
+                before = page.url
+                url = submit(page, box, books[0], timeout)
+                if not recorder.seen and page.url == before:
+                    if press_search_button(page, box, books[0], timeout):
+                        url = next((o.url for o in context.pages if o is not page and books[0] in o.url),
+                                   page.url)
+
+                candidates = search_candidates(url, recorder.seen, books[0])
+                if not candidates:
+                    notes.append(no_candidate_note(recorder.seen))
+                    continue
+                # **같은 창부터 봅니다.** 같은 창에서도 책이 안 나오면 새 창을 볼 까닭이 없고, 그것을
+                # 「새 창에서 열면 안 나온다」로 적으면 세션 문제로 읽혀 엉뚱한 곳을 고치게 됩니다.
+                # 2026-09-11 에 그 사유로 끝난 14묶음 가운데 세션 문제로 확인된 곳은 없었습니다.
+                if not shows_anywhere(context, title):
+                    notes.append("같은 창에서도 그 책이 나오지 않습니다 "
+                                 "(검색 항목이나 범위, 또는 그 OPAC 에 자료가 없음)")
+                    continue
+
+                for template, via in candidates:
+                    if od.blocked(template, disallows):
+                        notes.append("robots.txt 가 막은 경로입니다")
+                        continue
+
+                    # ① 양성 — 그 도서관이 실제로 소장한 책
+                    hit, _, fresh = opens_fresh(browser, template, books[0], title, pacer, timeout)
+                    if network_failure(fresh):
+                        out["note"] = f"이 기계의 네트워크가 끊겼습니다 ({network_failure(fresh)})"
+                        return out
+                    if not hit:
+                        notes.append(FRESH_MISS_NOTE[via])
+                        continue
+
+                    # ② 음성 — 있을 수 없는 ISBN 으로 그 책이 나오면 검색어를 무시하는 OPAC 입니다
+                    ghost, _, ghost_html = opens_fresh(browser, template, od.ABSENT_ISBN, title,
+                                                       pacer, timeout)
+                    if network_failure(ghost_html):
+                        out["note"] = f"이 기계의 네트워크가 끊겼습니다 ({network_failure(ghost_html)})"
+                        return out
+                    if ghost:
+                        out["note"] = "검색어를 무시하고 목록을 뿌립니다"
+                        return out
+
+                    # ③ 재확인 — 다른 책으로 한 번 더. 첫 번째만 우연히 맞는 경우가 있습니다
+                    again, _, again_html = opens_fresh(browser, template, books[1],
+                                                       od.PROBE_BOOKS[books[1]], pacer, timeout)
+                    if network_failure(again_html):
+                        out["note"] = f"이 기계의 네트워크가 끊겼습니다 ({network_failure(again_html)})"
+                        return out
+                    if not again:
+                        out["note"] = "다른 책으로는 확인되지 않았습니다"
+                        return out
+
+                    rule = {"kind": "ISBN_SEARCH", "encoding": "UTF-8", "url": template, "via": via}
+                    if option:
+                        rule["option"] = option
+                    out["rules"] = [rule]
+
+                    # ④ 상세 페이지까지 갈 수 있으면 더 좋습니다. 대부분은 내부 키라 안 됩니다.
+                    detail = detail_rule(browser, template, books, pacer, timeout)
+                    if detail:
+                        out["rules"].insert(0, {"kind": "ISBN_DETAIL", "encoding": "UTF-8",
+                                                "url": detail})
+                        return out
+
+                    # ⑤ 내부 키면 자리표 대신 **패턴**입니다. 서버가 누를 때 검색 결과에서 뽑습니다.
+                    pattern, why = detail_pattern(browser, template, books, pacer, timeout)
+                    if pattern:
+                        out["rules"].append(pattern)
+                    else:
+                        out["detailNote"] = why
+                    return out
+
+            return None
+
+        found = try_boxes(home, boxes) if boxes else None
+        if found is None:
+            # 홈페이지의 검색창이 **사이트 검색**이거나 아예 없는 도서관이 많습니다. 강남은 상단
+            # 검색창이 누리집 검색이고 자료검색은 「자료검색」 메뉴 뒤의 다른 페이지에, 김해는 다른
+            # 호스트(libbook.gimhae.go.kr:8080)에 있습니다. 예전에는 검색창이 **없을 때만** 링크를
+            # 따라갔기 때문에, 검색창이 있는데 책이 안 나오는 곳은 전부 「그 책이 나오지 않습니다」로
+            # 떨어졌습니다(2026-11-05 조사에서 612곳). 그래서 홈페이지 검색창으로 안 되면 자료검색
+            # 페이지로 보이는 링크를 몇 개 따라가 같은 일을 다시 합니다. 한 단계만, 셋까지입니다.
+            for link in od.search_page_links(home_html, home, 3):
                 if od.blocked(link, disallows):
                     continue
                 pacer.wait(host)
                 try:
                     page.goto(link, timeout=timeout * 1000, wait_until="domcontentloaded")
+                    try:
+                        page.wait_for_load_state("networkidle", timeout=timeout * 1000)
+                    except Exception:
+                        pass
                 except Exception:
                     continue
-                boxes = search_boxes(page)
-                if boxes:
-                    home = page.url
+                more = search_boxes(page)
+                if not more:
+                    continue
+                found = try_boxes(page.url, more)
+                if found is not None:
                     break
-        if not boxes:
+        if found is not None:
+            return found
+        if not boxes and not notes:
             out["note"] = "검색창을 찾지 못했습니다"
             return out
-
-        org = od.registrable_domain(host)
-        recorder = SearchRequests(context, books[0], org)
-        title = od.PROBE_BOOKS[books[0]]
-        notes: list[str] = []
-        for n, box in enumerate(boxes[:3]):
-            if n:
-                # 앞의 칸으로 이미 화면을 옮겼으므로 다시 돌아와야 합니다. 안 그러면 남은
-                # 칸들은 사라진 자리를 가리켜 전부 조용히 실패합니다.
-                pacer.wait(host)
-                page.goto(home, timeout=timeout * 1000, wait_until="domcontentloaded")
-                boxes = search_boxes(page)
-                if n >= len(boxes):
-                    break
-                box = boxes[n]
-            recorder.seen.clear()
-            option = choose_isbn_option(page, box)
-            before = page.url
-            url = submit(page, box, books[0], timeout)
-            if not recorder.seen and page.url == before:
-                if press_search_button(page, box, books[0], timeout):
-                    url = next((o.url for o in context.pages if o is not page and books[0] in o.url),
-                               page.url)
-
-            candidates = search_candidates(url, recorder.seen, books[0])
-            if not candidates:
-                notes.append(no_candidate_note(recorder.seen))
-                continue
-            # **같은 창부터 봅니다.** 같은 창에서도 책이 안 나오면 새 창을 볼 까닭이 없고, 그것을
-            # 「새 창에서 열면 안 나온다」로 적으면 세션 문제로 읽혀 엉뚱한 곳을 고치게 됩니다.
-            # 2026-09-11 에 그 사유로 끝난 14묶음 가운데 세션 문제로 확인된 곳은 없었습니다.
-            if not shows_anywhere(context, title):
-                notes.append("같은 창에서도 그 책이 나오지 않습니다 "
-                             "(검색 항목이나 범위, 또는 그 OPAC 에 자료가 없음)")
-                continue
-
-            for template, via in candidates:
-                if od.blocked(template, disallows):
-                    notes.append("robots.txt 가 막은 경로입니다")
-                    continue
-
-                # ① 양성 — 그 도서관이 실제로 소장한 책
-                hit, _, fresh = opens_fresh(browser, template, books[0], title, pacer, timeout)
-                if network_failure(fresh):
-                    out["note"] = f"이 기계의 네트워크가 끊겼습니다 ({network_failure(fresh)})"
-                    return out
-                if not hit:
-                    notes.append(FRESH_MISS_NOTE[via])
-                    continue
-
-                # ② 음성 — 있을 수 없는 ISBN 으로 그 책이 나오면 검색어를 무시하는 OPAC 입니다
-                ghost, _, ghost_html = opens_fresh(browser, template, od.ABSENT_ISBN, title,
-                                                   pacer, timeout)
-                if network_failure(ghost_html):
-                    out["note"] = f"이 기계의 네트워크가 끊겼습니다 ({network_failure(ghost_html)})"
-                    return out
-                if ghost:
-                    out["note"] = "검색어를 무시하고 목록을 뿌립니다"
-                    return out
-
-                # ③ 재확인 — 다른 책으로 한 번 더. 첫 번째만 우연히 맞는 경우가 있습니다
-                again, _, again_html = opens_fresh(browser, template, books[1],
-                                                   od.PROBE_BOOKS[books[1]], pacer, timeout)
-                if network_failure(again_html):
-                    out["note"] = f"이 기계의 네트워크가 끊겼습니다 ({network_failure(again_html)})"
-                    return out
-                if not again:
-                    out["note"] = "다른 책으로는 확인되지 않았습니다"
-                    return out
-
-                rule = {"kind": "ISBN_SEARCH", "encoding": "UTF-8", "url": template, "via": via}
-                if option:
-                    rule["option"] = option
-                out["rules"] = [rule]
-
-                # ④ 상세 페이지까지 갈 수 있으면 더 좋습니다. 대부분은 내부 키라 안 됩니다.
-                detail = detail_rule(browser, template, books, pacer, timeout)
-                if detail:
-                    out["rules"].insert(0, {"kind": "ISBN_DETAIL", "encoding": "UTF-8",
-                                            "url": detail})
-                    return out
-
-                # ⑤ 내부 키면 자리표 대신 **패턴**입니다. 서버가 누를 때 검색 결과에서 뽑습니다.
-                pattern, why = detail_pattern(browser, template, books, pacer, timeout)
-                if pattern:
-                    out["rules"].append(pattern)
-                else:
-                    out["detailNote"] = why
-                return out
-
         out["note"] = best_note(notes)
         return out
     except Exception as e:

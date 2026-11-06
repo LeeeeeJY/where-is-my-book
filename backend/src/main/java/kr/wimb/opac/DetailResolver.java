@@ -105,6 +105,16 @@ public final class DetailResolver {
     @FunctionalInterface
     public interface Fetcher {
         Page fetch(URI url) throws IOException, InterruptedException;
+
+        /** 본문을 실어 보내는 요청({@code @json:POST}). 기본은 본문을 무시한 GET 이라 가짜 서버가 그대로 씁니다. */
+        default Page fetch(URI url, String method, String body, String contentType) throws IOException, InterruptedException {
+            return fetch(url);
+        }
+    }
+
+    /** 누른 도서관과 책. {@code @json:} 규칙이 목록에서 어느 항목을 고를지에 씁니다. 없어도 됩니다. */
+    public record Context(String isbn13, String libCode) {
+        public static final Context NONE = new Context(null, null);
     }
 
     private record Cached(String detailUrl, Instant insertedAt, Instant expiresAt) {}
@@ -162,15 +172,27 @@ public final class DetailResolver {
 
     /** 기억해 둔 답이 있으면 그것을, 없으면 받아서 찾습니다. */
     public Outcome resolve(String searchUrl, DetailRule rule) {
+        return resolve(searchUrl, rule, Context.NONE);
+    }
+
+    /** 누른 도서관과 책을 함께 넘기면 {@code @json:} 규칙이 그 분관의 소장본을 고릅니다. */
+    public Outcome resolve(String searchUrl, DetailRule rule, Context context) {
         Instant now = clock.instant();
-        Cached hit = cache.get(searchUrl);
+        String cacheKey = cacheKey(searchUrl, rule, context);
+        Cached hit = cache.get(cacheKey);
         if (hit != null && hit.expiresAt().isAfter(now)) {
             cacheHits.incrementAndGet();
             return hit.detailUrl() == null
                     ? new Outcome(Status.NO_MATCH, null, "기억해 둔 답: 링크 없음", true)
                     : new Outcome(Status.RESOLVED, hit.detailUrl(), "기억해 둔 답", true);
         }
-        return fetchAndRemember(searchUrl, rule, true);
+        return fetchAndRemember(searchUrl, rule, context, true);
+    }
+
+    /** 같은 검색이라도 {@code @json:} 은 누른 도서관마다 다른 소장본으로 가므로 열쇠에 도서관을 넣습니다. */
+    private static String cacheKey(String searchUrl, DetailRule rule, Context context) {
+        if (rule instanceof DetailRule.Json && context.libCode() != null) return searchUrl + "|" + context.libCode();
+        return searchUrl;
     }
 
     /**
@@ -179,16 +201,35 @@ public final class DetailResolver {
      * 호스트의 빗장도 건너뜁니다.
      */
     public Outcome probe(String searchUrl, DetailRule rule) {
-        return fetchAndRemember(searchUrl, rule, false);
+        return probe(searchUrl, rule, Context.NONE);
     }
 
-    private Outcome fetchAndRemember(String searchUrl, DetailRule rule, boolean honourBreaker) {
+    public Outcome probe(String searchUrl, DetailRule rule, Context context) {
+        return fetchAndRemember(searchUrl, rule, context, false);
+    }
+
+    private Outcome fetchAndRemember(String searchUrl, DetailRule rule, Context context, boolean honourBreaker) {
         URI search;
         try {
             search = URI.create(searchUrl);
         } catch (IllegalArgumentException e) {
             failed.incrementAndGet();
             return Outcome.of(Status.FETCH_FAILED, "주소가 아닙니다: " + searchUrl);
+        }
+        // @json: 은 검색 결과 페이지가 아니라 그 OPAC 의 JSON 검색을 받습니다. 결과 HTML 에는 책이 없습니다.
+        String jsonBody = null;
+        if (rule instanceof DetailRule.Json json) {
+            if (context.isbn13() == null) {
+                missed.incrementAndGet();
+                return Outcome.of(Status.NO_MATCH, "@json: 규칙은 어느 책인지(ISBN) 알아야 합니다");
+            }
+            try {
+                search = URI.create(json.url().replace("{isbn13}", context.isbn13()));
+            } catch (IllegalArgumentException e) {
+                failed.incrementAndGet();
+                return Outcome.of(Status.FETCH_FAILED, "주소가 아닙니다: " + json.url());
+            }
+            jsonBody = json.body() == null ? null : json.body().replace("{isbn13}", context.isbn13());
         }
         String host = search.getHost();
         if (host == null) {
@@ -223,14 +264,18 @@ public final class DetailResolver {
             return Outcome.of(Status.BUSY, "그 호스트로 이미 " + PER_HOST_IN_FLIGHT + "개가 나가 있습니다");
         }
         try {
-            Page page = fetcher.fetch(search);
+            Page page = rule instanceof DetailRule.Json json
+                    ? fetcher.fetch(search, json.method(), jsonBody, "application/json")
+                    : fetcher.fetch(search);
             health.remove(hostKey);                       // 답을 받았으면 닿는 것입니다. 상태 코드와 무관합니다.
             if (page.status() != 200) {
                 failed.incrementAndGet();
                 return Outcome.of(Status.FETCH_FAILED, "HTTP " + page.status());
             }
-            Outcome outcome = extract(page, rule, search);
-            remember(searchUrl, outcome);
+            Outcome outcome = rule instanceof DetailRule.Json json
+                    ? extractFromJson(page, json, search, context)
+                    : extract(page, rule, search);
+            remember(cacheKey(searchUrl, rule, context), outcome);
             return outcome;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -297,7 +342,7 @@ public final class DetailResolver {
             href = built.url();
             how = built.note();
         } else {
-            throw new IllegalStateException("모르는 규칙 종류: " + rule);
+            throw new IllegalStateException("이 규칙은 여기서 다루지 않습니다: " + rule);
         }
         String lower = href.toLowerCase(Locale.ROOT);
         if (href.isEmpty() || lower.startsWith("javascript:") || lower.startsWith("mailto:")
@@ -328,6 +373,67 @@ public final class DetailResolver {
         }
         resolved.incrementAndGet();
         return new Outcome(Status.RESOLVED, target.toString(), how, false);
+    }
+
+    /**
+     * JSON 검색의 답에서 항목을 골라 상세주소틀을 채웁니다. 누른 도서관의 {@code libCode} 가 같은 항목 →
+     * ISBN 이 같은 항목 → 첫 항목 순입니다. 부천은 한 ISBN 에 소장본 63건이 오는데 그 가운데 누른
+     * 분관의 것으로 가야 「소장한다더니 다른 도서관 책」이 되지 않습니다.
+     */
+    private Outcome extractFromJson(Page page, DetailRule.Json rule, URI api, Context context) {
+        com.fasterxml.jackson.databind.JsonNode root;
+        try {
+            root = new com.fasterxml.jackson.databind.ObjectMapper().readTree(page.body() == null ? "" : page.body());
+        } catch (Exception e) {
+            missed.incrementAndGet();
+            return Outcome.of(Status.NO_MATCH, "JSON 이 아닙니다: " + (page.body() == null ? "" : page.body().substring(0, Math.min(80, page.body().length()))));
+        }
+        com.fasterxml.jackson.databind.JsonNode list = root;
+        for (String step : rule.listPath().split("\\.")) list = list == null ? null : list.get(step);
+        if (list == null || !list.isArray() || list.isEmpty()) {
+            missed.incrementAndGet();
+            return Outcome.of(Status.NO_MATCH, "목록 " + rule.listPath() + " 이 비어 있습니다");
+        }
+        com.fasterxml.jackson.databind.JsonNode pick = null;
+        if (context.libCode() != null) {
+            for (var item : list) if (context.libCode().equals(text(item.get("libCode")))) { pick = item; break; }
+        }
+        if (pick == null) {
+            for (var item : list) if (context.isbn13().equals(text(item.get("isbn")))) { pick = item; break; }
+        }
+        if (pick == null) pick = list.get(0);
+        Matcher ph = DetailRule.FIELD_PLACEHOLDER.matcher(rule.urlTemplate());
+        StringBuilder filled = new StringBuilder();
+        while (ph.find()) {
+            String name = ph.group(1);
+            String value = name.equals("isbn13") ? context.isbn13() : text(pick.get(name));
+            if (value == null || value.isEmpty()) {
+                missed.incrementAndGet();
+                return Outcome.of(Status.NO_MATCH, "항목에 " + name + " 이 없습니다");
+            }
+            ph.appendReplacement(filled, Matcher.quoteReplacement(
+                    java.net.URLEncoder.encode(value, StandardCharsets.UTF_8).replace("%2C", ",")));
+        }
+        ph.appendTail(filled);
+        URI target;
+        try {
+            target = resolve(api, filled.toString());
+        } catch (IllegalArgumentException e) {
+            missed.incrementAndGet();
+            return Outcome.of(Status.NO_MATCH, "상세 주소를 만들지 못했습니다: " + filled);
+        }
+        if (!sameOrganisation(target.getHost(), api.getHost())) {
+            missed.incrementAndGet();
+            return Outcome.of(Status.NO_MATCH, "다른 기관의 주소입니다: " + target.getHost());
+        }
+        resolved.incrementAndGet();
+        String libName = text(pick.get("libName"));
+        return new Outcome(Status.RESOLVED, target.toString(),
+                "JSON 목록 " + list.size() + "건 가운데 " + (libName == null ? "첫 항목" : libName) + " 의 소장본", false);
+    }
+
+    private static String text(com.fasterxml.jackson.databind.JsonNode node) {
+        return node == null || node.isNull() ? null : node.asText();
     }
 
     /**
@@ -517,19 +623,30 @@ public final class DetailResolver {
                 .connectTimeout(Duration.ofSeconds(3))
                 .followRedirects(HttpClient.Redirect.NORMAL)
                 .build();
-        return url -> {
-            HttpRequest request = HttpRequest.newBuilder(url)
-                    .timeout(FETCH_TIMEOUT)
-                    .header("User-Agent", USER_AGENT)
-                    .header("Accept", "text/html,application/xhtml+xml")
-                    .header("Accept-Language", "ko")
-                    .GET()
-                    .build();
-            HttpResponse<byte[]> response = http.send(request, HttpResponse.BodyHandlers.ofByteArray());
-            byte[] raw = response.body();
-            if (raw.length > MAX_BODY_BYTES) raw = java.util.Arrays.copyOf(raw, MAX_BODY_BYTES);
-            String contentType = response.headers().firstValue("Content-Type").orElse("");
-            return new Page(response.statusCode(), decode(raw, contentType), response.uri());
+        return new Fetcher() {
+            @Override public Page fetch(URI url) throws IOException, InterruptedException {
+                return fetch(url, "GET", null, null);
+            }
+
+            @Override public Page fetch(URI url, String method, String body, String contentType)
+                    throws IOException, InterruptedException {
+                HttpRequest.Builder builder = HttpRequest.newBuilder(url)
+                        .timeout(FETCH_TIMEOUT)
+                        .header("User-Agent", USER_AGENT)
+                        .header("Accept", body == null ? "text/html,application/xhtml+xml" : "application/json")
+                        .header("Accept-Language", "ko");
+                if ("POST".equals(method)) {
+                    builder.header("Content-Type", contentType == null ? "application/json" : contentType)
+                           .POST(HttpRequest.BodyPublishers.ofString(body == null ? "" : body, StandardCharsets.UTF_8));
+                } else {
+                    builder.GET();
+                }
+                HttpResponse<byte[]> response = http.send(builder.build(), HttpResponse.BodyHandlers.ofByteArray());
+                byte[] raw = response.body();
+                if (raw.length > MAX_BODY_BYTES) raw = java.util.Arrays.copyOf(raw, MAX_BODY_BYTES);
+                String ct = response.headers().firstValue("Content-Type").orElse("");
+                return new Page(response.statusCode(), decode(raw, ct), response.uri());
+            }
         };
     }
 
