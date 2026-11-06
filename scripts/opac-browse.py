@@ -806,17 +806,38 @@ def emit(work: str) -> int:
         return 1
     print("# opac-browse.py 가 브라우저로 확인한 주소입니다. 세 겹 검증을 통과한 것만 있습니다.")
     print("# DETAIL_PATTERN 줄은 --import-patterns 로, 나머지는 --import-file 로 넣습니다.")
-    for path in paths:
-        for line in open(path):
-            r = json.loads(line)
-            for rule in r["rules"]:
-                if rule["kind"] == "DETAIL_PATTERN":
-                    # 정규식에 | 가 있을 수 있어 넷째 칸이 마지막입니다. 메모를 붙이지 마세요.
-                    print(f"{r['key']} | DETAIL_PATTERN | {rule['hostKey']} | {rule['pattern']}")
-                else:
-                    for key in r.get("keys", [r["key"]]):
-                        print(f"{key} | {rule['kind']} | {rule['encoding']} | {rule['url']}")
+    results = [json.loads(line) for path in paths for line in open(path)]
+    for r in results:
+        for rule in r["rules"]:
+            if rule["kind"] == "DETAIL_PATTERN":
+                # 정규식에 | 가 있을 수 있어 넷째 칸이 마지막입니다. 메모를 붙이지 마세요.
+                print(f"{r['key']} | DETAIL_PATTERN | {pattern_key(r, rule, results)} | {rule['pattern']}")
+            else:
+                for key in r.get("keys", [r["key"]]):
+                    print(f"{key} | {rule['kind']} | {rule['encoding']} | {rule['url']}")
     return 0
+
+
+def pattern_key(r: dict, rule: dict, results: list[dict]) -> str:
+    """상세 패턴의 열쇠. 보통은 검색 주소의 호스트인데, **한 호스트에 분관마다 다른 패턴이
+    있으면 묶음키(호스트/경로조각)로 좁힙니다.**
+
+    강원특별자치도교육청은 `lib.gwe.go.kr/gnecc`, `lib.gwe.go.kr/dhlib` 처럼 분관마다 경로가
+    다르고 상세 링크도 그 경로로 시작해서, 열세 분관의 정규식이 전부 다릅니다. 열쇠를 호스트만으로
+    내면 `--import-patterns` 가 첫 분관 하나만 받고 나머지 열둘을 「이미 다른 정규식으로 잡혀
+    있다」며 버립니다. 서버는 여럿이 맞으면 가장 긴 열쇠를 쓰므로 좁힌 열쇠가 그대로 통합니다.
+    호스트에 패턴이 하나뿐이면 예전처럼 호스트만 냅니다. 이미 들어간 열쇠가 바뀌지 않습니다.
+    """
+    host = rule["hostKey"]
+    patterns_on_host = {
+        other_rule["pattern"]
+        for other in results for other_rule in other["rules"]
+        if other_rule["kind"] == "DETAIL_PATTERN" and other_rule["hostKey"] == host
+    }
+    if len(patterns_on_host) <= 1:
+        return host
+    key = r["key"]
+    return key if key.lower().split("/")[0].removeprefix("www.") == host.removeprefix("www.") else host
 
 
 def find_patterns(work: str, csv_path: str, patterns_csv: str, host_delay: float,

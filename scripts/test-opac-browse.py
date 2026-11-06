@@ -384,6 +384,28 @@ def main() -> int:
     if not ok:
         failures.append("패턴 import 통과")
 
+    # 한 호스트에 분관마다 다른 패턴이 있으면 열쇠를 묶음키로 좁힙니다. 강원교육청 열세
+    # 분관이 그랬고, 호스트만으로 내면 import 가 첫 분관 하나만 받았습니다.
+    print("\n  --emit 이 분관별 패턴의 열쇠를 호스트/경로로 좁히는지")
+    ework = tempfile.mkdtemp(prefix="opac-browse-emit-")
+    with open(os.path.join(ework, "browse.jsonl"), "w") as f:
+        for branch in ("gnecc", "dhlib"):
+            f.write(json.dumps({"key": f"lib.gwe.go.kr/{branch}", "libCodes": [], "rep": branch,
+                                "rules": [{"kind": "DETAIL_PATTERN", "hostKey": "lib.gwe.go.kr",
+                                           "pattern": f"href=[\"'](/{branch}/menu/1/book/view/[^\"']*)[\"']"}],
+                                "note": ""}) + "\n")
+        f.write(json.dumps({"key": "lib.solo.go.kr", "libCodes": [], "rep": "solo",
+                            "rules": [{"kind": "DETAIL_PATTERN", "hostKey": "lib.solo.go.kr",
+                                       "pattern": "href=[\"'](/view/[^\"']*)[\"']"}], "note": ""}) + "\n")
+    buf, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(err):
+        ob.emit(ework)
+    keys = [l.split("|")[2].strip() for l in buf.getvalue().splitlines() if l and not l.startswith("#")]
+    ok = keys == ["lib.gwe.go.kr/gnecc", "lib.gwe.go.kr/dhlib", "lib.solo.go.kr"]
+    print(f"  {'✓' if ok else '✗'} 열쇠 {keys}")
+    if not ok:
+        failures.append("--emit 열쇠 좁히기")
+
     # 이미 검색 규칙이 있는 도서관의 상세 단계만 돌리는 길. 사람이 채운 217줄이 여기로 갑니다.
     print("\n  규칙이 있는 도서관의 상세 패턴만 찾기 (--patterns)")
     pwork = tempfile.mkdtemp(prefix="opac-browse-patterns-")
