@@ -1,12 +1,22 @@
-# 검색 결과 HTML 에서 그 책의 상세 링크를 뽑는 정규식.
+# 검색 결과 HTML 에서 그 책의 상세 주소를 얻는 규칙.
 #
-#   열쇠,정규식
+#   열쇠,규칙
+#
+# 규칙은 셋입니다(kr.wimb.opac.DetailRule).
+#   정규식                       잡을 그룹 하나가 href 입니다. 제목이 보통 링크인 OPAC.
+#   @onclick:함수이름            제목 링크가 href="#" 이고 onclick="fnDetail('a','b',…)" 로 함수에
+#                                열쇠만 넘기는 OPAC. 서버가 그 함수 본문(페이지 안, 또는 같은 기관의
+#                                스크립트 파일)을 읽어 폼 칸에 인자를 채우고 폼의 숨은 칸과 함께 GET
+#                                주소를 만듭니다. 화성·군산·서대문·은평·고양·김제·전주·울산 중구·남구가
+#                                이 모양입니다. scripts/opac-onclick-probe.py 가 확인해 냅니다.
+#   @template:정규식 => 주소틀   열쇠가 <a> 의 속성에 있고 스크립트가 그것으로 주소를 만드는 OPAC
+#                                (포항). 그룹을 {1} {2} 에 끼우고 검색 주소 기준으로 풉니다.
 #
 # 열쇠   검색 규칙(templates.csv 의 ISBN_SEARCH 주소)의 호스트입니다. 한 호스트에 시스템이 둘
 #        있으면 「호스트/경로조각」으로 좁힙니다. 여럿이 맞으면 가장 긴 열쇠를 씁니다.
 #        한 OPAC 시스템에 한 줄이면 그 시스템을 쓰는 도서관 전체에 적용됩니다.
-# 정규식 잡을 그룹이 정확히 하나여야 하고 그 그룹이 href 값입니다. 첫 쉼표 뒤는 전부
-#        정규식이라 쉼표가 들어가도 됩니다. 빈 문자열에 맞는 정규식은 서버가 뜨지 않게 막습니다.
+# 규칙   첫 쉼표 뒤는 전부 규칙이라 쉼표가 들어가도 됩니다. 정규식은 잡을 그룹이 정확히 하나여야
+#        하고(@template 는 하나 이상) 빈 문자열에 맞으면 서버가 뜨지 않게 막습니다.
 #
 # 상세 주소가 도서관 내부 키를 써서 미리 만들 수 없는 OPAC 을 위한 것입니다. 사용자가 도서관
 # 이름을 누르면 서버가 ISBN 검색 결과를 받아 이 정규식으로 상세 링크를 뽑아 보냅니다
@@ -54,3 +64,15 @@ lib.gwe.go.kr/pclib,href=["'](/pclib/menu/3197/book/view/[^"']*)["']
 lib.gwe.go.kr/hwlib,href=["'](/hwlib/menu/3111/book/view/[^"']*)["']
 lib.gwe.go.kr/hslib,href=["'](/hslib/menu/2939/book/view/[^"']*)["']
 lib.wonju.go.kr,href=["'](/mr/menu/840/book/view/[^"']*)["']
+gjl.gimje.go.kr,@onclick:viewDetail
+lib.gunsan.go.kr,@onclick:fnDetail
+lib.jeonju.go.kr,@onclick:viewDetail
+lib.junggu.ulsan.kr,@onclick:fn_view
+lib.sdm.or.kr,@onclick:fnDetail
+www.eplib.or.kr,@onclick:fnDetail
+www.goyanglib.or.kr,@onclick:fnDetail
+www.ulsannamgu.go.kr,@onclick:goArticle
+www.sblib.seoul.kr,@onclick:fnSearchDetailView
+www.hscitylib.or.kr,@onclick:fnDetail
+sejong.nl.go.kr,href=["'](/search/searchDetail\.do\?rec_key=[^"']*)["']
+phlib.pohang.go.kr,@template:isbn="(\d+)"[^>]*regNo="([^"]+)"[^>]*manageCode="([^"]+)"[^>]*class="goDetail" => detail.do?regNo={2}&isbn={1}&menu_idx=297&manageCode={3}&booktype=BOOK

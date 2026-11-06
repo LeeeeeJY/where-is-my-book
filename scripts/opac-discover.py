@@ -240,7 +240,8 @@ def attr_unescape(s: str) -> str:
     이름을 바꾸지 않습니다. 서버와 같은 여섯 가지만 되돌려야 확인한 주소와 서버가 만드는
     주소가 같습니다.
     """
-    return (s.replace("&amp;", "&").replace("&quot;", '"').replace("&#39;", "'")
+    # &#039; 는 &#39; 와 같은 글자입니다. 성북의 onclick 이 이렇게 적어 서버와 함께 더했습니다(2026-11-06).
+    return (s.replace("&amp;", "&").replace("&quot;", '"').replace("&#39;", "'").replace("&#039;", "'")
              .replace("&#x27;", "'").replace("&lt;", "<").replace("&gt;", ">"))
 
 
@@ -368,10 +369,47 @@ def says_no_result(page: str) -> bool:
 PYTHON_ONLY_REGEX = ("(?P<", "(?P=", "(?#")
 
 
+ONCLICK_PREFIX = "@onclick:"
+TEMPLATE_PREFIX = "@template:"
+TEMPLATE_SEPARATOR = "=>"
+
+
 def pattern_problem(regex: str) -> str | None:
-    """서버가 받아 줄 수 없는 패턴이면 그 이유. 서버(OpacTemplates)와 같은 조건입니다."""
+    """서버가 받아 줄 수 없는 규칙이면 그 이유. 서버(DetailRule.parse)와 같은 조건입니다.
+
+    규칙은 셋입니다. href 를 잡는 **정규식**(그룹 하나), 자바스크립트 폼 전송을 읽는
+    **`@onclick:함수이름`**, 속성값을 주소틀에 끼우는 **`@template:정규식 => 주소틀`**
+    (`{1}` `{2}` 가 그룹). 뒤의 둘은 2026-11-06 에 더했습니다(scripts/opac-onclick-probe.py).
+    """
     if not regex:
         return "정규식이 비어 있습니다"
+    if regex.lower().startswith(ONCLICK_PREFIX):
+        fn = regex[len(ONCLICK_PREFIX):].strip()
+        return None if re.fullmatch(r"[A-Za-z_$][\w$.]*", fn) else f"@onclick: 뒤에는 자바스크립트 함수 이름이 와야 합니다 ({fn!r})"
+    if regex.lower().startswith(TEMPLATE_PREFIX):
+        rest = regex[len(TEMPLATE_PREFIX):]
+        if TEMPLATE_SEPARATOR not in rest:
+            return "@template: 은 「정규식 => 주소틀」이어야 합니다"
+        pat, tpl = rest.split(TEMPLATE_SEPARATOR, 1)
+        pat, tpl = pat.strip(), tpl.strip()
+        if not tpl:
+            return "@template: 의 주소틀이 비어 있습니다"
+        if any(tok in pat for tok in PYTHON_ONLY_REGEX):
+            return "자바에 없는 정규식 문법입니다"
+        try:
+            compiled = re.compile(pat)
+        except re.error as e:
+            return f"정규식이 잘못되었습니다 ({e})"
+        if compiled.groups < 1:
+            return "@template: 의 정규식에 잡을 그룹이 없습니다"
+        refs = [int(n) for n in re.findall(r"\{(\d+)}", tpl)]
+        if not refs:
+            return "@template: 의 주소틀에 {1} 같은 자리표가 없습니다"
+        if any(n < 1 or n > compiled.groups for n in refs):
+            return f"@template: 의 자리표가 가리키는 그룹이 없습니다 (그룹 {compiled.groups}개)"
+        if compiled.search(""):
+            return "빈 문자열에도 맞는 정규식입니다"
+        return None
     if any(tok in regex for tok in PYTHON_ONLY_REGEX):
         return "자바에 없는 정규식 문법입니다"
     try:

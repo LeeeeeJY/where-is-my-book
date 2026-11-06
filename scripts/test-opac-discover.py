@@ -187,6 +187,8 @@ def check_unescape() -> list[str]:
         ("/v.do?menuCd=L1&regNo=SS1&workno=E1", "/v.do?menuCd=L1&regNo=SS1&workno=E1"),
         ("/v.do?a=1&amp;param=2&copy=3&notice=4", "/v.do?a=1&param=2&copy=3&notice=4"),
         ("/b?k=1&amp;s=main&quot;&#39;&lt;&gt;", "/b?k=1&s=main\"'<>"),
+        # 성북의 onclick 이 아포스트로피를 이렇게 적습니다. 서버의 unescape 와 같이 되돌립니다.
+        ("fnSearchDetailView(&#039;111976081&#039;,&#039;BO&#039;)", "fnSearchDetailView('111976081','BO')"),
     ]
     failures = []
     for raw, want in cases:
@@ -451,6 +453,24 @@ def check_import_patterns(work: str) -> list[str]:
     print(f"  {'✓' if ok else '✗'} {'앞머리가 없으면 패턴 없음':22s}")
     if not ok:
         failures.append("패턴 만들기:없음")
+
+    # 규칙은 셋입니다. 서버(DetailRule.parse)가 받는 것은 받고, 막는 것은 여기서도 막아야
+    # 깨진 줄이 CSV 에 들어가 서버가 뜨지 않는 일이 없습니다.
+    print("\n  @onclick / @template 규칙 문법")
+    grammar = [
+        ("@onclick:fnDetail", True), ("@onclick:fn_view", True), ("@onclick:", False), ("@onclick:fn Detail", False),
+        ('@template:regNo="([^"]+)" => detail.do?regNo={1}', True),
+        ('@template:regNo="([^"]+)"', False),                      # 주소틀 없음
+        ('@template:regNo="([^"]+)" => detail.do?a={2}', False),    # 없는 그룹
+        ('@template:regNo="([^"]+)" => detail.do', False),          # 자리표 없음
+        ('@template:(x*) => d?a={1}', False),                       # 빈 문자열에 맞음
+    ]
+    for rule, want_ok in grammar:
+        problem = od.pattern_problem(rule)
+        ok = (problem is None) == want_ok
+        print(f"  {'✓' if ok else '✗'} {rule[:46]:46s} {'통과' if problem is None else problem[:40]}")
+        if not ok:
+            failures.append(f"규칙 문법:{rule}")
     return failures
 
 

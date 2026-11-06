@@ -305,4 +305,208 @@ class DetailResolverTest {
         assertTrue(resolver.resolve("https://lib.example.kr/search?q=" + DetailResolver.MAX_ENTRIES, BOOK_LINK)
                 .fromCache(), "가장 새것은 남았습니다");
     }
+
+    // ── onclick 폼 전송을 읽는 규칙 ────────────────────────────────────────────
+
+    private static final String ALPAS_PAGE = """
+            <html><head><script>
+            function fnDetail(bookKey, speciesKey, isbn, pubFormCode){
+                var form = document.paramForm;
+                form.bookKey.value = bookKey;
+                form.speciesKey.value = speciesKey;
+                form.isbn.value = isbn;
+                form.pubFormCode.value = pubFormCode;
+                form.action = "/nylib/menu/10160/program/30001/searchResultDetail.do";
+                form.submit();
+            }
+            </script></head><body>
+            <form name="paramForm" id="paramForm" method="get">
+                <input type="hidden" name="searchType" value="SIMPLE">
+                <input type="hidden" name="searchKeyword" value="9788937473135">
+                <input type="hidden" name="bookKey" value="">
+                <input type="hidden" name="speciesKey" value="">
+                <input type="hidden" name="isbn" value="">
+                <input type="hidden" name="pubFormCode" value="">
+            </form>
+            <ul>
+             <li><a href="#" onclick="javascript:fnSearchKeyword('빵충'); return false;">빵충</a></li>
+             <li><a href="#" onclick="fnDetail('2141529613', '2141529611', '9788937473135', 'MO');">82년생 김지영</a></li>
+             <li><a href="#" onclick="fnDetail('2124461900', '2124461898', '9788937473135', 'MO');">82년생 김지영 (큰글자)</a></li>
+            </ul></body></html>
+            """;
+
+    @Test
+    @DisplayName("@onclick: 규칙은 첫 호출의 인자를 함수가 채우는 폼 칸에 넣어 GET 주소를 만든다")
+    void buildsDetailUrlFromOnclickFormSubmit() {
+        var site = new FakeSite();
+        String search = "https://www.hscitylib.or.kr/nylib/program/searchResultList.do?searchKeyword=9788937473135";
+        site.page(search, ALPAS_PAGE);
+
+        var outcome = resolver(site).resolve(search, DetailRule.parse("@onclick:fnDetail"));
+
+        assertEquals(DetailResolver.Status.RESOLVED, outcome.status(), outcome.note());
+        // 숨은 칸의 기본값이 먼저, 함수가 넣는 칸이 그것을 덮습니다. 둘째 호출(큰글자)이 아니라 첫 호출입니다.
+        assertEquals("https://www.hscitylib.or.kr/nylib/menu/10160/program/30001/searchResultDetail.do"
+                + "?searchType=SIMPLE&searchKeyword=9788937473135&bookKey=2141529613&speciesKey=2141529611"
+                + "&isbn=9788937473135&pubFormCode=MO", outcome.detailUrl());
+        assertEquals(List.of(search), site.asked.subList(1, site.asked.size()), "함수가 페이지 안에 있으면 스크립트를 받지 않습니다");
+    }
+
+    @Test
+    @DisplayName("함수 본문이 외부 스크립트에 있으면 같은 기관의 스크립트를 차례로 받아 찾고, 하루 기억한다")
+    void readsFunctionFromSameOrganisationScript() {
+        var site = new FakeSite();
+        String search = "https://gjl.gimje.go.kr/index.gimje?menuCd=DOM_1&search_txt=9788937473135";
+        site.page(search, """
+                <html><head>
+                <script src="https://code.jquery.com/jquery.min.js"></script>
+                <script src="/rfc3/user/common.js"></script>
+                <script src="/rfc3/user/domain/gjl.gimje.go.kr.80/0/68.js"></script>
+                </head><body>
+                <form name="detailView" method="post" action="/index.gimje?menuCd=DOM_1">
+                  <input type="hidden" name="search_txt" value="9788937473135"/>
+                  <input type="hidden" name="CSRF_TOKEN" value="abc"/>
+                  <input type="hidden" name="mode" value="view"/>
+                  <input type="hidden" name="pageno" value=""/>
+                  <input type="hidden" name="reckey" value=""/>
+                  <input type="hidden" name="book_type" value=""/>
+                  <input type="hidden" name="manage_code" value=""/>
+                </form>
+                <a href="#" onclick="viewDetail('1','76844430','BOOK','MK'); return false">82년생 김지영</a>
+                </body></html>
+                """);
+        site.page("https://gjl.gimje.go.kr/rfc3/user/common.js", "function goPage(n){ location.href='?p='+n; }");
+        site.page("https://gjl.gimje.go.kr/rfc3/user/domain/gjl.gimje.go.kr.80/0/68.js", """
+                function viewDetail(pageno, reckey,book_type,manage_code){
+                    document.detailView.pageno.value=pageno;
+                    document.detailView.reckey.value=reckey;
+                    document.detailView.book_type.value=book_type;
+                    document.detailView.manage_code.value=manage_code;
+                    document.detailView.submit();
+                }
+                """);
+        var now = new AtomicReference<>(Instant.parse("2026-11-06T00:00:00Z"));
+        var resolver = resolver(site, now);
+
+        var outcome = resolver.resolve(search, DetailRule.parse("@onclick:viewDetail"));
+
+        assertEquals(DetailResolver.Status.RESOLVED, outcome.status(), outcome.note());
+        // action 은 폼 태그의 것, method 가 post 라도 GET 으로, 토큰 칸(CSRF_TOKEN)은 뺍니다.
+        assertEquals("https://gjl.gimje.go.kr/index.gimje?menuCd=DOM_1&search_txt=9788937473135&mode=view"
+                + "&pageno=1&reckey=76844430&book_type=BOOK&manage_code=MK", outcome.detailUrl());
+        assertFalse(site.asked.contains("https://code.jquery.com/jquery.min.js"), "남의 기관 스크립트는 받지 않습니다");
+        long scriptFetches = site.asked.stream().filter(u -> u.endsWith(".js")).count();
+        assertEquals(2, scriptFetches, "문서 순서대로 받아 함수를 찾은 데서 멈춥니다");
+
+        // 다른 책을 같은 호스트에서 다시 찾아도 스크립트는 다시 받지 않습니다.
+        String search2 = search.replace("9788937473135", "9788996991342");
+        site.page(search2, site.pages.get(search).body().replace("76844430", "99"));
+        resolver.resolve(search2, DetailRule.parse("@onclick:viewDetail"));
+        assertEquals(2, site.asked.stream().filter(u -> u.endsWith(".js")).count(), "스크립트는 하루 기억합니다");
+    }
+
+    @Test
+    @DisplayName("jQuery 로 칸을 채우는 함수와 getElementById 로 폼을 집는 함수도 읽는다")
+    void readsJqueryAndGetElementByIdShapes() {
+        var site = new FakeSite();
+        String ulsan = "https://lib.junggu.ulsan.kr/lib/unit/search/list.do?mId=001&search_txt=9788937473135";
+        site.page(ulsan, """
+                <script>function fn_view(manage_code, reg_no) {
+                    var frm = $("form[name='viewForm']");
+                    frm.find("input[name='manage_code']").val(manage_code);
+                    frm.find("input[name='reg_no']").val(reg_no);
+                    frm.submit(); }</script>
+                <form name="viewForm" method="get" action="/lib/unit/search/view.do?mId=001">
+                  <input type="hidden" name="pageno" value="1"><input type="hidden" name="manage_code" value=""><input type="hidden" name="reg_no" value="">
+                </form>
+                <a href="javascript:fn_view('MG', 'GM0000000055');" onclick="fn_view('MG', 'GM0000000055');">82년생 김지영</a>
+                """);
+        var a = resolver(site).resolve(ulsan, DetailRule.parse("@onclick:fn_view"));
+        assertEquals(DetailResolver.Status.RESOLVED, a.status(), a.note());
+        assertEquals("https://lib.junggu.ulsan.kr/lib/unit/search/view.do?mId=001&pageno=1&manage_code=MG&reg_no=GM0000000055", a.detailUrl());
+
+        String gijang = "https://library.gijang.go.kr/portal/kolas/book/search.do?mId=1&search_txt=9788937473135";
+        site.page(gijang, """
+                <script>function goView(regNo) {
+                    var form = document.getElementById("searchForm");
+                    form.action="/portal/kolas/book/view.do?mId=1000000000";
+                    form.reg_no.value = regNo;
+                    form.submit(); }</script>
+                <form id="searchForm" method="post" action="/portal/kolas/book/search.do">
+                  <input type="hidden" name="_csrf" value="temp"><input type="hidden" name="reg_no" value=""><input type="hidden" name="pageno" value="1">
+                </form>
+                <a title="82년생 김지영" href="#" onclick="goView('AXD000120648')">보기</a>
+                """);
+        var b = resolver(site).resolve(gijang, DetailRule.parse("@onclick:goView"));
+        assertEquals(DetailResolver.Status.RESOLVED, b.status(), b.note());
+        // 칸의 차례는 폼에 적힌 차례입니다(브라우저가 전송하는 차례와 같습니다). 토큰 칸 _csrf 는 빠집니다.
+        assertEquals("https://library.gijang.go.kr/portal/kolas/book/view.do?mId=1000000000&reg_no=AXD000120648&pageno=1", b.detailUrl());
+    }
+
+    @Test
+    @DisplayName("호출은 있는데 함수 본문을 어디서도 못 찾으면 NO_MATCH 로 검색 결과에 내려간다")
+    void missingFunctionIsANoMatch() {
+        var site = new FakeSite();
+        String search = "https://lib.example.kr/search?q=9788937473135";
+        site.page(search, "<script src=\"/js/a.js\"></script><a href=\"#\" onclick=\"fnDetail('1','2')\">책</a>");
+        site.page("https://lib.example.kr/js/a.js", "function other(){}");
+
+        var outcome = resolver(site).resolve(search, DetailRule.parse("@onclick:fnDetail"));
+
+        assertEquals(DetailResolver.Status.NO_MATCH, outcome.status());
+        assertTrue(outcome.note().contains("fnDetail"), outcome.note());
+
+        // 호출 자체가 없으면 스크립트를 받지도 않습니다.
+        site.asked.clear();
+        site.page(search, "<script src=\"/js/a.js\"></script><a href=\"/x\">책</a>");
+        var none = resolver(site).resolve(search, DetailRule.parse("@onclick:fnDetail"));
+        assertEquals(DetailResolver.Status.NO_MATCH, none.status());
+        assertFalse(site.asked.stream().anyMatch(u -> u.endsWith(".js")));
+    }
+
+    @Test
+    @DisplayName("@template: 규칙은 속성값을 주소틀에 끼워 검색 주소 기준으로 푼다")
+    void fillsTemplateFromAttributes() {
+        var site = new FakeSite();
+        String search = "https://phlib.pohang.go.kr/phlib/intro/search/index.do?menu_idx=297&search_text=9788937473135";
+        site.page(search, """
+                <a href="#" class="btn" id="do-submit-search">검색</a>
+                <a href="#" vLoca="147109" isbn="9788937473135" regNo="SM0000008651" manageCode="NS" class="goDetail">82년생 김지영</a>
+                """);
+        var rule = DetailRule.parse("@template:isbn=\"(\\d+)\"[^>]*regNo=\"([^\"]+)\"[^>]*manageCode=\"([^\"]+)\"[^>]*class=\"goDetail\""
+                + " => detail.do?regNo={2}&isbn={1}&menu_idx=297&manageCode={3}&booktype=BOOK");
+
+        var outcome = resolver(site).resolve(search, rule);
+
+        assertEquals(DetailResolver.Status.RESOLVED, outcome.status(), outcome.note());
+        assertEquals("https://phlib.pohang.go.kr/phlib/intro/search/detail.do?regNo=SM0000008651&isbn=9788937473135"
+                + "&menu_idx=297&manageCode=NS&booktype=BOOK", outcome.detailUrl());
+    }
+
+    @Test
+    @DisplayName("스크립트는 이름에 search·book·detail 이 든 것을 먼저, 나머지는 문서 순서로 받는다")
+    void prefersLikelyScripts() {
+        var urls = OnclickFormReader.scriptUrls("""
+                <script src="/include/js/jquery-1.11.3.min.js"></script>
+                <script src="https://developers.kakao.com/sdk/js/kakao.min.js"></script>
+                <script src="/include/js/common.js"></script>
+                <script src="/include/booksearch/js/search.js"></script>
+                <script src="/include/js/gnb.js"></script>
+                """, URI.create("https://www.sblib.seoul.kr/library/program/searchResultList.do?query=1"));
+        assertEquals(List.of("https://www.sblib.seoul.kr/include/booksearch/js/search.js",
+                        "https://www.sblib.seoul.kr/include/js/jquery-1.11.3.min.js",
+                        "https://www.sblib.seoul.kr/include/js/common.js",
+                        "https://www.sblib.seoul.kr/include/js/gnb.js"),
+                urls.stream().map(URI::toString).toList());
+    }
+
+    @Test
+    @DisplayName("onclick 인자는 따옴표 안의 쉼표를 나누지 않고 HTML 엔티티를 되돌린다")
+    void splitsOnclickArguments() {
+        var call = OnclickFormReader.firstCall(
+                "<a onclick=\"javascript:fnSearchDetailView(&#039;111976081&#039;,&#039;111976083&#039;,&#039;BO&#039;); return false;\">",
+                "fnSearchDetailView").orElseThrow();
+        assertEquals(List.of("111976081", "111976083", "BO"), call.args());
+        assertEquals(List.of("a,b", "c"), OnclickFormReader.splitArgs("'a,b', \"c\""));
+    }
 }
