@@ -18,8 +18,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
-import java.util.regex.Pattern;
-import java.util.regex.PatternSyntaxException;
 
 /**
  * 도서관별 OPAC 주소 규칙. `resources/opac/templates.csv` 를 읽어 들고 있습니다.
@@ -77,8 +75,8 @@ public final class OpacTemplates {
 
     private record Template(OpacLink.Kind kind, Charset encoding, String urlTemplate) {}
 
-    /** 검색 결과 HTML 에서 상세 링크를 뽑는 정규식과, 그것이 어느 OPAC 의 것인지. */
-    public record DetailPattern(String key, Pattern regex) {}
+    /** 검색 결과 HTML 에서 상세 주소를 얻는 규칙({@link DetailRule})과, 그것이 어느 OPAC 의 것인지. */
+    public record DetailPattern(String key, DetailRule rule) {}
 
     private final Map<String, Map<OpacLink.Kind, Template>> byLibCode;
     private final Map<String, DetailPattern> patterns;
@@ -264,28 +262,19 @@ public final class OpacTemplates {
                         + parts[0]);
                 continue;
             }
-            Pattern regex;
+            DetailRule rule;
             try {
-                regex = Pattern.compile(parts[1].strip());
-            } catch (PatternSyntaxException e) {
-                problems.add("상세 패턴 " + lineNo + "행: 정규식이 잘못되었습니다 — " + e.getDescription());
-                continue;
-            }
-            if (regex.matcher("").groupCount() != 1) {
-                // 그룹이 없으면 무엇이 주소인지 알 수 없고, 둘 이상이면 어느 것인지 모릅니다.
-                problems.add("상세 패턴 " + lineNo + "행: 잡을 그룹이 정확히 하나여야 합니다 — " + parts[1]);
-                continue;
-            }
-            if (regex.matcher("").find()) {
-                problems.add("상세 패턴 " + lineNo + "행: 빈 문자열에도 맞는 정규식은 아무 페이지에서나 "
-                        + "「찾았다」가 됩니다 — " + parts[1]);
+                // 정규식 하나, @onclick:함수, @template:정규식 => 주소틀. 검사는 DetailRule 이 합니다.
+                rule = DetailRule.parse(parts[1]);
+            } catch (IllegalArgumentException e) {
+                problems.add("상세 패턴 " + lineNo + "행: " + e.getMessage());
                 continue;
             }
             if (out.containsKey(key)) {
                 problems.add("상세 패턴 " + lineNo + "행: 열쇠가 겹칩니다 — " + key);
                 continue;
             }
-            out.put(key, new DetailPattern(key, regex));
+            out.put(key, new DetailPattern(key, rule));
         }
         return out;
     }

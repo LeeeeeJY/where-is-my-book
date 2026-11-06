@@ -388,7 +388,7 @@ public class WimbController {
             String searchUrl = candidate.equals(isbns.get(0)) ? link.url()
                     : opacTemplates.bestFor(libCode, candidate, null).map(OpacLink::url).orElse(null);
             if (searchUrl == null) continue;
-            var outcome = detailResolver.resolve(searchUrl, pattern.get().regex());
+            var outcome = detailResolver.resolve(searchUrl, pattern.get().rule());
             if (outcome.status() == DetailResolver.Status.RESOLVED) return outcome.detailUrl();
             if (outcome.status() != DetailResolver.Status.NO_MATCH) break;
         }

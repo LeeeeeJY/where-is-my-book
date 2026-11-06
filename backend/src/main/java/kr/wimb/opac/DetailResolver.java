@@ -109,12 +109,19 @@ public final class DetailResolver {
 
     private record Cached(String detailUrl, Instant insertedAt, Instant expiresAt) {}
 
+    /** 받아 둔 외부 스크립트 파일. 함수 본문이 페이지 밖에 있는 시스템(성북·김제·전주)에서만 씁니다. */
+    private record Script(String text, Instant expiresAt) {}
+
+    static final Duration SCRIPT_TTL = Duration.ofDays(1);
+    static final int MAX_SCRIPTS_CACHED = 500;
+
     private record Robots(List<String> disallows, Instant expiresAt) {}
 
     private final Fetcher fetcher;
     private final Clock clock;
     private final Map<String, Cached> cache = new ConcurrentHashMap<>();
     private final Map<String, Robots> robots = new ConcurrentHashMap<>();
+    private final Map<String, Script> scripts = new ConcurrentHashMap<>();
     private final Map<String, Semaphore> perHost = new ConcurrentHashMap<>();
     private final AtomicLong resolved = new AtomicLong();
     private final AtomicLong missed = new AtomicLong();
@@ -126,8 +133,18 @@ public final class DetailResolver {
         this.clock = clock;
     }
 
-    /** 기억해 둔 답이 있으면 그것을, 없으면 받아서 찾습니다. */
+    /** 정규식 하나짜리 규칙. {@link #resolve(String, DetailRule)} 의 줄임입니다. */
     public Outcome resolve(String searchUrl, Pattern pattern) {
+        return resolve(searchUrl, new DetailRule.Href(pattern));
+    }
+
+    /** 정규식 하나짜리 규칙. {@link #probe(String, DetailRule)} 의 줄임입니다. */
+    public Outcome probe(String searchUrl, Pattern pattern) {
+        return probe(searchUrl, new DetailRule.Href(pattern));
+    }
+
+    /** 기억해 둔 답이 있으면 그것을, 없으면 받아서 찾습니다. */
+    public Outcome resolve(String searchUrl, DetailRule rule) {
         Instant now = clock.instant();
         Cached hit = cache.get(searchUrl);
         if (hit != null && hit.expiresAt().isAfter(now)) {
@@ -136,18 +153,18 @@ public final class DetailResolver {
                     ? new Outcome(Status.NO_MATCH, null, "기억해 둔 답: 링크 없음", true)
                     : new Outcome(Status.RESOLVED, hit.detailUrl(), "기억해 둔 답", true);
         }
-        return fetchAndRemember(searchUrl, pattern);
+        return fetchAndRemember(searchUrl, rule);
     }
 
     /**
      * 기억해 둔 답을 쓰지 않고 실제로 받아 봅니다. 진단용입니다. 「지금 서버가 그 OPAC 에
      * 닿는가」를 알아야 하는 자리라, 캐시가 답하면 아무것도 확인한 것이 아닙니다.
      */
-    public Outcome probe(String searchUrl, Pattern pattern) {
-        return fetchAndRemember(searchUrl, pattern);
+    public Outcome probe(String searchUrl, DetailRule rule) {
+        return fetchAndRemember(searchUrl, rule);
     }
 
-    private Outcome fetchAndRemember(String searchUrl, Pattern pattern) {
+    private Outcome fetchAndRemember(String searchUrl, DetailRule rule) {
         URI search;
         try {
             search = URI.create(searchUrl);
@@ -184,7 +201,7 @@ public final class DetailResolver {
                 failed.incrementAndGet();
                 return Outcome.of(Status.FETCH_FAILED, "HTTP " + page.status());
             }
-            Outcome outcome = extract(page, pattern, search);
+            Outcome outcome = extract(page, rule, search);
             remember(searchUrl, outcome);
             return outcome;
         } catch (InterruptedException e) {
@@ -202,21 +219,63 @@ public final class DetailResolver {
         }
     }
 
-    /** 받은 HTML 에서 패턴의 첫 번째 링크를 꺼내 절대 주소로 만듭니다. */
-    private Outcome extract(Page page, Pattern pattern, URI search) {
-        Matcher m = pattern.matcher(page.body() == null ? "" : page.body());
-        if (!m.find()) {
-            missed.incrementAndGet();
-            return Outcome.of(Status.NO_MATCH, "패턴에 맞는 링크가 없습니다");
+    /** 받은 HTML 에서 규칙대로 상세 주소를 얻어 절대 주소로 만듭니다. */
+    private Outcome extract(Page page, DetailRule rule, URI search) {
+        String body = page.body() == null ? "" : page.body();
+        URI base = page.finalUri() != null ? page.finalUri() : search;
+        String href;
+        String how = "찾았습니다";
+        if (rule instanceof DetailRule.Href(Pattern regex)) {
+            Matcher m = regex.matcher(body);
+            if (!m.find()) {
+                missed.incrementAndGet();
+                return Outcome.of(Status.NO_MATCH, "패턴에 맞는 링크가 없습니다");
+            }
+            href = unescape(m.group(1)).strip();
+        } else if (rule instanceof DetailRule.Template(Pattern regex, String template)) {
+            Matcher m = regex.matcher(body);
+            if (!m.find()) {
+                missed.incrementAndGet();
+                return Outcome.of(Status.NO_MATCH, "패턴에 맞는 자리가 없습니다");
+            }
+            Matcher ph = DetailRule.PLACEHOLDER.matcher(template);
+            StringBuilder filled = new StringBuilder();
+            while (ph.find()) {
+                String value = m.group(Integer.parseInt(ph.group(1)));
+                ph.appendReplacement(filled, Matcher.quoteReplacement(
+                        java.net.URLEncoder.encode(unescape(value == null ? "" : value).strip(), StandardCharsets.UTF_8)));
+            }
+            ph.appendTail(filled);
+            href = filled.toString();
+            how = "속성값을 주소틀에 끼웠습니다";
+        } else if (rule instanceof DetailRule.OnclickForm(String function)) {
+            Optional<OnclickFormReader.Call> call = OnclickFormReader.firstCall(body, function);
+            if (call.isEmpty()) {
+                missed.incrementAndGet();
+                return Outcome.of(Status.NO_MATCH, function + "( 호출이 없습니다");
+            }
+            Optional<OnclickFormReader.Function> fn = OnclickFormReader.findFunction(body, function);
+            if (fn.isEmpty()) fn = functionFromScripts(body, base, function);
+            if (fn.isEmpty()) {
+                missed.incrementAndGet();
+                return Outcome.of(Status.NO_MATCH, "함수 " + function + " 의 본문을 페이지와 스크립트에서 찾지 못했습니다");
+            }
+            OnclickFormReader.Built built = OnclickFormReader.build(body, base, call.get(), fn.get());
+            if (!built.ok()) {
+                missed.incrementAndGet();
+                return Outcome.of(Status.NO_MATCH, built.note());
+            }
+            href = built.url();
+            how = built.note();
+        } else {
+            throw new IllegalStateException("모르는 규칙 종류: " + rule);
         }
-        String href = unescape(m.group(1)).strip();
         String lower = href.toLowerCase(Locale.ROOT);
         if (href.isEmpty() || lower.startsWith("javascript:") || lower.startsWith("mailto:")
                 || href.startsWith("#")) {
             missed.incrementAndGet();
             return Outcome.of(Status.NO_MATCH, "링크가 주소가 아닙니다: " + href);
         }
-        URI base = page.finalUri() != null ? page.finalUri() : search;
         URI target;
         try {
             target = resolve(base, href.replace(" ", "%20"));
@@ -239,7 +298,43 @@ public final class DetailResolver {
             return Outcome.of(Status.NO_MATCH, "검색 결과 자기 주소입니다");
         }
         resolved.incrementAndGet();
-        return new Outcome(Status.RESOLVED, target.toString(), "찾았습니다", false);
+        return new Outcome(Status.RESOLVED, target.toString(), how, false);
+    }
+
+    /**
+     * 함수 본문이 페이지 안에 없으면 페이지가 읽어 들이는 스크립트를 문서 순서로 받아 봅니다.
+     * 성북은 {@code /include/booksearch/js/search.js}, 김제·전주는 {@code /rfc3/.../68.js} 에 있었습니다.
+     * 받은 파일은 하루 기억합니다. 같은 호스트의 사람이 누를 때마다 수십 KB 를 다시 받을 이유가
+     * 없고, 스크립트는 페이지보다 훨씬 드물게 바뀝니다. <b>같은 기관의 스크립트만 받습니다.</b>
+     * CDN 의 jQuery 에 상세 함수가 있을 리 없고, 남의 서버를 두드릴 일도 아닙니다.
+     */
+    private Optional<OnclickFormReader.Function> functionFromScripts(String html, URI base, String function) {
+        for (URI script : OnclickFormReader.scriptUrls(html, base)) {
+            Optional<String> text = scriptText(script);
+            if (text.isEmpty()) continue;
+            Optional<OnclickFormReader.Function> fn = OnclickFormReader.findFunction(text.get(), function);
+            if (fn.isPresent()) return fn;
+        }
+        return Optional.empty();
+    }
+
+    private Optional<String> scriptText(URI script) {
+        Instant now = clock.instant();
+        Script hit = scripts.get(script.toString());
+        if (hit != null && hit.expiresAt().isAfter(now)) return Optional.of(hit.text());
+        if (disallowed(script)) return Optional.empty();
+        try {
+            Page page = fetcher.fetch(script);
+            if (page.status() != 200 || page.body() == null) return Optional.empty();
+            if (scripts.size() >= MAX_SCRIPTS_CACHED) scripts.clear();   // 스크립트는 다시 받으면 되는 것이라 통째로 비워도 됩니다
+            scripts.put(script.toString(), new Script(page.body(), now.plus(SCRIPT_TTL)));
+            return Optional.of(page.body());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return Optional.empty();
+        } catch (Exception e) {
+            return Optional.empty();
+        }
     }
 
     /**
@@ -330,7 +425,8 @@ public final class DetailResolver {
 
     /** {@code &amp;} 같은 HTML 엔티티. href 에 흔히 들어갑니다. */
     static String unescape(String s) {
-        return s.replace("&amp;", "&").replace("&quot;", "\"").replace("&#39;", "'")
+        // &#039; 는 &#39; 와 같은 글자(아포스트로피)인데 성북의 onclick 이 이렇게 적습니다.
+        return s.replace("&amp;", "&").replace("&quot;", "\"").replace("&#39;", "'").replace("&#039;", "'")
                 .replace("&#x27;", "'").replace("&lt;", "<").replace("&gt;", ">");
     }
 

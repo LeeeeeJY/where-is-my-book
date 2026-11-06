@@ -335,4 +335,34 @@ class OpacTemplatesTest {
         assertThrows(IllegalStateException.class,
                 () -> of("111111,DETAIL_LOOKUP,UTF-8,https://lib.example.kr/s?q={isbn13}"));
     }
+
+    @Test
+    @DisplayName("상세 패턴 줄은 정규식, @onclick:함수, @template:정규식 => 주소틀 세 종류를 받는다")
+    void parsesThreeKindsOfDetailRules() {
+        var templates = OpacTemplates.of(
+                List.of("111111,ISBN_SEARCH,UTF-8,https://lib.example.kr/search?q={isbn13}"),
+                List.of("lib.example.kr,href=\"(/book/[^\"]+)\"",
+                        "lib.two.kr,@onclick:fnDetail",
+                        "lib.three.kr,@template:regNo=\"([^\"]+)\" => detail.do?regNo={1}"),
+                true);
+        assertEquals(3, templates.patternCount());
+        assertInstanceOf(DetailRule.OnclickForm.class, templates.detailPatternFor("https://lib.two.kr/s?q=1").orElseThrow().rule());
+        assertInstanceOf(DetailRule.Template.class, templates.detailPatternFor("https://lib.three.kr/s?q=1").orElseThrow().rule());
+    }
+
+    @Test
+    @DisplayName("잘못된 상세 규칙 줄은 서버가 뜨지 않게 막는다")
+    void rejectsMalformedDetailRules() {
+        var tmpl = List.of("111111,ISBN_SEARCH,UTF-8,https://lib.example.kr/search?q={isbn13}");
+        assertThrows(IllegalStateException.class, () -> OpacTemplates.of(tmpl, List.of("lib.example.kr,@onclick:"), true));
+        assertThrows(IllegalStateException.class, () -> OpacTemplates.of(tmpl, List.of("lib.example.kr,@onclick:fn Detail"), true));
+        assertThrows(IllegalStateException.class, () -> OpacTemplates.of(tmpl, List.of("lib.example.kr,@template:regNo=\"([^\"]+)\""), true),
+                "주소틀이 없으면 안 됩니다");
+        assertThrows(IllegalStateException.class, () -> OpacTemplates.of(tmpl, List.of("lib.example.kr,@template:regNo=\"([^\"]+)\" => detail.do?a={2}"), true),
+                "없는 그룹을 가리키는 자리표");
+        assertThrows(IllegalStateException.class, () -> OpacTemplates.of(tmpl, List.of("lib.example.kr,@template:regNo=\"([^\"]+)\" => detail.do"), true),
+                "자리표가 하나도 없는 주소틀");
+        assertThrows(IllegalStateException.class, () -> OpacTemplates.of(tmpl, List.of("lib.example.kr,@template:(x*) => d?a={1}"), true),
+                "빈 문자열에 맞는 정규식");
+    }
 }
