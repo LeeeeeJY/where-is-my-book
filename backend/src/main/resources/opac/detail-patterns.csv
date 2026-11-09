@@ -96,3 +96,12 @@ lib.ansan.go.kr/gamgol,@json:POST https://lib.ansan.go.kr/api/search {"searchKey
 lib.ansan.go.kr/banwol,@json:POST https://lib.ansan.go.kr/api/search {"searchKeyword":"{isbn13}","page":"1","display":"100","article":"SCORE","order":"DESC","manageCode":["ALL"],"pubFormCode":"ALL"} => contents.bookList => /banwol/bookDetail/{pubFormCode}/{bookKey}/{speciesKey}/{isbn}
 lib.siheung.go.kr,@json:GET https://lib.siheung.go.kr/pyxis-api/1/collections/1/search?all=1%7Ck%7Ca%7C{isbn13}&facet=false&max=10 => data.list => /#/search/detail/{id}
 alpasq.bcl.go.kr,@json:POST https://alpasq.bcl.go.kr/api/search {"searchKeyword":"{isbn13}","page":"1","display":"100","article":"LOANABLE","order":"DESC","manageCode":["ALL"],"kidYn":"","pubFormCode":"ALL"} => contents.bookList => /singleBook/{bookKey}/{speciesKey}/{isbn}/{pubFormCode}/{manageCode}
+lib.gwe.go.kr/gslib,href=["'](/gslib/menu/840/book/view/[^"']*)["']
+lib.gwe.go.kr/mmlib,href=["'](/mmlib/menu/2423/book/view/[^"']*)["']
+lib.gwe.go.kr/sokecc,href=["'](/sokecc/menu/3713/book/view/[^"']*)["']
+lib.gwe.go.kr/yylib,href=["'](/yylib/menu/2595/book/view/[^"']*)["']
+lib.gwe.go.kr/ywlib,href=["'](/ywlib/menu/2681/book/view/[^"']*)["']
+lib.gwe.go.kr/cwlib,href=["'](/cwlib/menu/3283/book/view/[^"']*)["']
+lib.gwe.go.kr/cslib,href=["'](/cslib/menu/2767/book/view/[^"']*)["']
+lib.gwe.go.kr/chuncheonecc,href=["'](/chuncheonecc/menu/2337/book/view/[^"']*)["']
+lib.gwe.go.kr/hclib,href=["'](/hclib/menu/2853/book/view/[^"']*)["']
