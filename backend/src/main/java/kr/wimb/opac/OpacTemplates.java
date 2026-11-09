@@ -374,6 +374,12 @@ public final class OpacTemplates {
      * 주소의 {@code 호스트/경로} 를 소문자로. 질의와 조각은 떼고 끝의 {@code /} 도 뗍니다.
      * 자리표가 든 규칙 주소({@code /KeywordSearchResult/{isbn13}})도 받아야 하므로 URI 로
      * 파싱하지 않고 글자로 자릅니다.
+     *
+     * <p><b>포트도 뗍니다.</b> 김해({@code libbook.gimhae.go.kr:8080})와 남해({@code
+     * lib.namhae.go.kr:8443})의 규칙 주소에 포트가 붙어 있는데, 허용 목록과 상세 패턴의 열쇠는
+     * 호스트 이름으로 적습니다. 포트를 남겨 두면 목록에 그 호스트를 적어도 글자가 달라 덮이지
+     * 않고, 그 도서관은 켰는데도 홈페이지로 갑니다. 실제로 그렇게 40곳이 빠져 있었습니다.
+     * 열쇠에 포트를 적지 마세요. 적어도 맞지 않습니다.
      */
     private static String hostPathOf(String url) {
         String rest = url.strip();
@@ -383,6 +389,8 @@ public final class OpacTemplates {
         if (end >= 0) rest = rest.substring(0, end);
         int slash = rest.indexOf('/');
         String host = (slash >= 0 ? rest.substring(0, slash) : rest).toLowerCase(Locale.ROOT);
+        int port = host.indexOf(':');
+        if (port >= 0) host = host.substring(0, port);
         String hostPath = host + (slash >= 0 ? rest.substring(slash) : "");
         while (hostPath.endsWith("/")) hostPath = hostPath.substring(0, hostPath.length() - 1);
         return hostPath;

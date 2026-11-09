@@ -238,6 +238,24 @@ class OpacTemplatesTest {
     }
 
     @Test
+    @DisplayName("규칙 주소에 포트가 붙어 있어도 허용 목록의 호스트 이름이 덮는다")
+    void allowlistIgnoresPortInRuleUrl() {
+        // 김해(libbook.gimhae.go.kr:8080)와 남해(lib.namhae.go.kr:8443)가 그렇습니다. 포트를 글자
+        // 그대로 견주면 목록에 호스트를 적어도 덮이지 않아, 켰는데도 홈페이지로 갑니다.
+        // 실제로 그렇게 40곳이 빠져 있었습니다. 열쇠는 호스트 이름으로만 적습니다.
+        var ported = OpacTemplates.of(
+                List.of("555555,TITLE_SEARCH,UTF-8,http://libbook.example.kr:8080/search/list.do?sstring={title}",
+                        "666666,ISBN_SEARCH,UTF-8,https://lib.example.kr:8443/kolas3_01/search?v={isbn13}"),
+                List.of(), true, OpacTemplates.parseEnabledHosts("libbook.example.kr,lib.example.kr"));
+
+        assertEquals(OpacLink.Kind.TITLE_SEARCH, ported.kindFor("555555"));
+        assertEquals(OpacLink.Kind.ISBN_SEARCH, ported.kindFor("666666"));
+        // 만든 주소에는 포트가 그대로 남습니다. 견줄 때만 떼는 것입니다.
+        assertEquals("https://lib.example.kr:8443/kolas3_01/search?v=9788983711892",
+                ported.bestFor("666666", "9788983711892", null).orElseThrow().url());
+    }
+
+    @Test
     @DisplayName("스위치가 꺼져 있으면 허용 목록이 무엇이든 전부 꺼진다")
     void switchOffBeatsAllowlist() {
         var off = OpacTemplates.of(TWO_HOSTS, List.of(), false,
