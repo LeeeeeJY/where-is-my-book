@@ -347,12 +347,22 @@ public final class BibNormalizer {
         // 「데미안 : 청소년판」은 각색 표기가 부제로 밀려나므로, 표제만 보면 병합 거부 근거를
         // 잃고 그냥 「데미안」과 합쳐집니다. 각색본을 소장으로 세면 헛걸음이 됩니다.
         // 키는 표제에서만 만듭니다. 부제까지 키에 넣으면 부제 표기가 다른 같은 책이 갈립니다.
+        //
+        // **대등표제 자리에서도 찾습니다.** 같은 구멍이 `=` 뒤에 남아 있었습니다. 김영사는
+        // 큰글자책을 「숙론 =큰글자책 /Discourse」로 등록합니다(2026-11-10 실측). 그 말이 부제가
+        // 아니라 대등표제 자리에 있어서 각색 표기가 없는 것으로 읽혔고, 큰글자책 판이 보통 판과
+        // 한 저작으로 합쳐져 있었습니다. 표기가 어느 구분 기호 뒤에 놓일지는 등록한 쪽 마음입니다.
         Normalized fromSubtitle = subtitle == null ? null : normalize(subtitle);
+        Normalized fromParallel = parallelTitle == null ? null : normalize(parallelTitle);
         List<String> editionTokens = new ArrayList<>(core.editionTokens());
         List<String> adaptationTokens = new ArrayList<>(core.adaptationTokens());
         if (fromSubtitle != null) {
             editionTokens.addAll(fromSubtitle.editionTokens());
             adaptationTokens.addAll(fromSubtitle.adaptationTokens());
+        }
+        if (fromParallel != null) {
+            editionTokens.addAll(fromParallel.editionTokens());
+            adaptationTokens.addAll(fromParallel.adaptationTokens());
         }
 
         List<String> aliases = new ArrayList<>(core.aliasKeys());

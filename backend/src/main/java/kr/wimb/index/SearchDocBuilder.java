@@ -181,13 +181,14 @@ public final class SearchDocBuilder {
      * <p>받은 부제를 <b>그대로</b> 싣습니다. 우리 목록의 낱말(「만화로보는」)은 견주려고 다듬은
      * 표기라 화면에 내면 정보나루가 주지 않은 글자를 지어내는 셈입니다. 각색 표기가 표제에
      * 그대로 남아 있는 판(「데미안(청소년판)」)은 이미 보이므로 싣지 않습니다.
+     *
+     * <p>대등표제 자리에 적힌 것도 같은 방식으로 싣습니다({@link #hiddenAdaptations}).
      */
     private static List<String> editionLabels(List<BookRecord> members) {
         Set<String> labels = new LinkedHashSet<>();
         // 무엇이 다른 책인지를 말하는 쪽이 어느 인쇄인지보다 앞에 옵니다.
         for (BookRecord book : members) {
-            String hidden = hiddenAdaptation(book.title());
-            if (hidden != null) labels.add(hidden);
+            labels.addAll(hiddenAdaptations(book.title()));
         }
         for (BookRecord book : members) {
             for (String token : book.title().editionTokens()) {
@@ -199,12 +200,20 @@ public final class SearchDocBuilder {
         return List.copyOf(labels);
     }
 
-    /** 부제에만 남은 각색 표기. 받은 부제 그대로이고, 그런 것이 없으면 {@code null} 입니다. */
-    private static String hiddenAdaptation(TitleParts title) {
-        String subtitle = title.subtitle();
-        if (subtitle == null || subtitle.isBlank()) return null;
-        boolean inSubtitle = !BibNormalizer.parseTitle(subtitle).adaptationTokens().isEmpty();
-        return inSubtitle ? subtitle.trim() : null;
+    /**
+     * 표제에서 갈려 나가 화면에 보이지 않게 된 각색 표기. 받은 글자 그대로입니다.
+     *
+     * <p>갈려 나가는 자리가 둘입니다. 부제(「이방인 :큰글자책」)와 대등표제(「숙론 =큰글자책
+     * /Discourse」)입니다. 화면의 표제는 본표제만 쓰므로 어느 쪽이든 사라집니다. 한쪽만 보면
+     * 저작은 갈라 놓았는데 그 판만 이름표 없이 나갑니다.
+     */
+    private static List<String> hiddenAdaptations(TitleParts title) {
+        List<String> found = new ArrayList<>(2);
+        for (String part : new String[] {title.subtitle(), title.parallelTitle()}) {
+            if (part == null || part.isBlank()) continue;
+            if (!BibNormalizer.parseTitle(part).adaptationTokens().isEmpty()) found.add(part.trim());
+        }
+        return found;
     }
 
     /**

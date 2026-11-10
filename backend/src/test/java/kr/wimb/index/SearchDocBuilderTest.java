@@ -149,6 +149,32 @@ class SearchDocBuilderTest {
         assertEquals("이방인", largePrint.titleDisplay());
     }
 
+    /**
+     * 배포된 서버에서 김영사 「식물학자의 노트」가 저작 하나에 ISBN 둘로 나왔습니다. 하나가
+     * 큰글자책이었습니다. 큰글자책만 가진 도서관이 「있음」으로 나오고 그 반대도 마찬가지입니다.
+     */
+    @Test
+    @DisplayName("대등표제 자리에 큰글자책이 적힌 판은 보통 판과 합치지 않고 이름표로 드러낸다")
+    void largePrintInParallelTitleStaysApartAndIsLabelled() {
+        var docs = buildVia(List.of(
+                book("9788934986942", "식물학자의 노트 =식물이 내게 들려준 이야기 /Notes of a botanist ",
+                        "신혜우 글·그림"),
+                book("9788934904885", "식물학자의 노트 =큰글자책 /Notes of a botanist ",
+                        "신혜우 글·그림")));
+
+        assertEquals(2, docs.size(), "큰글자책은 보통 판과 다른 저작입니다");
+        var largePrint = docs.stream().filter(d -> d.isbn13List().contains("9788934904885"))
+                .findFirst().orElseThrow();
+        var plain = docs.stream().filter(d -> d.isbn13List().contains("9788934986942"))
+                .findFirst().orElseThrow();
+
+        assertEquals(List.of("9788934904885"), largePrint.isbn13List());
+        assertEquals(List.of("큰글자책"), largePrint.editionLabels());
+        assertEquals(List.of(), plain.editionLabels(),
+                "보통 판의 대등표제는 각색 표기가 아니므로 이름표로 내지 않습니다");
+        assertEquals("식물학자의 노트", largePrint.titleDisplay(), "표제는 그대로 둡니다");
+    }
+
     @Test
     @DisplayName("각색 표기가 표제에 그대로 보이면 이름표에 다시 싣지 않는다")
     void doesNotRepeatWhatTheTitleAlreadyShows() {
