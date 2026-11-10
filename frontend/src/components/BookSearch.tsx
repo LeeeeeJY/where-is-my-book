@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiUnavailable, fetchHoldings, hasCriteria, libraryLink, searchBooks } from '../api';
+import { editionLine } from '../domain/editionLabels';
 import { anyHomepageOnly, isbnsForLink, linkBadge, linkLabel } from '../domain/opacLink';
 import { olderAsOf } from '../domain/asOf';
 import type { DroppedBook, SearchCriteria, SearchResponse, WorkResult } from '../api';
@@ -597,8 +598,8 @@ function BookCard({
         <p className="book__meta muted">
           {[work.author, work.publisher].filter(Boolean).join(' · ')}
         </p>
-        {work.editionLabels.length > 0 && (
-          <p className="book__editions muted">판본 {work.editionLabels.join(' · ')}</p>
+        {editionLine(work.editionLabels) && (
+          <p className="book__editions muted">{editionLine(work.editionLabels)}</p>
         )}
         {work.isbn13List.length > 1 && (
           <p className="book__editions muted">

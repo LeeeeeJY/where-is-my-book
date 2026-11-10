@@ -163,9 +163,32 @@ public final class SearchDocBuilder {
         return proper + " " + vol.mark();
     }
 
-    /** 「특별판 (2010)」처럼 어떤 판본들이 있는지 보여 줍니다. */
+    /**
+     * 「특별판 (2010)」처럼 어떤 판본들이 있는지 보여 줍니다.
+     *
+     * <p><b>표제에서 보이지 않게 된 각색 표기도 여기에 싣습니다.</b> 정보나루가 「이방인
+     * :큰글자책」으로 준 판은 「큰글자책」이 부제로 갈려 나가 표제가 「이방인」만 남습니다.
+     * 그 표기 덕분에 저작은 보통 판과 따로 서는데, 화면에는 <b>표제·저자·출판사가 똑같은 줄이
+     * 둘</b> 나갑니다. 실제로 민음사 「이방인」이 그랬고(2026-11-10), 큰글자책을 찾는 사람도
+     * 보통 판을 찾는 사람도 어느 줄이 자기 것인지 알 수 없었습니다. 갈라 놓았으면 드러내야
+     * 한다는 것은 권차에서 이미 겪은 일입니다.
+     *
+     * <p><b>표제에 붙이지 않고 이름표로 내는 데 이유가 있습니다.</b> 화면은 표제를 그대로
+     * 도서관의 제목 검색 주소에 끼웁니다({@code /api/go} 의 {@code title}). 표제가 「이방인 :
+     * 큰글자책」이 되면 제목으로만 찾아지는 도서관에서 그 글자를 통째로 찾게 되어 0건이
+     * 나오고, 사용자에게는 「소장한다더니 그 책이 없네」로 보입니다.
+     *
+     * <p>받은 부제를 <b>그대로</b> 싣습니다. 우리 목록의 낱말(「만화로보는」)은 견주려고 다듬은
+     * 표기라 화면에 내면 정보나루가 주지 않은 글자를 지어내는 셈입니다. 각색 표기가 표제에
+     * 그대로 남아 있는 판(「데미안(청소년판)」)은 이미 보이므로 싣지 않습니다.
+     */
     private static List<String> editionLabels(List<BookRecord> members) {
         Set<String> labels = new LinkedHashSet<>();
+        // 무엇이 다른 책인지를 말하는 쪽이 어느 인쇄인지보다 앞에 옵니다.
+        for (BookRecord book : members) {
+            String hidden = hiddenAdaptation(book.title());
+            if (hidden != null) labels.add(hidden);
+        }
         for (BookRecord book : members) {
             for (String token : book.title().editionTokens()) {
                 labels.add(book.pubDate() == null
@@ -174,6 +197,14 @@ public final class SearchDocBuilder {
             }
         }
         return List.copyOf(labels);
+    }
+
+    /** 부제에만 남은 각색 표기. 받은 부제 그대로이고, 그런 것이 없으면 {@code null} 입니다. */
+    private static String hiddenAdaptation(TitleParts title) {
+        String subtitle = title.subtitle();
+        if (subtitle == null || subtitle.isBlank()) return null;
+        boolean inSubtitle = !BibNormalizer.parseTitle(subtitle).adaptationTokens().isEmpty();
+        return inSubtitle ? subtitle.trim() : null;
     }
 
     /**
