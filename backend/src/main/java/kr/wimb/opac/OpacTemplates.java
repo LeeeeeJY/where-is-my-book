@@ -103,6 +103,58 @@ public final class OpacTemplates {
         this.patterns = patterns;
         this.linksEnabled = linksEnabled;
         this.enabledHosts = Set.copyOf(enabledHosts);
+        Map<String, Integer> users = new java.util.HashMap<>();
+        for (Map<OpacLink.Kind, Template> templates : byLibCode.values()) {
+            Template title = templates.get(OpacLink.Kind.TITLE_SEARCH);
+            if (title != null) users.merge(title.urlTemplate(), 1, Integer::sum);
+        }
+        this.titleTemplateUsers = Map.copyOf(users);
+    }
+
+    /**
+     * 제목 검색 주소마다 그것을 쓰는 도서관 수. 둘 이상이면 <b>그 검색은 분관으로 좁혀지지 않은
+     * 것</b>이라 결과에 여러 분관의 소장본이 섞여 있습니다.
+     */
+    private final Map<String, Integer> titleTemplateUsers;
+
+    /**
+     * 이 도서관의 제목 검색 주소를 함께 쓰는 도서관 수(자기 포함). 제목 규칙이 없으면 0 입니다.
+     * 진단이 「왜 상세로 안 가는가」를 말하는 데 씁니다.
+     */
+    public int titleSearchSharedBy(String libCode) {
+        Map<OpacLink.Kind, Template> templates = byLibCode.get(libCode);
+        Template title = templates == null ? null : templates.get(OpacLink.Kind.TITLE_SEARCH);
+        return title == null ? 0 : titleTemplateUsers.getOrDefault(title.urlTemplate(), 0);
+    }
+
+    /**
+     * 이 도서관의 <b>제목 검색 결과에서 상세를 찾을 규칙</b>. 있으면 누를 때 그 결과에서 ISBN 이 적힌
+     * 줄을 골라 상세로 보냅니다.
+     *
+     * <p>셋을 다 채워야 합니다.
+     * <ol>
+     *   <li>그 주소를 덮는 상세 패턴이 있고,</li>
+     *   <li>그것이 <b>{@code @anchor:} 규칙</b>이고(닻 없는 규칙은 결과의 첫 줄, 곧 같은 제목의 아무
+     *       판으로나 갑니다),</li>
+     *   <li><b>그 검색 주소를 이 도서관만 씁니다.</b> 여러 도서관이 한 주소를 함께 쓰면 분관으로
+     *       좁히지 않은 통합 검색이라 결과에 여러 분관의 소장본이 섞여 있고, 같은 ISBN 이 적힌 줄
+     *       가운데 어느 것이 누른 분관의 것인지 닻만으로는 가를 수 없습니다. 실제로 부평은 갈산도서관
+     *       화면에서 찾은 「82년생 김지영」의 줄이 청천도서관과 희망천작은도서관의 것이었습니다
+     *       (2026-11-10). 그대로 보내면 「소장한다더니 다른 도서관 책」입니다.</li>
+     * </ol>
+     *
+     * <p><b>셋째 조건은 주소가 하나뿐이라는 것만 봅니다.</b> 한 도서관만 쓰는 주소인데도 분관으로
+     * 좁혀지지 않은 것이 있습니다(부평의 분관 사이트는 주소가 저마다 다르지만 전부
+     * {@code searchLibrary=ALL} 입니다). 그것은 여기서 걸러지지 않으므로 <b>그런 호스트에는 닻 규칙을
+     * 넣지 않습니다.</b> 조사 도구가 통과시켜도 주소에 분관 부호가 있는지는 사람이 봐야 합니다.
+     */
+    public Optional<DetailPattern> titleDetailPatternFor(String libCode) {
+        if (!linksEnabled) return Optional.empty();
+        Map<OpacLink.Kind, Template> templates = byLibCode.get(libCode);
+        Template title = templates == null ? null : templates.get(OpacLink.Kind.TITLE_SEARCH);
+        if (title == null || !allowed(title)) return Optional.empty();
+        if (titleTemplateUsers.getOrDefault(title.urlTemplate(), 0) != 1) return Optional.empty();
+        return detailPatternFor(title.urlTemplate()).filter(pattern -> pattern.rule() instanceof DetailRule.Anchored);
     }
 
     /** 자원에서 읽어 들입니다. 파일이 없으면 규칙이 하나도 없는 것으로 보고 넘어갑니다. */
@@ -314,8 +366,9 @@ public final class OpacTemplates {
      * 그 도서관 링크가 어느 단계까지 갈 수 있는지. 화면에 미리 밝히는 데 씁니다.
      *
      * <p>ISBN 과 제목이 모두 있다고 보고 계산합니다. 검색 결과에는 둘 다 있습니다.
-     * ISBN 검색 규칙에 상세 패턴이 붙어 있으면 {@code DETAIL_LOOKUP} 입니다. <b>누를 때 찾는
-     * 것이라 못 찾을 수 있고</b>, 그때는 검색 결과로 내려갑니다. 화면 문구가 그것을 말합니다.
+     * ISBN 검색 규칙에 상세 패턴이 붙어 있으면 {@code DETAIL_LOOKUP} 입니다. 제목 검색 규칙은
+     * {@link #titleDetailPatternFor} 가 규칙을 줄 때만 그렇습니다. <b>누를 때 찾는 것이라 못 찾을 수
+     * 있고</b>, 그때는 검색 결과로 내려갑니다. 화면 문구가 그것을 말합니다.
      */
     public OpacLink.Kind kindFor(String libCode) {
         if (!linksEnabled) return OpacLink.Kind.HOMEPAGE;
@@ -325,6 +378,11 @@ public final class OpacTemplates {
             Template template = templates.get(kind);
             if (template == null || !allowed(template)) continue;
             if (kind == OpacLink.Kind.ISBN_SEARCH && detailPatternFor(template.urlTemplate()).isPresent()) {
+                return OpacLink.Kind.DETAIL_LOOKUP;
+            }
+            // 제목 검색은 ISBN 을 닻으로 삼는 규칙(@anchor:)이 달렸고 그 주소를 이 도서관만 쓸 때만
+            // 상세를 찾습니다. 조건은 titleDetailPatternFor 한 곳에 있습니다.
+            if (kind == OpacLink.Kind.TITLE_SEARCH && titleDetailPatternFor(libCode).isPresent()) {
                 return OpacLink.Kind.DETAIL_LOOKUP;
             }
             return kind;

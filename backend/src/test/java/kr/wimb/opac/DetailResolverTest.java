@@ -761,4 +761,149 @@ class DetailResolverTest {
         assertEquals(DetailResolver.Status.NO_MATCH, resolver(site).resolve("https://life.sje.go.kr/x", rule,
                 new DetailResolver.Context("9788937473135", null)).status());
     }
+    // ── 제목 검색 결과에서 그 ISBN 의 줄을 고르는 규칙 (@anchor:) ─────────────────
+
+    // 동대문(www.l4d.or.kr)의 제목 검색 결과를 줄인 것입니다(2026-11-10). 「미움받을 용기」로 찾으면
+    // ISBN 이 일곱 가지 나옵니다. 제목 링크가 먼저, 「ISBN: …」 이 뒤입니다.
+    private static final String PLUS_TITLE_PAGE = """
+            <html><head><script>
+            function fnSearchResultDetail(recKey, bookKey, publishFormCode){
+                var form = document.paramForm;
+                form.recKey.value = recKey;
+                form.bookKey.value = bookKey;
+                form.publishFormCode.value = publishFormCode;
+                form.action = "/info/menu/10142/program/30010/plusSearchResultDetail.do";
+                form.submit();
+            }
+            </script></head><body>
+            <form name="paramForm" id="paramForm" method="get">
+                <input type="hidden" name="searchType" value="SIMPLE">
+                <input type="hidden" name="recKey" value="">
+                <input type="hidden" name="bookKey" value="">
+                <input type="hidden" name="publishFormCode" value="">
+            </form>
+            <ul>
+             <li><a href="#link" onclick="javascript:fnSearchResultDetail(111,112,'BO'); return false;">미움받을 용기 2</a>
+                 <span>ISBN: 9791186560136</span></li>
+             <li><a href="#link" onclick="javascript:fnSearchResultDetail(210791177,212537932,'BO'); return false;">미움받을 용기</a>
+                 <span>ISBN: 9788996991342</span></li>
+             <li><a href="#link" onclick="javascript:fnSearchResultDetail(333,334,'BO'); return false;">만화 미움받을 용기</a>
+                 <span>ISBN: 9788901222127</span></li>
+            </ul></body></html>
+            """;
+    private static final String TITLE_SEARCH = "https://www.l4d.or.kr/info/plusSearchResultList.do?searchKeyword=%EB%AF%B8%EC%9B%80";
+
+    @Test
+    @DisplayName("@anchor: 규칙은 제목 검색 결과에서 그 ISBN 이 적힌 줄의 호출로 상세 주소를 만든다")
+    void anchoredOnclickPicksTheRowWithTheIsbn() {
+        var site = new FakeSite();
+        site.page(TITLE_SEARCH, PLUS_TITLE_PAGE);
+        var rule = DetailRule.parse("@anchor:@onclick:fnSearchResultDetail");
+
+        var outcome = resolver(site).resolve(TITLE_SEARCH, rule, new DetailResolver.Context("9788996991342", "111065"));
+
+        assertEquals(DetailResolver.Status.RESOLVED, outcome.status(), outcome.note());
+        // 첫 줄(2권)이 아니라 둘째 줄입니다. 닻 없는 규칙이었다면 recKey=111 로 갔습니다.
+        assertEquals("https://www.l4d.or.kr/info/menu/10142/program/30010/plusSearchResultDetail.do"
+                + "?searchType=SIMPLE&recKey=210791177&bookKey=212537932&publishFormCode=BO", outcome.detailUrl());
+
+        var plain = resolver(site).resolve(TITLE_SEARCH, DetailRule.parse("@onclick:fnSearchResultDetail"));
+        assertTrue(plain.detailUrl().contains("recKey=111"), "닻이 없으면 첫 줄, 곧 다른 책입니다");
+    }
+
+    @Test
+    @DisplayName("닻으로 삼을 ISBN 을 앞에서부터 해 보고, 결과는 한 번만 받는다")
+    void triesAnchorsInOrderWithOneFetch() {
+        var site = new FakeSite();
+        site.page(TITLE_SEARCH, PLUS_TITLE_PAGE);
+        var rule = DetailRule.parse("@anchor:@onclick:fnSearchResultDetail");
+
+        // 그 도서관이 가졌다는 판(첫 ISBN)은 결과에 없고, 둘째 ISBN 이 있습니다.
+        var outcome = resolver(site).resolve(TITLE_SEARCH, rule, new DetailResolver.Context("9788937473135", "111065",
+                List.of("9788937473135", "9788901222127")));
+
+        assertEquals(DetailResolver.Status.RESOLVED, outcome.status(), outcome.note());
+        assertTrue(outcome.detailUrl().contains("recKey=333"), outcome.detailUrl());
+        assertEquals(1, site.asked.stream().filter(TITLE_SEARCH::equals).count(), "ISBN 마다 다시 받지 않습니다");
+    }
+
+    @Test
+    @DisplayName("결과에 그 ISBN 이 없으면 첫 줄로 내려가지 않고 검색 결과로 보낸다")
+    void anchoredRuleDoesNotFallBackToTheFirstRow() {
+        var site = new FakeSite();
+        site.page(TITLE_SEARCH, PLUS_TITLE_PAGE);
+        var rule = DetailRule.parse("@anchor:@onclick:fnSearchResultDetail");
+
+        var outcome = resolver(site).resolve(TITLE_SEARCH, rule, new DetailResolver.Context("9788937473135", "111065"));
+
+        assertEquals(DetailResolver.Status.NO_MATCH, outcome.status());
+        assertTrue(outcome.note().contains("적혀 있지 않습니다"), outcome.note());
+    }
+
+    @Test
+    @DisplayName("같은 제목 검색이라도 책이 다르면 답을 따로 기억한다")
+    void anchoredAnswersAreCachedPerIsbn() {
+        var site = new FakeSite();
+        site.page(TITLE_SEARCH, PLUS_TITLE_PAGE);
+        var rule = DetailRule.parse("@anchor:@onclick:fnSearchResultDetail");
+        var resolver = resolver(site);
+
+        var first = resolver.resolve(TITLE_SEARCH, rule, new DetailResolver.Context("9788996991342", "111065"));
+        var second = resolver.resolve(TITLE_SEARCH, rule, new DetailResolver.Context("9791186560136", "111065"));
+        var again = resolver.resolve(TITLE_SEARCH, rule, new DetailResolver.Context("9788996991342", "111065"));
+
+        // 주소만 열쇠로 삼으면 첫 책의 답이 둘째 책을 누른 사람에게 그대로 나갑니다.
+        assertTrue(first.detailUrl().contains("recKey=210791177"));
+        assertTrue(second.detailUrl().contains("recKey=111"), second.detailUrl());
+        assertTrue(again.fromCache());
+        assertEquals(first.detailUrl(), again.detailUrl());
+    }
+
+    @Test
+    @DisplayName("@anchor: 규칙에 ISBN 을 주지 않으면 남의 서버를 두드리지 않고 끝낸다")
+    void anchoredRuleNeedsAnIsbn() {
+        var site = new FakeSite();
+        site.page(TITLE_SEARCH, PLUS_TITLE_PAGE);
+
+        var outcome = resolver(site).resolve(TITLE_SEARCH, DetailRule.parse("@anchor:@onclick:fnSearchResultDetail"),
+                DetailResolver.Context.NONE);
+
+        assertEquals(DetailResolver.Status.NO_MATCH, outcome.status());
+        assertTrue(site.asked.isEmpty(), "닻이 없으면 고를 수 없으므로 받아 볼 이유가 없습니다");
+    }
+
+    @Test
+    @DisplayName("@anchor-after: 는 ISBN 뒤의 링크를, 정규식 규칙으로도 고른다")
+    void anchoredHrefAfterTheIsbn() {
+        var site = new FakeSite();
+        String search = "https://lib.example.kr/search?title=%EB%8D%B0%EB%AF%B8%EC%95%88";
+        site.page(search, """
+                <li><img data-isbn="9788937460449"><a href="/book/view?key=100&amp;m=1">데미안 (민음사)</a></li>
+                <li><img data-isbn="9788954615860"><a href="/book/view?key=200&amp;m=1">데미안 (문학동네)</a></li>
+                """);
+        var rule = DetailRule.parse("@anchor-after:href=\"(/book/view\\?key=[^\"]+)\"");
+
+        var outcome = resolver(site).resolve(search, rule, new DetailResolver.Context("9788954615860", "111111"));
+
+        assertEquals(DetailResolver.Status.RESOLVED, outcome.status(), outcome.note());
+        assertEquals("https://lib.example.kr/book/view?key=200&m=1", outcome.detailUrl());
+    }
+
+    @Test
+    @DisplayName("@anchor: 뒤에는 정규식·@onclick·@template 만 오고, 규칙 글자를 그대로 되돌려 적는다")
+    void parsesAnchoredRules() {
+        var before = DetailRule.parse("@anchor:@onclick:fnSearchResultDetail");
+        assertTrue(before instanceof DetailRule.Anchored a && a.linkBeforeIsbn() && a.inner() instanceof DetailRule.OnclickForm);
+        assertEquals("@anchor:@onclick:fnSearchResultDetail", before.describe());
+
+        var after = DetailRule.parse("@anchor-after:href=\"(/v/[^\"]+)\"");
+        assertTrue(after instanceof DetailRule.Anchored a && !a.linkBeforeIsbn() && a.inner() instanceof DetailRule.Href);
+        assertEquals("@anchor-after:href=\"(/v/[^\"]+)\"", after.describe());
+
+        // JSON 검색은 목록에서 도서관으로 고르므로 닻이 필요 없고, 닻을 두 겹으로 감쌀 일도 없습니다.
+        assertThrows(IllegalArgumentException.class,
+                () -> DetailRule.parse("@anchor:@json:GET https://x.kr/api?q={isbn13} => list => /d/{id}"));
+        assertThrows(IllegalArgumentException.class, () -> DetailRule.parse("@anchor:@anchor:@onclick:f"));
+        assertThrows(IllegalArgumentException.class, () -> DetailRule.parse("@anchor:"));
+    }
 }

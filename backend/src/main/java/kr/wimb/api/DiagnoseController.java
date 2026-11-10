@@ -111,7 +111,8 @@ public class DiagnoseController {
      * <p>이 호출은 그 도서관 서버로 요청을 한 번 보냅니다. 자동으로 돌리지 마세요.
      */
     @GetMapping("/diagnose/opac")
-    public Map<String, Object> opac(@RequestParam String lib, @RequestParam String isbn) {
+    public Map<String, Object> opac(@RequestParam String lib, @RequestParam String isbn,
+                                    @RequestParam(required = false) String title) {
         if (lib.isBlank() || isbn.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "lib 과 isbn 이 필요합니다.");
         }
@@ -136,14 +137,18 @@ public class DiagnoseController {
                     + "화면의 링크는 홈페이지로 갑니다. 아래는 목록에 넣었을 때 어떻게 되는지입니다.");
         }
         out.put("kind", rules.kindFor(lib).name());
-        var link = rules.bestFor(lib, isbn, null);
+        // 제목으로만 찾아지는 도서관은 title 을 함께 줘야 검색 주소를 만들 수 있습니다. 화면은 늘
+        // 둘 다 보냅니다. 여기서 isbn 은 결과 목록에서 그 책의 줄을 고르는 닻으로 씁니다.
+        var link = rules.bestFor(lib, isbn, title);
         if (link.isEmpty()) {
             out.put("status", "NO_RULE");
-            out.put("note", "이 도서관에는 ISBN 검색 규칙이 없습니다. 홈페이지로 갑니다.");
+            out.put("note", title == null || title.isBlank()
+                    ? "이 도서관에는 ISBN 검색 규칙이 없습니다. 제목 검색 규칙만 있는 도서관이면 title 을 함께 주세요."
+                    : "이 도서관에는 검색 규칙이 없습니다. 홈페이지로 갑니다.");
             return out;
         }
         out.put("searchUrl", link.get().url());
-        if (link.get().kind() != OpacLink.Kind.ISBN_SEARCH) {
+        if (link.get().kind() != OpacLink.Kind.ISBN_SEARCH && link.get().kind() != OpacLink.Kind.TITLE_SEARCH) {
             out.put("status", "NO_LOOKUP_NEEDED");
             out.put("note", "상세 주소를 미리 만들 수 있는 도서관이라 검색 결과를 받지 않습니다.");
             return out;
@@ -153,6 +158,27 @@ public class DiagnoseController {
             out.put("status", "NO_PATTERN");
             out.put("note", "이 OPAC 의 상세 패턴이 detail-patterns.csv 에 없습니다. 검색 결과로 갑니다.");
             return out;
+        }
+        if (link.get().kind() == OpacLink.Kind.TITLE_SEARCH) {
+            if (!(pattern.get().rule() instanceof kr.wimb.opac.DetailRule.Anchored)) {
+                // 닻 없는 규칙을 제목 검색 결과에 쓰면 첫 줄, 곧 같은 제목의 아무 판으로나 갑니다.
+                out.put("status", "NO_PATTERN");
+                out.put("rule", pattern.get().rule().describe());
+                out.put("note", "제목 검색 규칙은 @anchor: 상세 패턴이 붙어야 상세로 갑니다. 이 열쇠의 패턴은 "
+                        + "ISBN 검색용이라 쓰지 않습니다. 검색 결과로 갑니다.");
+                return out;
+            }
+            int sharedBy = rules.titleSearchSharedBy(lib);
+            if (sharedBy != 1) {
+                // 패턴은 맞는데 일부러 쓰지 않는 경우입니다. 「패턴이 틀렸다」와 갈라 말하지 않으면
+                // 멀쩡한 패턴을 고치게 됩니다.
+                out.put("status", "SHARED_SEARCH");
+                out.put("rule", pattern.get().rule().describe());
+                out.put("note", "이 제목 검색 주소를 도서관 " + sharedBy + "곳이 함께 씁니다. 분관으로 좁히지 않은 "
+                        + "검색이라 결과에 여러 분관의 소장본이 섞여 있어, 상세로 보내면 남의 분관 책일 수 있습니다. "
+                        + "templates.csv 의 주소를 분관으로 좁힌 것으로 바꾸면 상세로 갑니다. 지금은 검색 결과로 갑니다.");
+                return out;
+            }
         }
         out.put("patternKey", pattern.get().key());
         // 어느 종류의 규칙으로 갔는지. @onclick 이 「함수 본문을 못 찾았다」로 끝나면 스크립트

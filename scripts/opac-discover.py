@@ -372,6 +372,8 @@ PYTHON_ONLY_REGEX = ("(?P<", "(?P=", "(?#")
 ONCLICK_PREFIX = "@onclick:"
 TEMPLATE_PREFIX = "@template:"
 JSON_PREFIX = "@json:"
+ANCHOR_PREFIX = "@anchor:"
+ANCHOR_AFTER_PREFIX = "@anchor-after:"
 TEMPLATE_SEPARATOR = "=>"
 
 
@@ -381,9 +383,19 @@ def pattern_problem(regex: str) -> str | None:
     규칙은 셋입니다. href 를 잡는 **정규식**(그룹 하나), 자바스크립트 폼 전송을 읽는
     **`@onclick:함수이름`**, 속성값을 주소틀에 끼우는 **`@template:정규식 => 주소틀`**
     (`{1}` `{2}` 가 그룹). 뒤의 둘은 2026-11-06 에 더했습니다(scripts/opac-onclick-probe.py).
+    셋 다 앞에 **`@anchor:`**(또는 `@anchor-after:`)를 붙일 수 있습니다. 첫 링크가 아니라 그 ISBN 이
+    적힌 항목의 링크를 고르라는 뜻이고, 제목 검색 규칙용입니다(scripts/opac-title-probe.py).
     """
     if not regex:
         return "정규식이 비어 있습니다"
+    for prefix in (ANCHOR_AFTER_PREFIX, ANCHOR_PREFIX):
+        # @anchor:규칙 — 결과 목록에서 그 ISBN 이 적힌 항목의 링크를 고릅니다(서버의 DetailRule.Anchored).
+        # 제목 검색 규칙은 이것이 붙어야 상세로 갑니다. 안쪽은 정규식·@onclick:·@template: 입니다.
+        if regex.lower().startswith(prefix):
+            inner = regex[len(prefix):].strip()
+            if inner.lower().startswith((JSON_PREFIX, ANCHOR_PREFIX, ANCHOR_AFTER_PREFIX)):
+                return f"{prefix} 뒤에는 정규식·@onclick:·@template: 규칙이 와야 합니다"
+            return pattern_problem(inner)
     if regex.lower().startswith(ONCLICK_PREFIX):
         fn = regex[len(ONCLICK_PREFIX):].strip()
         return None if re.fullmatch(r"[A-Za-z_$][\w$.]*", fn) else f"@onclick: 뒤에는 자바스크립트 함수 이름이 와야 합니다 ({fn!r})"

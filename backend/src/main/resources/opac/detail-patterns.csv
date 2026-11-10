@@ -135,3 +135,23 @@ forest.seocholib.or.kr,@json:POST https://public.seocholib.or.kr/api/search/seoc
 mob.suwonlib.go.kr,@json:POST https://mob.suwonlib.go.kr/getSearchResult/normal isInnerSearch=F&kdcValue=&kCid=&displayNo=100&facetMediaName=&innerSearchTxt=&orderbyItem=ACCURACY_SORT&facetPubYear=&keywordSearch=false&facetLib=&facetAuthor=&orderby=DESC&facetSubjectName=&manageCode={libCode}&facetSubject=&facetMedia=&searchTxt={isbn13}&facetPublisher=&pageNo=1&facetLibName=&historyChk=N&isSearchType=normal&searchKind=book => SEARCH_RESULT.SEARCH_LIST => /detail/{ISBN}/{book_key}
 lib.changwon.go.kr,@json:GET https://lib.changwon.go.kr/book/data2.php?search_txt={isbn13}&manage_code=&lib_code=cl&pageno=1&display=300&orderby_item=&search_type=normal => apiResponse.message.bookList => /book/dataView2.php?lib_code=cl&book_key={bookKey}&species_key={speciesKey}&pub_form_code={pubFormCode}&manage_code={manageCode}&page_type=search
 life.sje.go.kr,@json:POST https://life.sje.go.kr/api/book/booksearch {"manage_code":"{libCode}","search_type":"normal","page_no":"1","display":"10","orderby_item":"TITLE","orderby":"DESC","search_txt":"{isbn13}"} => LIST_DATA => /edu-culture/book/detail?bookKey={BOOK_KEY}&bookType=book
+
+# 제목 검색 결과에서 그 ISBN 이 적힌 줄의 링크를 고르는 규칙 (2026-11-10, scripts/opac-title-probe.py).
+# 제목 규칙은 @anchor: 가 붙었고 그 검색 주소를 한 도서관만 쓸 때에만 상세로 갑니다. 부평·사하처럼
+# 분관으로 좁혀지지 않은 검색에는 넣지 않았습니다. 넣으면 남의 분관 소장본으로 갑니다.
+www.l4d.or.kr,@anchor:@onclick:fnSearchResultDetail
+library.gangnam.go.kr,@anchor:@onclick:fnSearchResultDetail
+lib.paju.go.kr,@anchor:@onclick:fnSearchResultDetail
+lib.yongin.go.kr,@anchor:@onclick:fnSearchResultDetail
+mplib.mapo.go.kr,@anchor:@onclick:fnSearchDetailView
+www.ptlib.go.kr,@anchor:@onclick:fnSearchResultDetail
+uwlib.or.kr,@anchor:@onclick:fnSearchResultDetail
+www.splib.or.kr,@anchor:@onclick:fnSearchResultDetail
+lib.gjcity.go.kr,@anchor:@onclick:fnSearchResultDetail
+www.gwangjinlib.seoul.kr,@anchor:@onclick:fnSearchDetailView
+lib.pocheon.go.kr,@anchor:@onclick:fnSearchResultDetail
+www.ydplib.or.kr,@anchor:@onclick:fnSearchResultDetail
+lib.wonju.go.kr/sm,@anchor-after:href=["'](/sm/menu/1094/book/view/[^"']*)["']
+www.hscitylib.or.kr/srlib,@anchor:@onclick:fnDetail
+lib.sejong.go.kr,@anchor:href=["'](\?manage_code=[^"']*)["']
+www.sdlib.or.kr,@anchor:href=["'](\?manage_code=[^"']*)["']

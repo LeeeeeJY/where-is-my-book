@@ -470,6 +470,17 @@ def check_import_patterns(work: str) -> list[str]:
         ('@json:PUT https://x.kr/api?q={isbn13} => data.list => /#/detail/{id}', False),
         ('@json:POST https://x.kr/api => list => /d/{id}', False),                     # POST 본문 없음
         ('@json:GET https://x.kr/api?q={isbn13} => list', False),                      # 셋이 아님
+        # 폼 본문과 {libCode} (수원). 본문에 공백이 없으면 됩니다.
+        ('@json:POST https://x.kr/s manageCode={libCode}&searchTxt={isbn13} => R.LIST => /detail/{ISBN}/{book_key}', True),
+        # @anchor: — 제목 검색 결과에서 그 ISBN 이 적힌 항목의 링크. 안쪽 규칙의 조건을 그대로 받습니다.
+        ("@anchor:@onclick:fnSearchResultDetail", True),
+        ('@anchor-after:href="(/book/view\\?key=[^"]+)"', True),
+        ('@anchor:@template:regNo="([^"]+)" => detail.do?regNo={1}', True),
+        ("@anchor:", False),                                                           # 안쪽 규칙 없음
+        ("@anchor:@onclick:", False),
+        ("@anchor:@anchor:@onclick:fnDetail", False),                                  # 두 겹
+        ('@anchor:@json:GET https://x.kr/api?q={isbn13} => list => /d/{id}', False),   # JSON 은 도서관으로 고릅니다
+        ('@anchor:href="/book/view"', False),                                          # 그룹 없음
     ]
     for rule, want_ok in grammar:
         problem = od.pattern_problem(rule)
