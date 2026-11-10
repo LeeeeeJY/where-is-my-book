@@ -147,6 +147,15 @@ public class BookSearchService {
      *       표기로도 찾습니다. 제목의 4와 같습니다.</li>
      * </ol>
      *
+     * <p><b>제목과 저자를 함께 넣었으면 저자만으로도 찾아 제목을 우리가 거릅니다.</b> 위의
+     * 2번의 거울입니다. 정보나루의 제목 검색은 등록된 표제가 글자 그대로 같아도 그 책을
+     * 돌려주지 않는 일이 있습니다. 실측으로 {@code title=이방인} 은 표제가 「이방인 」(낱말
+     * 하나에 끝 공백)으로 등록된 판을 전부 빠뜨렸고, 그 가운데 대출 47,534건인 민음사
+     * 세계문학전집판이 있었습니다(2026-11-10). 제목만 넣은 검색은 저자로 되찾기가 그 구멍을
+     * 메우지만, 저자까지 넣은 검색은 <b>질의에 제목이 남아 있는 한 어느 회전에서도 그 판을
+     * 받지 못합니다.</b> 저자는 사용자가 이미 알려 주었으므로 첫 쪽을 기다릴 필요가 없어
+     * 1회전에 함께 나갑니다.
+     *
      * <p>덤으로 하는 검색은 실패해도 입력 그대로의 결과를 그대로 내보냅니다. 입력 그대로가
      * 실패하면 검색 전체가 실패한 것이고, 화면은 그것을 「확인 불가」로 그립니다.
      *
@@ -157,7 +166,8 @@ public class BookSearchService {
      *
      * <p><b>서로 기다릴 필요가 없는 호출은 동시에 내보냅니다.</b> 정보나루의 서지 검색은 한 번에
      * 3~4초가 걸려서, 넷을 차례로 부르면 그것만으로 15초입니다. 입력 그대로, 붙여 쓴 표기,
-     * 제목만으로 되찾기, 저자의 띄어쓰기 자리 바꾸기는 서로 무관하므로 1회전에 함께, 둘째 쪽과
+     * 제목만으로 되찾기, 저자만으로 되찾기, 저자의 띄어쓰기 자리 바꾸기는 서로 무관하므로
+     * 1회전에 함께, 둘째 쪽과
      * 저자 되찾기는 첫 쪽의 결과가 있어야 하므로 2회전에 함께, 다른 표기들은 3회전에 함께
      * 부릅니다. 회전 셋이면 최대 10초 안팎, 보통은 두 회전으로 끝납니다. 한꺼번에 나가는 요청
      * 수는 전송 계층이 따로 묶어 둡니다.
@@ -192,7 +202,7 @@ public class BookSearchService {
 
         try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
             // 1회전: 입력 그대로의 첫 쪽, 띄어쓰기를 뺀 제목과 저자, 제목만으로 되찾기,
-            //        저자의 띄어쓰기 자리 바꾸기.
+            //        저자만으로 되찾기, 저자의 띄어쓰기 자리 바꾸기.
             Future<List<BookInfo>> firstPage = executor.submit(
                     () -> client.searchBooks(query, 1, ApiBudget.Priority.USER));
             Future<Optional<List<BookInfo>>> compactBooks = compact == null ? null
@@ -210,6 +220,12 @@ public class BookSearchService {
                             ? executor.submit(() ->
                                     searchQuietly(query.withAuthor(null).withPublisher(null)))
                             : null;
+            // **저자만으로 찾아 제목과 출판사를 우리가 거릅니다.** 바로 위의 거울입니다.
+            // 질의에 제목이 남아 있으면 정보나루의 제목 색인이 빠뜨린 판은 영영 오지
+            // 않습니다. 출판사도 떼는 이유는 위와 같습니다. 그 표기가 틀리면 여기서도 0건입니다.
+            Future<Optional<List<BookInfo>>> byAuthorOnly = hasTitle && !authorKey.isEmpty()
+                    ? executor.submit(() -> searchQuietly(query.withTitle(null).withPublisher(null)))
+                    : null;
             // **자리를 옮겨 물을 때는 다른 조건을 떼고 묻습니다.** 저자와 출판사를 둘 다
             // 붙여 쓴 검색에서, 저자만 옮기고 출판사를 질의에 남겨 두면 그 출판사 표기가
             // 여전히 틀려 0건이 옵니다. 떼고 물어 우리가 거르면 한쪽씩 풀립니다.
@@ -240,6 +256,10 @@ public class BookSearchService {
             if (byTitleOnly != null) {
                 await(byTitleOnly).ifPresent(books -> addMatching(authorKey, publisherKey, found, books));
             }
+            boolean recoveredByGivenAuthor = byAuthorOnly != null
+                    && await(byAuthorOnly)
+                            .map(books -> addRecovered(query, publisherKey, found, books))
+                            .orElse(false);
             for (int i = 0; i < guesses.size(); i++) {
                 String guess = guesses.get(i);
                 await(byGuess.get(i)).ifPresent(books -> {
@@ -258,8 +278,9 @@ public class BookSearchService {
                     : executor.submit(() -> searchQuietly(authorQuery));
 
             if (secondPage != null) await(secondPage).ifPresent(found::addAll);
-            boolean recovered = byAuthor != null
+            boolean recoveredByFoundAuthor = byAuthor != null
                     && await(byAuthor).map(books -> addRecovered(query, found, books)).orElse(false);
+            boolean recovered = recoveredByGivenAuthor || recoveredByFoundAuthor;
 
             /*
              * 3회전: 결과에서 본 다른 띄어쓰기 표기(제목과 저자), 그리고 **한 건도 못 찾았을
@@ -454,7 +475,7 @@ public class BookSearchService {
      */
     private static Data4LibraryClient.BookQuery authorQueryFor(Data4LibraryClient.BookQuery query,
                                                                 Collected found) {
-        // 저자로 이미 찾고 있으면 되찾을 것이 없습니다.
+        // 저자를 넣은 검색은 그 저자로 1회전에 이미 되찾고 있습니다(`byAuthorOnly`).
         if (query.title() == null || query.title().isBlank() || query.author() != null) return null;
         // 한 건도 없으면 저자를 알아낼 수가 없습니다.
         if (found.isEmpty()) return null;
@@ -462,6 +483,12 @@ public class BookSearchService {
 
         String author = primaryAuthorOf(found.books());
         if (author == null) return null;
+        // **이름이 아닌 것으로는 묻지 않습니다.** 저자 필드를 잘못 읽으면 「)」 같은 조각이
+        // 주저자가 되는데, 그런 조각은 저자가 누구든 똑같아서 「가장 자주 나오는 주저자」로
+        // 뽑힙니다. 「이방인」 검색에서 그렇게 되어 있었고, `author=)` 로 물으면 정보나루는
+        // 오류로 답합니다(2026-11-10). 덤 호출이라 그 실패는 조용히 삼켜지고, 되찾기가
+        // 통째로 헛돈 것이 `recoveredByAuthor: false` 한 줄로만 남습니다.
+        if (BibNormalizer.spellingKey(author).isEmpty()) return null;
         return new Data4LibraryClient.BookQuery(null, author, query.publisher(), null, false);
     }
 
@@ -472,10 +499,22 @@ public class BookSearchService {
      */
     private static boolean addRecovered(Data4LibraryClient.BookQuery query, Collected found,
                                         List<BookInfo> byAuthor) {
+        return addRecovered(query, "", found, byAuthor);
+    }
+
+    /**
+     * @param publisherKey 출판사를 떼고 물었을 때 우리가 대신 거를 출판사 키. 질의에 출판사를
+     *                     그대로 실어 보냈으면 정보나루가 이미 걸렀으므로 빈 문자열을 줍니다
+     */
+    private static boolean addRecovered(Data4LibraryClient.BookQuery query, String publisherKey,
+                                        Collected found, List<BookInfo> byAuthor) {
         String wanted = BibNormalizer.comparisonKey(query.title());
+        if (wanted.isEmpty()) return false;
         boolean added = false;
         for (BookInfo book : byAuthor) {
             if (!wanted.equals(titleKeyOf(book))) continue;
+            if (!publisherKey.isEmpty()
+                    && !publisherKey.equals(BibNormalizer.normalizePublisher(book.publisher()))) continue;
             // 소장을 물어볼 수 없는 자료는 되찾아도 쓸 곳이 없습니다.
             if (book.canonicalIsbn13().isEmpty()) continue;
             if (found.add(book)) added = true;
