@@ -237,11 +237,13 @@ def branch_param(templates: list[str]) -> str | None:
     """이 호스트의 검색 주소들이 분관을 좁히는 데 쓰는 칸 이름. 그런 칸을 쓰는 주소가 하나도 없으면 None."""
     for name in BRANCH_PARAMS:
         for template in templates:
-            query = urllib.parse.urlparse(template).query
-            for pair in query.split("&"):
-                key, _, value = pair.partition("=")
-                if key == name and value and value.upper() != "ALL" and "{" not in value:
-                    return name
+            # 「값 하나로」의 판정은 서버와 같은 함수에 맡깁니다. 여러 번 나오거나 쉼표로 늘어놓은 것은
+            # 분관을 좁힌 것이 아닙니다.
+            if not od.pattern_covers("x?" + name, "https://x/?" + urllib.parse.urlparse(template).query):
+                continue
+            value = urllib.parse.parse_qs(urllib.parse.urlparse(template).query).get(name, [""])[0]
+            if value.upper() != "ALL" and "{" not in value:
+                return name
     return None
 
 

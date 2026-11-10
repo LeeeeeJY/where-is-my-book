@@ -1086,8 +1086,11 @@ def pattern_covers(key: str, url: str) -> bool:
         return False
     if not sep:
         return True
+    # 그 칸이 **값 하나로** 있어야 합니다. 빈 값, 여러 번 나오는 칸(연천·광산), 쉼표로 늘어놓은 값(사하)은
+    # 분관을 좁힌 것이 아니라 통합 검색입니다. 서버의 OpacTemplates.hasParam 과 같습니다.
     query = rest.partition("?")[2].split("#")[0]
-    return any(pair.partition("=")[0] == param and pair.partition("=")[2] for pair in query.split("&"))
+    values = [pair.partition("=")[2] for pair in query.split("&") if pair.partition("=")[0] == param]
+    return len(values) == 1 and bool(values[0]) and "," not in values[0] and "%2c" not in values[0].lower()
 
 
 def pattern_for(patterns: dict[str, str], url: str) -> tuple[str, str] | None:

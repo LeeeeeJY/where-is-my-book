@@ -423,6 +423,8 @@ def check_import_patterns(work: str) -> list[str]:
         ("분관으로 좁힌 검색", "https://lib.paju.go.kr/grlib/list.do?searchLibraryArr=MM&q={title}", "lib.paju.go.kr?searchLibraryArr"),
         ("통합 검색(ALL)", "https://lib.paju.go.kr/gclib/list.do?searchLibrary=ALL&q={title}", None),
         ("칸은 있고 값이 빔", "https://lib.paju.go.kr/x/list.do?searchLibraryArr=&q={title}", None),
+        ("분관을 여러 번 늘어놓음", "https://lib.paju.go.kr/x/list.do?searchLibraryArr=MA&searchLibraryArr=BR&q={title}", None),
+        ("분관을 쉼표로 늘어놓음", "https://lib.paju.go.kr/x/list.do?searchLibraryArr=MA%2CBR&q={title}", None),
         ("경로가 긴 열쇠가 이김", "https://LIB.paju.go.kr/small/list.do?searchLibraryArr=MM", "lib.paju.go.kr/small"),
         ("포트는 뗌", "http://lib.other.kr:8080/s?q=1", "lib.other.kr"),
     ]:
