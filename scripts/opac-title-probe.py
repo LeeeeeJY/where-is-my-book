@@ -211,17 +211,9 @@ def title_hosts(csv_path: str, patterns_csv: str, libs: list[dict], probe: dict,
     existing = od.existing_patterns(patterns_csv)
 
     def covered(url: str) -> str | None:
-        """이 주소를 덮는 가장 긴 열쇠의 규칙."""
-        rest = re.sub(r"^https?://", "", url)
-        rest = re.split(r"[?#]", rest)[0]
-        host, _, path = rest.partition("/")
-        host_path = (re.sub(r":\d+$", "", host) + ("/" + path if path else "")).lower().rstrip("/")
-        best = None
-        for key in existing:
-            if host_path == key or host_path.startswith(key + "/"):
-                if best is None or len(key) > len(best):
-                    best = key
-        return existing[best] if best else None
+        """이 주소에 걸리는 규칙. 서버와 같은 차례입니다(경로가 긴 열쇠, 칸 조건이 붙은 열쇠)."""
+        hit = od.pattern_for(existing, url)
+        return hit[1] if hit else None
 
     hosts: dict[str, list[tuple[dict, str, str]]] = defaultdict(list)
     for row in rows:
@@ -235,6 +227,22 @@ def title_hosts(csv_path: str, patterns_csv: str, libs: list[dict], probe: dict,
             continue
         hosts[host].append((by_code[row[0]], row[3], row[2]))
     return hosts, existing
+
+
+# 분관을 좁히는 칸으로 알려진 이름들. 값이 ALL 이거나 비어 있으면 좁힌 것이 아닙니다.
+BRANCH_PARAMS = ("searchLibraryArr", "searchManageCodeArr", "manage_code", "manageCode", "libraryCodes")
+
+
+def branch_param(templates: list[str]) -> str | None:
+    """이 호스트의 검색 주소들이 분관을 좁히는 데 쓰는 칸 이름. 그런 칸을 쓰는 주소가 하나도 없으면 None."""
+    for name in BRANCH_PARAMS:
+        for template in templates:
+            query = urllib.parse.urlparse(template).query
+            for pair in query.split("&"):
+                key, _, value = pair.partition("=")
+                if key == name and value and value.upper() != "ALL" and "{" not in value:
+                    return name
+    return None
 
 
 def fill(template: str, title: str, encoding: str) -> str:
@@ -354,13 +362,22 @@ def main() -> int:
         if not rule:
             continue
         found += 1
+        # **열쇠에 분관을 좁히는 칸 이름을 붙입니다.** 닻은 판을 가릴 뿐 분관을 가리지 못합니다. 통합
+        # 검색 결과에는 같은 ISBN 의 줄이 분관마다 따로 있어서, 분관으로 좁힌 검색에만 규칙이 걸려야
+        # 합니다. 파주·부평은 분관 사이트마다 주소가 다르면서 일부(또는 전부)가 searchLibrary=ALL 이라,
+        # 호스트 열쇠 하나로 덮으면 남의 분관 소장본으로 갑니다.
+        narrowed = branch_param([t for _, t, _ in members])
+        suffix = "?" + narrowed if narrowed else ""
+        if not narrowed:
+            print(f"#   ⚠ {host}: 검색 주소에 분관 부호 칸이 없습니다. 사이트 경로가 분관으로 좁혀 주는지 "
+                  f"결과의 소장처를 보고, 아니면 이 줄을 넣지 마세요.", file=sys.stderr, flush=True)
         # 그 호스트에 이미 다른 규칙(ISBN 검색용)이 있으면 열쇠가 겹칩니다. 제목 규칙의 경로까지 내려 적습니다.
         if host in existing:
             for key in sorted({host + "/" + urllib.parse.urlparse(t).path.strip("/").split("/")[0] for _, t, _ in members}):
                 group = od.group_key(next(l for l, t, _ in members if urllib.parse.urlparse(t).path.strip("/").split("/")[0] == key.split("/", 1)[1])["homepageUrl"])
-                print(f"{group} | DETAIL_PATTERN | {key} | {rule}", flush=True)
+                print(f"{group} | DETAIL_PATTERN | {key}{suffix} | {rule}", flush=True)
         else:
-            print(f"{od.group_key(members[0][0]['homepageUrl'])} | DETAIL_PATTERN | {host} | {rule}", flush=True)
+            print(f"{od.group_key(members[0][0]['homepageUrl'])} | DETAIL_PATTERN | {host}{suffix} | {rule}", flush=True)
     print(f"# 호스트 {len(hosts)}개 가운데 {found}개에서 닻 규칙을 얻었습니다", file=sys.stderr)
     return 0
 

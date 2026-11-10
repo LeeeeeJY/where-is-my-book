@@ -76,7 +76,23 @@ public final class OpacTemplates {
     private record Template(OpacLink.Kind kind, Charset encoding, String urlTemplate) {}
 
     /** 검색 결과 HTML 에서 상세 주소를 얻는 규칙({@link DetailRule})과, 그것이 어느 OPAC 의 것인지. */
-    public record DetailPattern(String key, DetailRule rule) {}
+    public record DetailPattern(String key, DetailRule rule) {
+        /** 열쇠의 호스트(와 경로) 부분. {@code ?칸이름} 은 뗀 것입니다. */
+        String hostPath() {
+            int q = key.indexOf('?');
+            return q < 0 ? key : key.substring(0, q);
+        }
+
+        /**
+         * 열쇠에 {@code ?칸이름} 이 붙어 있으면 그 이름. <b>검색 주소에 그 칸이 값과 함께 있을 때만</b>
+         * 이 규칙을 씁니다. {@code www.l4d.or.kr?searchLibraryArr} 는 분관 부호가 붙은 검색에만
+         * 걸리고, 같은 호스트의 {@code searchLibrary=ALL}(통합 검색)에는 걸리지 않습니다.
+         */
+        String requiredParam() {
+            int q = key.indexOf('?');
+            return q < 0 ? null : key.substring(q + 1);
+        }
+    }
 
     private final Map<String, Map<OpacLink.Kind, Template>> byLibCode;
     private final Map<String, DetailPattern> patterns;
@@ -144,9 +160,11 @@ public final class OpacTemplates {
      * </ol>
      *
      * <p><b>셋째 조건은 주소가 하나뿐이라는 것만 봅니다.</b> 한 도서관만 쓰는 주소인데도 분관으로
-     * 좁혀지지 않은 것이 있습니다(부평의 분관 사이트는 주소가 저마다 다르지만 전부
-     * {@code searchLibrary=ALL} 입니다). 그것은 여기서 걸러지지 않으므로 <b>그런 호스트에는 닻 규칙을
-     * 넣지 않습니다.</b> 조사 도구가 통과시켜도 주소에 분관 부호가 있는지는 사람이 봐야 합니다.
+     * 좁혀지지 않은 것이 있습니다. 부평과 파주의 분관 사이트는 주소가 저마다 다르지만 전부
+     * {@code searchLibrary=ALL} 입니다. 그것은 여기서 걸러지지 않습니다. 그래서 <b>닻 규칙의 열쇠에
+     * 분관을 좁히는 칸 이름을 적습니다</b>({@code lib.paju.go.kr?searchLibraryArr}). 그 칸이 값과
+     * 함께 있는 주소에만 규칙이 걸리므로 통합 검색은 주소가 하나뿐이어도 빠집니다. 칸 없이 사이트
+     * 경로가 좁혀 주는 시스템(성동)만 칸 조건 없는 열쇠를 쓰고, 그것은 사람이 결과를 보고 넣습니다.
      */
     public Optional<DetailPattern> titleDetailPatternFor(String libCode) {
         if (!linksEnabled) return Optional.empty();
@@ -314,6 +332,14 @@ public final class OpacTemplates {
                         + parts[0]);
                 continue;
             }
+            int q = key.indexOf('?');
+            if (q >= 0 && !key.substring(q + 1).matches("[A-Za-z_][\\w.\\-]*")) {
+                // 값까지 적거나(?a=1) 여럿을 적은(?a&b) 열쇠입니다. 조용히 넘기면 그 규칙은 어느 주소에도
+                // 걸리지 않아 「패턴이 있는데 상세로 안 간다」가 됩니다.
+                problems.add("상세 패턴 " + lineNo + "행: 열쇠의 ? 뒤에는 검색 주소의 칸 이름 하나가 와야 합니다 — "
+                        + parts[0]);
+                continue;
+            }
             DetailRule rule;
             try {
                 // 정규식 하나, @onclick:함수, @template:정규식 => 주소틀. 검사는 DetailRule 이 합니다.
@@ -331,10 +357,17 @@ public final class OpacTemplates {
         return out;
     }
 
+    /**
+     * 열쇠를 견줄 모양으로. 호스트와 경로는 소문자로 바꾸고 끝의 {@code /} 를 뗍니다.
+     * <b>{@code ?} 뒤의 칸 이름은 글자 그대로 둡니다.</b> 주소의 칸 이름은 대소문자를 가립니다
+     * ({@code searchLibraryArr} 를 소문자로 바꾸면 어느 주소에도 걸리지 않습니다).
+     */
     private static String normalizeKey(String raw) {
-        String key = raw.strip().toLowerCase(Locale.ROOT);
-        while (key.endsWith("/")) key = key.substring(0, key.length() - 1);
-        return key;
+        String text = raw.strip();
+        int q = text.indexOf('?');
+        String hostPath = (q < 0 ? text : text.substring(0, q)).toLowerCase(Locale.ROOT);
+        while (hostPath.endsWith("/")) hostPath = hostPath.substring(0, hostPath.length() - 1);
+        return q < 0 ? hostPath : hostPath + "?" + text.substring(q + 1).strip();
     }
 
     /**
@@ -394,6 +427,11 @@ public final class OpacTemplates {
      * 이 검색 주소의 결과 화면에서 상세 링크를 뽑을 패턴. 열쇠가 여럿 맞으면 <b>가장 긴 것</b>이
      * 이깁니다. 한 호스트에 시스템이 둘 있어 경로로 갈라 둔 경우를 위해서입니다.
      *
+     * <p>열쇠에 {@code ?칸이름} 이 붙어 있으면 <b>그 칸이 값과 함께 있는 주소에만</b> 걸립니다.
+     * 제목 검색의 닻 규칙이 「분관으로 좁힌 검색에만」 쓰이게 하는 장치입니다
+     * ({@code www.l4d.or.kr?searchLibraryArr}). 같은 호스트의 통합 검색({@code searchLibrary=ALL})은
+     * 한 도서관만 쓰는 주소여도 여기서 빠집니다.
+     *
      * <p>자리표가 든 규칙 주소({@code /KeywordSearchResult/{isbn13}})도 받아야 하므로 URI 로
      * 파싱하지 않고 글자로 자릅니다.
      */
@@ -403,12 +441,37 @@ public final class OpacTemplates {
 
         DetailPattern best = null;
         for (DetailPattern candidate : patterns.values()) {
-            String key = candidate.key();
-            if (keyCovers(key, hostPath) && (best == null || key.length() > best.key().length())) {
-                best = candidate;
-            }
+            if (!keyCovers(candidate.hostPath(), hostPath)) continue;
+            String param = candidate.requiredParam();
+            if (param != null && !hasParam(url, param)) continue;
+            if (best == null || moreSpecific(candidate, best)) best = candidate;
         }
         return Optional.ofNullable(best);
+    }
+
+    /** 경로가 더 긴 열쇠가 이기고, 같으면 칸 조건이 붙은 쪽이 이깁니다. */
+    private static boolean moreSpecific(DetailPattern a, DetailPattern b) {
+        int byPath = Integer.compare(a.hostPath().length(), b.hostPath().length());
+        if (byPath != 0) return byPath > 0;
+        return a.requiredParam() != null && b.requiredParam() == null;
+    }
+
+    /**
+     * 주소의 질의에 그 칸이 <b>비어 있지 않은 값으로</b> 있는지. 마포 작은도서관의 통합 검색은
+     * {@code searchLibraryArr=&searchKeyword=…} 처럼 칸은 있고 값이 비어 있습니다. 그것은 분관으로
+     * 좁힌 것이 아닙니다.
+     */
+    static boolean hasParam(String url, String name) {
+        int q = url.indexOf('?');
+        if (q < 0) return false;
+        String query = url.substring(q + 1);
+        int hash = query.indexOf('#');
+        if (hash >= 0) query = query.substring(0, hash);
+        for (String pair : query.split("&")) {
+            int eq = pair.indexOf('=');
+            if (eq > 0 && pair.substring(0, eq).equals(name) && eq + 1 < pair.length()) return true;
+        }
+        return false;
     }
 
     /**

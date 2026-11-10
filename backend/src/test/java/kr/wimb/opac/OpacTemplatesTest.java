@@ -319,6 +319,58 @@ class OpacTemplatesTest {
     }
 
     @Test
+    @DisplayName("열쇠에 ?칸이름 이 붙으면 그 칸이 값과 함께 있는 검색 주소에만 걸린다")
+    void keyWithRequiredParamOnlyCoversNarrowedSearches() {
+        // 파주에서 실제로 걸린 모양입니다(2026-11-10). 분관 사이트마다 주소가 따로라 「한 도서관만 쓰는
+        // 주소」인데, 다섯 곳은 searchLibrary=ALL 이라 결과에 다른 분관의 소장본이 섞여 있었습니다.
+        var templates = with(List.of(
+                "111111,TITLE_SEARCH,UTF-8,https://lib.paju.go.kr/grlib/plusSearchResultList.do?searchLibraryArr=MM&searchKeyword={title}",
+                "222222,TITLE_SEARCH,UTF-8,https://lib.paju.go.kr/gclib/plusSearchResultList.do?searchLibrary=ALL&searchKeyword={title}",
+                "333333,TITLE_SEARCH,UTF-8,https://lib.paju.go.kr/small/plusSearchResultList.do?searchLibraryArr=&searchKeyword={title}"),
+                "lib.paju.go.kr?searchLibraryArr,@anchor:@onclick:fnSearchResultDetail");
+
+        assertEquals(OpacLink.Kind.DETAIL_LOOKUP, templates.kindFor("111111"));
+        assertEquals("lib.paju.go.kr?searchLibraryArr", templates.titleDetailPatternFor("111111").orElseThrow().key());
+        // 주소는 하나뿐이지만 분관으로 좁히지 않은 검색입니다. 닻만으로는 누른 분관의 줄을 가를 수 없습니다.
+        assertEquals(OpacLink.Kind.TITLE_SEARCH, templates.kindFor("222222"));
+        // 칸은 있는데 값이 비어 있는 것도 좁힌 것이 아닙니다(마포 작은도서관의 통합 검색이 이 모양입니다).
+        assertEquals(OpacLink.Kind.TITLE_SEARCH, templates.kindFor("333333"));
+
+        // 채운 주소(누를 때 서버가 받는 것)로 물어도 같습니다.
+        assertTrue(templates.detailPatternFor(
+                "https://lib.paju.go.kr/grlib/plusSearchResultList.do?searchLibraryArr=MM&searchKeyword=%EB%8D%B0").isPresent());
+        assertTrue(templates.detailPatternFor(
+                "https://lib.paju.go.kr/gclib/plusSearchResultList.do?searchLibrary=ALL&searchKeyword=%EB%8D%B0").isEmpty());
+    }
+
+    @Test
+    @DisplayName("칸 이름은 대소문자를 가리고, 같은 경로면 칸 조건이 붙은 열쇠가 이긴다")
+    void requiredParamIsCaseSensitiveAndMoreSpecific() {
+        var templates = with(List.of(
+                "111111,ISBN_SEARCH,UTF-8,https://Lib.Example.kr/s?manage_code=MA&q={isbn13}",
+                "222222,ISBN_SEARCH,UTF-8,https://lib.example.kr/s?q={isbn13}"),
+                "LIB.example.kr/?manage_code,href=\"(/narrowed/[^\"]+)\"",
+                "lib.example.kr,href=\"(/any/[^\"]+)\"");
+
+        // 호스트는 대소문자를 가리지 않지만 칸 이름은 가립니다. 소문자로 바꿔 버리면 searchLibraryArr 같은
+        // 이름이 어느 주소에도 걸리지 않습니다.
+        assertEquals("lib.example.kr?manage_code",
+                templates.detailPatternFor("https://lib.example.kr/s?manage_code=MA&q=1").orElseThrow().key());
+        assertEquals("lib.example.kr",
+                templates.detailPatternFor("https://lib.example.kr/s?q=1").orElseThrow().key());
+        assertEquals("lib.example.kr",
+                templates.detailPatternFor("https://lib.example.kr/s?MANAGE_CODE=MA&q=1").orElseThrow().key());
+    }
+
+    @Test
+    @DisplayName("열쇠의 ? 뒤에 칸 이름 하나가 아닌 것이 오면 뜰 때 걸린다")
+    void rejectsMalformedRequiredParam() {
+        for (String key : List.of("lib.example.kr?a=1", "lib.example.kr?a&b", "lib.example.kr?")) {
+            assertThrows(IllegalStateException.class, () -> with(NOWON_LIKE, key + ",href=\"(/d/[^\"]+)\""), key);
+        }
+    }
+
+    @Test
     @DisplayName("여러 도서관이 한 제목 검색 주소를 함께 쓰면 닻 규칙이 있어도 상세로 보내지 않는다")
     void sharedTitleSearchIsNotAnchored() {
         // 작은도서관 둘이 통합 검색 주소 하나를 함께 쓰고, 셋째 도서관은 분관으로 좁힌 주소를 씁니다.

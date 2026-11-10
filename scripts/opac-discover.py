@@ -1062,6 +1062,46 @@ def import_findings(path: str, libs: list[dict]) -> int:
     return 1 if problems and taken == 0 else 0
 
 
+def pattern_key(raw: str) -> str:
+    """상세 패턴의 열쇠를 서버(OpacTemplates.normalizeKey)와 같은 모양으로.
+
+    호스트와 경로는 소문자로 바꾸고 끝의 `/` 를 뗍니다. **`?` 뒤의 칸 이름은 글자 그대로 둡니다.**
+    `www.l4d.or.kr?searchLibraryArr` 는 「검색 주소에 searchLibraryArr 가 값과 함께 있을 때만」이라는
+    뜻이고, 주소의 칸 이름은 대소문자를 가립니다. 소문자로 바꾸면 어느 주소에도 걸리지 않습니다.
+    """
+    text = raw.strip()
+    host_path, sep, param = text.partition("?")
+    host_path = host_path.lower().rstrip("/")
+    return host_path + ("?" + param.strip() if sep else "")
+
+
+def pattern_covers(key: str, url: str) -> bool:
+    """그 열쇠의 규칙이 이 검색 주소에 걸리는지. 서버(OpacTemplates.detailPatternFor)와 같습니다."""
+    host_path, sep, param = key.partition("?")
+    rest = re.sub(r"^https?://", "", url.strip())
+    path_part = re.split(r"[?#]", rest)[0]
+    host, slash, path = path_part.partition("/")
+    here = (re.sub(r":\d+$", "", host) + (slash + path if slash else "")).lower().rstrip("/")
+    if not (here == host_path or here.startswith(host_path + "/")):
+        return False
+    if not sep:
+        return True
+    query = rest.partition("?")[2].split("#")[0]
+    return any(pair.partition("=")[0] == param and pair.partition("=")[2] for pair in query.split("&"))
+
+
+def pattern_for(patterns: dict[str, str], url: str) -> tuple[str, str] | None:
+    """이 검색 주소에 걸리는 (열쇠, 규칙). 경로가 긴 열쇠가 이기고 같으면 칸 조건이 붙은 쪽이 이깁니다."""
+    best = None
+    for key, rule in patterns.items():
+        if not pattern_covers(key, url):
+            continue
+        rank = (len(key.partition("?")[0]), "?" in key)
+        if best is None or rank > best[0]:
+            best = (rank, key, rule)
+    return (best[1], best[2]) if best else None
+
+
 def existing_patterns(csv_path: str) -> dict[str, str]:
     """지금 detail-patterns.csv 에 든 (열쇠 → 정규식)."""
     out: dict[str, str] = {}
@@ -1072,7 +1112,7 @@ def existing_patterns(csv_path: str) -> dict[str, str]:
         if not line or line.startswith("#") or "," not in line:
             continue
         key, _, regex = line.partition(",")
-        out[key.strip().lower().rstrip("/")] = regex.strip()
+        out[pattern_key(key)] = regex.strip()
     return out
 
 
@@ -1111,13 +1151,17 @@ def import_patterns(path: str, libs: list[dict], csv_path: str = DEFAULT_PATTERN
         if key is None:
             problems.append(f"{where}: 모르는 묶음입니다")
             continue
-        host_key = parts[2].lower().rstrip("/")
+        host_key = pattern_key(parts[2])
         regex = "|".join(parts[3:]).strip()
         if not host_key or host_key.startswith("/") or "://" in host_key:
             problems.append(f"{where}: 열쇠는 호스트(또는 호스트/경로)여야 합니다 — {parts[2]}")
             continue
+        # 열쇠 뒤의 ?칸이름 은 「그 칸이 값과 함께 있는 검색 주소에만」이라는 조건입니다(서버와 같은 문법).
+        if "?" in host_key and not re.fullmatch(r"[A-Za-z_][\w.\-]*", host_key.partition("?")[2]):
+            problems.append(f"{where}: 열쇠의 ? 뒤에는 검색 주소의 칸 이름 하나가 와야 합니다 — {parts[2]}")
+            continue
         # 남의 기관 호스트에 패턴을 다는 것은 규칙을 남의 도메인으로 보내는 것과 같은 자국입니다.
-        if registrable_domain(host_key.split("/")[0]) != registrable_domain(key.split("/")[0]):
+        if registrable_domain(host_key.partition("?")[0].split("/")[0]) != registrable_domain(key.split("/")[0]):
             problems.append(f"{where}: 홈페이지({key})와 다른 기관의 열쇠입니다 ({host_key})")
             continue
         problem = pattern_problem(regex)

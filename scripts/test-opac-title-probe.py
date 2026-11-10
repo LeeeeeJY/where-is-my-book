@@ -124,6 +124,15 @@ def main() -> int:
     href_pages = {"9788996991342": LINK_THEN_ISBN, "9791186560136": LINK_THEN_ISBN}
     check("href 정규식 후보", tp.candidates(href_pages, True), ['@anchor:href=["\'](/detail/[^"\']*)["\']'])
 
+    print("\n열쇠에 붙일 분관 칸")
+    check("분관 부호가 붙은 주소가 있으면 그 칸 이름",
+          tp.branch_param(["https://lib.paju.go.kr/gclib/list.do?searchLibrary=ALL&q={title}",
+                           "https://lib.paju.go.kr/grlib/list.do?searchLibraryArr=MM&q={title}"]), "searchLibraryArr")
+    check("전부 통합 검색이면 없음 (그런 호스트에는 규칙을 넣지 않습니다)",
+          tp.branch_param(["https://www.bppl.or.kr/galsan/list.do?searchLibrary=ALL&searchWord={title}",
+                           "https://mplib.mapo.go.kr/libsmall/list.do?searchLibraryArr=&searchKeyword={title}"]), None)
+    check("manage_code", tp.branch_param(["https://lib.sejong.go.kr/goun/s.do?manage_code=MJ&search_txt={title}"]), "manage_code")
+
     print()
     if failures:
         print(f"실패 {len(failures)}건: {', '.join(failures)}")
