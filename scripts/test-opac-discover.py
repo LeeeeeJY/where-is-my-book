@@ -202,6 +202,26 @@ def check_robots(port: int) -> list[str]:
         print(f"  {'✓' if ok else '✗'} robots: {name}  {got}")
         if not ok:
             failures.append(f"robots: {name}")
+    # 별표와 달러. 서버의 DetailResolverTest.robotsWildcards 와 같은 경우들입니다.
+    for rule, target, want in [
+        ("/search", "/search?q=1", True),
+        ("/admin", "/search", False),
+        ("/*/intro/search/", "/main/intro/search/index.do?menu_idx=9", True),    # 의정부
+        ("/*/intro/search/", "/main/intro/guide.do", False),
+        ("/*/program/*Search*.do$", "/soriul/program/plusSearchResultList.do", True),   # 오산
+        ("/*/program/*Search*.do$", "/soriul/program/plusSearchResultList.do?q=1", False),
+        ("*/api/bookDetail/", "/x/api/bookDetail/1", True),
+        ("/a.b", "/axb", False),
+    ]:
+        got = od.robots_match(rule, target)
+        ok = got == want
+        print(f"  {'✓' if ok else '✗'} robots: {rule}  ↔  {target}  → {got}")
+        if not ok:
+            failures.append(f"robots: {rule}")
+    ok = od.blocked("https://x.kr/main/intro/search/index.do?isbn=1", ["/*/intro/search/"])
+    print(f"  {'✓' if ok else '✗'} robots: 별표 규칙이 막은 주소")
+    if not ok:
+        failures.append("robots: 별표 규칙")
     ok = od.blocked("http://127.0.0.1:9/any/path", od.robots_disallows("http://127.0.0.1:9/", pacer))
     print(f"  {'✓' if ok else '✗'} robots: 못 받은 호스트의 경로는 막힌 것으로 본다")
     if not ok:

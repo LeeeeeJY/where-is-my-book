@@ -233,6 +233,38 @@ class DetailResolverTest {
     }
 
     @Test
+    @DisplayName("robots.txt 규칙의 별표와 달러 표기를 읽는다")
+    void robotsWildcards() {
+        // 앞머리 견주기 (질의까지 포함해 견줍니다)
+        assertTrue(DetailResolver.robotsMatches("/search", "/search?q=1"));
+        assertFalse(DetailResolver.robotsMatches("/admin", "/search"));
+        assertTrue(DetailResolver.robotsMatches("/", "/anything/at/all"));
+        // 의정부: 사이트 경로가 무엇이든 그 아래의 검색을 막습니다. 앞머리만 견주면 놓칩니다.
+        assertTrue(DetailResolver.robotsMatches("/*/intro/search/", "/main/intro/search/index.do?menu_idx=9"));
+        assertFalse(DetailResolver.robotsMatches("/*/intro/search/", "/main/intro/guide.do"));
+        // 오산: 끝이 정해진 규칙. 뒤에 질의가 붙으면 그 끝이 아닙니다.
+        assertTrue(DetailResolver.robotsMatches("/*/program/*Search*.do$", "/soriul/program/plusSearchResultList.do"));
+        assertFalse(DetailResolver.robotsMatches("/*/program/*Search*.do$", "/soriul/program/plusSearchResultList.do?q=1"));
+        // 별표로 시작하는 규칙
+        assertTrue(DetailResolver.robotsMatches("*/api/bookDetail/", "/x/api/bookDetail/1"));
+        // 정규식 글자는 글자 그대로입니다
+        assertFalse(DetailResolver.robotsMatches("/a.b", "/axb"));
+    }
+
+    @Test
+    @DisplayName("별표가 든 robots.txt 규칙이 막은 검색 경로는 받지 않는다")
+    void wildcardRobotsBlocksSearch() {
+        var site = new FakeSite();
+        site.page("https://lib.example.kr/robots.txt", "User-agent: *\nDisallow: /*/intro/search/\n");
+        site.page("https://lib.example.kr/main/intro/search/index.do?isbn=1", "<a href='/book/1'>코스모스</a>");
+
+        var outcome = resolver(site).resolve("https://lib.example.kr/main/intro/search/index.do?isbn=1", BOOK_LINK);
+
+        assertEquals(DetailResolver.Status.BLOCKED_BY_ROBOTS, outcome.status());
+        assertEquals(List.of("https://lib.example.kr/robots.txt"), site.asked, "검색 페이지는 받지 않습니다");
+    }
+
+    @Test
     @DisplayName("robots.txt 는 우리 UA 이름으로 적은 규칙도 따른다")
     void robotsForOurAgent() {
         assertEquals(List.of("/search"), DetailResolver.parseDisallows(

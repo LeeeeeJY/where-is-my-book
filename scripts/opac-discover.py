@@ -252,9 +252,23 @@ def robots_disallows(origin: str, pacer: Pacer) -> list[str]:
     return ["/"] if rules is None else rules
 
 
+def robots_match(rule: str, target: str) -> bool:
+    """robots.txt 의 Disallow 규칙 하나가 그 경로(질의 포함)에 걸리는지.
+
+    `*` 는 아무 글자열이고 끝의 `$` 는 「여기서 끝난다」입니다. 둘 다 없으면 앞머리 견주기입니다.
+    앞머리만 견주던 때에는 `Disallow: /*/intro/search/`(의정부)나 `Disallow: /*/program/*Search*.do$`
+    (오산)를 읽지 못해, 막힌 경로를 「허용」으로 봤습니다. 서버의 DetailResolver.robotsMatches 와 같습니다.
+    """
+    anchored = rule.endswith("$")
+    body = rule[:-1] if anchored else rule
+    pattern = ".*".join(re.escape(part) for part in body.split("*"))
+    return re.match(pattern + ("$" if anchored else ""), target) is not None
+
+
 def blocked(url: str, disallows: list[str]) -> bool:
-    path = urllib.parse.urlparse(url).path or "/"
-    return any(path.startswith(rule) for rule in disallows)
+    parsed = urllib.parse.urlparse(url)
+    target = (parsed.path or "/") + ("?" + parsed.query if parsed.query else "")
+    return any(robots_match(rule, target) for rule in disallows)
 
 
 # ── 검색 폼 찾기 ─────────────────────────────────────────────────────────────
