@@ -110,3 +110,28 @@ lib.wonju.go.kr/tj,href=["'](/tj/menu/967/book/view/[^"']*)["']
 csbl.cne.go.kr,href=["'](/api/srch/bookDetail\.do\?regNo=[^"']*)["']
 cle.cne.go.kr,href=["'](/api/srch/bookDetail\.do\?regNo=[^"']*)["']
 talib.cne.go.kr,href=["'](/api/srch/bookDetail\.do\?regNo=[^"']*)["']
+
+# 2026-11-10 추가. 충남교육청 넷과 원주 그림책은 조사 도구가 서버 방식으로 확인한 href 패턴입니다.
+# 안산 열두 분관·서초 방배숲·수원·창원·세종교육청은 결과를 자바스크립트로 그려 JSON 검색을 대신 부릅니다.
+# 수원과 세종교육청은 분관을 정보나루 도서관부호 그대로 받아 {libCode} 로 좁히고, 수원은 본문이 폼입니다.
+cnbl.cne.go.kr,href=["'](/api/srch/bookDetail\.do\?regNo=[^"']*)["']
+bylib.cne.go.kr,href=["'](/api/srch/bookDetail\.do\?regNo=[^"']*)["']
+cylib.cne.go.kr,href=["'](/api/srch/bookDetail\.do\?regNo=[^"']*)["']
+hslib.cne.go.kr,href=["'](/api/srch/bookDetail\.do\?regNo=[^"']*)["']
+lib.wonju.go.kr/pb,href=["'](/pb/menu/1221/book/view/[^"']*)["']
+lib.ansan.go.kr/danwon,@json:POST https://lib.ansan.go.kr/api/search {"searchKeyword":"{isbn13}","page":"1","display":"100","article":"SCORE","order":"DESC","manageCode":["ALL"],"pubFormCode":"ALL"} => contents.bookList => /danwon/bookDetail/{pubFormCode}/{bookKey}/{speciesKey}/{isbn}
+lib.ansan.go.kr/daebu,@json:POST https://lib.ansan.go.kr/api/search {"searchKeyword":"{isbn13}","page":"1","display":"100","article":"SCORE","order":"DESC","manageCode":["ALL"],"pubFormCode":"ALL"} => contents.bookList => /daebu/bookDetail/{pubFormCode}/{bookKey}/{speciesKey}/{isbn}
+lib.ansan.go.kr/medialib,@json:POST https://lib.ansan.go.kr/api/search {"searchKeyword":"{isbn13}","page":"1","display":"100","article":"SCORE","order":"DESC","manageCode":["ALL"],"pubFormCode":"ALL"} => contents.bookList => /medialib/bookDetail/{pubFormCode}/{bookKey}/{speciesKey}/{isbn}
+lib.ansan.go.kr/bugok,@json:POST https://lib.ansan.go.kr/api/search {"searchKeyword":"{isbn13}","page":"1","display":"100","article":"SCORE","order":"DESC","manageCode":["ALL"],"pubFormCode":"ALL"} => contents.bookList => /bugok/bookDetail/{pubFormCode}/{bookKey}/{speciesKey}/{isbn}
+lib.ansan.go.kr/sangnok,@json:POST https://lib.ansan.go.kr/api/search {"searchKeyword":"{isbn13}","page":"1","display":"100","article":"SCORE","order":"DESC","manageCode":["ALL"],"pubFormCode":"ALL"} => contents.bookList => /sangnok/bookDetail/{pubFormCode}/{bookKey}/{speciesKey}/{isbn}
+lib.ansan.go.kr/seonbu,@json:POST https://lib.ansan.go.kr/api/search {"searchKeyword":"{isbn13}","page":"1","display":"100","article":"SCORE","order":"DESC","manageCode":["ALL"],"pubFormCode":"ALL"} => contents.bookList => /seonbu/bookDetail/{pubFormCode}/{bookKey}/{speciesKey}/{isbn}
+lib.ansan.go.kr/seongpo,@json:POST https://lib.ansan.go.kr/api/search {"searchKeyword":"{isbn13}","page":"1","display":"100","article":"SCORE","order":"DESC","manageCode":["ALL"],"pubFormCode":"ALL"} => contents.bookList => /seongpo/bookDetail/{pubFormCode}/{bookKey}/{speciesKey}/{isbn}
+lib.ansan.go.kr/suam,@json:POST https://lib.ansan.go.kr/api/search {"searchKeyword":"{isbn13}","page":"1","display":"100","article":"SCORE","order":"DESC","manageCode":["ALL"],"pubFormCode":"ALL"} => contents.bookList => /suam/bookDetail/{pubFormCode}/{bookKey}/{speciesKey}/{isbn}
+lib.ansan.go.kr/wongojan,@json:POST https://lib.ansan.go.kr/api/search {"searchKeyword":"{isbn13}","page":"1","display":"100","article":"SCORE","order":"DESC","manageCode":["ALL"],"pubFormCode":"ALL"} => contents.bookList => /wongojan/bookDetail/{pubFormCode}/{bookKey}/{speciesKey}/{isbn}
+lib.ansan.go.kr/wolpi,@json:POST https://lib.ansan.go.kr/api/search {"searchKeyword":"{isbn13}","page":"1","display":"100","article":"SCORE","order":"DESC","manageCode":["ALL"],"pubFormCode":"ALL"} => contents.bookList => /wolpi/bookDetail/{pubFormCode}/{bookKey}/{speciesKey}/{isbn}
+lib.ansan.go.kr/bono,@json:POST https://lib.ansan.go.kr/api/search {"searchKeyword":"{isbn13}","page":"1","display":"100","article":"SCORE","order":"DESC","manageCode":["ALL"],"pubFormCode":"ALL"} => contents.bookList => /bono/bookDetail/{pubFormCode}/{bookKey}/{speciesKey}/{isbn}
+lib.ansan.go.kr/sanglocksoo,@json:POST https://lib.ansan.go.kr/api/search {"searchKeyword":"{isbn13}","page":"1","display":"100","article":"SCORE","order":"DESC","manageCode":["ALL"],"pubFormCode":"ALL"} => contents.bookList => /sanglocksoo/bookDetail/{pubFormCode}/{bookKey}/{speciesKey}/{isbn}
+forest.seocholib.or.kr,@json:POST https://public.seocholib.or.kr/api/search/seocho {"searchKeyword":"{isbn13}","page":"1","display":"100","article":"SCORE","order":"DESC","manageCode":["ALL"],"pubFormCode":"ALL","signal":{}} => contents.bookList => https://forest.seocholib.or.kr/bookDetail/{pubFormCode}/{bookKey}/{speciesKey}/{isbn}
+mob.suwonlib.go.kr,@json:POST https://mob.suwonlib.go.kr/getSearchResult/normal isInnerSearch=F&kdcValue=&kCid=&displayNo=100&facetMediaName=&innerSearchTxt=&orderbyItem=ACCURACY_SORT&facetPubYear=&keywordSearch=false&facetLib=&facetAuthor=&orderby=DESC&facetSubjectName=&manageCode={libCode}&facetSubject=&facetMedia=&searchTxt={isbn13}&facetPublisher=&pageNo=1&facetLibName=&historyChk=N&isSearchType=normal&searchKind=book => SEARCH_RESULT.SEARCH_LIST => /detail/{ISBN}/{book_key}
+lib.changwon.go.kr,@json:GET https://lib.changwon.go.kr/book/data2.php?search_txt={isbn13}&manage_code=&lib_code=cl&pageno=1&display=300&orderby_item=&search_type=normal => apiResponse.message.bookList => /book/dataView2.php?lib_code=cl&book_key={bookKey}&species_key={speciesKey}&pub_form_code={pubFormCode}&manage_code={manageCode}&page_type=search
+life.sje.go.kr,@json:POST https://life.sje.go.kr/api/book/booksearch {"manage_code":"{libCode}","search_type":"normal","page_no":"1","display":"10","orderby_item":"TITLE","orderby":"DESC","search_txt":"{isbn13}"} => LIST_DATA => /edu-culture/book/detail?bookKey={BOOK_KEY}&bookType=book

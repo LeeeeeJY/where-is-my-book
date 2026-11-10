@@ -1219,3 +1219,13 @@
 711405,TITLE_SEARCH,UTF-8,https://www.yslibrary.or.kr/small/searchResultList.do?searchLibraryArr=YM&searchType=SIMPLE&searchKey=ALL&searchKeyword={title}
 711466,TITLE_SEARCH,UTF-8,https://www.yslibrary.or.kr/small/searchResultList.do?searchLibraryArr=YS&searchType=SIMPLE&searchKey=ALL&searchKeyword={title}
 711497,TITLE_SEARCH,UTF-8,https://www.yslibrary.or.kr/small/searchResultList.do?searchLibraryArr=YO&searchType=SIMPLE&searchKey=ALL&searchKeyword={title}
+
+# 홈페이지 주소가 정보나루에 없어 묶음에 들지 못하던 창원 다섯 곳과 부천 상동역칙칙폭폭 (2026-11-10).
+# 그 시스템의 JSON 검색이 이 도서관들의 소장본을 정보나루 도서관부호 그대로 돌려주는 것을 확인했고,
+# 형제 분관의 주소 모양에 그 사이트가 알려 준 분관 부호를 끼워 세 겹으로 확인했습니다.
+148043,ISBN_SEARCH,UTF-8,https://lib.changwon.go.kr/book/search.php?lib_code=hp&search_type=normal&manage_code=MG&search_txt={isbn13}&outter=Y
+148013,ISBN_SEARCH,UTF-8,https://lib.changwon.go.kr/book/search.php?lib_code=hw&search_type=normal&manage_code=ME&search_txt={isbn13}&outter=Y
+148120,ISBN_SEARCH,UTF-8,https://lib.changwon.go.kr/book/search.php?lib_code=ss&search_type=normal&manage_code=MB&search_txt={isbn13}&outter=Y
+148023,ISBN_SEARCH,UTF-8,https://lib.changwon.go.kr/book/search.php?lib_code=jh&search_type=normal&manage_code=MJ&search_txt={isbn13}&outter=Y
+148035,ISBN_SEARCH,UTF-8,https://lib.changwon.go.kr/book/search.php?lib_code=uc&search_type=normal&manage_code=MA&search_txt={isbn13}&outter=Y
+741005,ISBN_SEARCH,UTF-8,https://alpasq.bcl.go.kr/search/keyword/{isbn13}

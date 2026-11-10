@@ -56,10 +56,16 @@ public sealed interface DetailRule permits DetailRule.Href, DetailRule.OnclickFo
      * <p>노원·부천·서초·안산(ALPAS-Q)과 구로·시흥(Pyxis)은 검색 결과 HTML 에 책이 없고 화면이 JSON 을
      * 받아 그립니다. 서버가 그 JSON 검색을 대신 불러(주소의 {@code {isbn13}} 과 본문의 {@code {isbn13}} 을
      * 채워) 목록경로({@code contents.bookList})의 항목에서 열쇠를 꺼내 상세주소틀의 {@code {bookKey}}
-     * 같은 자리에 끼웁니다. 항목이 여럿이면 <b>누른 도서관의 {@code libCode} 가 같은 것</b>, 없으면
-     * <b>ISBN 이 같은 것</b>, 그것도 없으면 첫 항목입니다. 부천·서초·안산은 소장본마다 정보나루
-     * 도서관부호를 {@code libCode} 로 함께 주어서, 누른 분관의 소장본 상세로 바로 보낼 수 있습니다.
-     * 본문은 공백 없는 JSON 한 덩이이고 GET 이면 생략합니다.
+     * 같은 자리에 끼웁니다. 항목이 여럿이면 <b>누른 도서관의 {@code libCode} 가 같은 것</b>입니다.
+     * 부천·서초·안산·창원은 소장본마다 정보나루 도서관부호를 {@code libCode} 로 함께 주어서, 누른 분관의
+     * 소장본 상세로 바로 보낼 수 있습니다. <b>목록이 도서관을 가려 주는데 누른 도서관이 없으면 남의
+     * 분관으로 보내지 않고 {@code NO_MATCH} 입니다.</b> ISBN 이 같은 것 → 첫 항목으로 내려가는 것은
+     * 목록이 도서관을 가려 주지 않거나(시흥) 누른 도서관을 모를 때뿐입니다.
+     *
+     * <p>요청의 주소와 본문에는 {@code {isbn13}} 과 {@code {libCode}}(누른 도서관의 정보나루 부호)를 쓸
+     * 수 있습니다. 수원·세종교육청은 분관을 그 부호 그대로 받아서 요청에서 바로 좁힙니다. 본문은 공백
+     * 없는 한 덩이이고 GET 이면 생략합니다. <b>{@code {} 나 {@code [} 로 시작하면 JSON, 아니면 폼</b>
+     * ({@code a=1&b=2})으로 보냅니다. 수원의 검색은 JSON 본문에 빈 답을 줍니다.
      */
     record Json(String method, String url, String body, String listPath, String urlTemplate) implements DetailRule {
         @Override public String describe() {
