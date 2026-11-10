@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  주소가 두 개뿐이라 목록도 두 줄입니다.
+  주소가 셋뿐이라 목록도 세 줄입니다. 월드컵의 결과 주소는 넣지 않았습니다. 책마다 한
+  장씩 있지만 공유받은 사람이 여는 주소이지 검색에서 찾아 들어올 페이지가 아닙니다.
 
   **lastmod 를 일부러 넣지 않았습니다.** 손으로 적으면 코드가 바뀔 때마다 같이 고쳐야 하는데
   그것이 지켜지지 않아 곧 거짓이 되고, 배포할 때 자동으로 찍으면 내용이 그대로인 날에도
@@ -14,6 +15,9 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
     <loc>https://where-is-my-book.vercel.app/</loc>
+  </url>
+  <url>
+    <loc>https://where-is-my-book.vercel.app/worldcup</loc>
   </url>
   <url>
     <loc>https://where-is-my-book.vercel.app/privacy</loc>

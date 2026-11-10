@@ -136,6 +136,26 @@ cd frontend && node tools/make-og-image.mjs
 스크립트에 들어 있습니다. **한글 글꼴이 없는 기계에서 만들면 글자가 네모로 나오므로 만든
 뒤에는 눈으로 확인하세요.**
 
+### 「인생 책 월드컵」에 주제를 더할 때
+
+책 서른두 권 가운데 둘씩 견주어 한 권을 고르는 화면입니다(`/worldcup`). 주제는
+`frontend/src/worldcup/themes/<이름>.json` 파일 하나이고, 더한 뒤에 아래 명령을 한 번
+돌립니다. 코드를 고칠 곳은 없습니다.
+
+```bash
+cd frontend && node tools/make-worldcup-assets.mjs
+```
+
+표지(`public/worldcup/<주제>/covers/`), 책마다의 공유 미리보기 그림(`…/og/`), 서버가 받는
+책 명단(`backend/src/main/resources/worldcup/rosters.tsv`)을 그 파일에서 만들어 냅니다.
+이미 있는 것은 다시 만들지 않고, 전부 다시 만들려면 `--force` 를 붙입니다. Playwright 와
+크로미움, curl 이 필요합니다(`npm i --no-save playwright && npx playwright install chromium`).
+생긴 파일을 주제 파일과 함께 커밋하고, **화면과 서버를 둘 다 배포해야** 그 주제의 집계가
+세어집니다. `npm test` 가 주제 파일과 만들어 낸 것들이 어긋나면 실패합니다.
+
+광고 성과는 `GET {API}/api/worldcup/{주제}/events` 에서 날짜·단계·유입 표시별 횟수로
+봅니다. 우승 집계는 `GET {API}/api/worldcup/{주제}/stats` 입니다.
+
 ---
 
 ## 구조

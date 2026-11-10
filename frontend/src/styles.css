@@ -2077,3 +2077,223 @@ input[type='checkbox'] { width: 17px; height: 17px; accent-color: var(--accent);
     transition: none;
   }
 }
+
+/* ── 인생 책 월드컵 ─────────────────────────────────────────────────── */
+
+/*
+  **새 색도 새 글꼴도 없습니다.** 종이·잉크·가죽·놋쇠와 원목 서가를 그대로 씁니다. 책을
+  선반 위에 세우는 방식도 서가 화면과 같습니다. 표지는 아래 선에 맞춰 서고, 선반 판은
+  위가 밝고 아래가 어둡습니다.
+
+  **휴대폰 세로 화면이 기준입니다.** 광고에서 들어오는 사람이 보는 화면이라, 대결 화면은
+  두 권과 제목이 스크롤 없이 한 화면에 들어와야 합니다. 넓은 화면에서는 폭만 묶어 둡니다.
+  표지가 화면만큼 커지면 고르는 화면이 아니라 포스터가 됩니다.
+*/
+.wc { display: grid; }
+.wc-card { width: 100%; max-width: 560px; margin: 0 auto; padding: 16px; }
+.wc-title { margin: 0; font-family: var(--display); font-size: 24px; letter-spacing: 0.01em; }
+.wc-lede { margin: 6px 0 18px; word-break: keep-all; }
+.wc-themes { display: grid; gap: 28px; }
+.wc-theme { display: grid; gap: 8px; }
+.wc-theme__title { margin: 6px 0 0; font-family: var(--display); font-size: 20px; }
+.wc-theme__meta { margin: 0 0 6px; font-size: 13px; }
+
+/* 넓게 누르는 단추. 엄지로 누르는 화면이라 한 줄을 통째로 씁니다. */
+.wc-wide { width: 100%; padding: 13px 16px; font-size: 16px; }
+.wc-wide--big { padding: 17px 16px; font-size: 18px; }
+
+/*
+  **표지.** 오기 전에 자리를 잡아 둡니다. 높이를 그림에 맡기면 도착하는 순간 칸이 솟아
+  그 아래 제목과 단추가 밀리는데, 대결 화면에서는 그때가 손가락이 내려가는 때입니다.
+  `auto` 를 둔 이유는 서가와 같습니다. 판형이 제각각인 채로 아래 선에 맞춰 서야 합니다.
+
+  **서서히 나타나게 하지 않습니다.** 대결마다 두 장이 새로 붙으므로, 나타나는 효과를
+  걸면 서른한 번 내내 화면이 깜빡입니다.
+*/
+.wc-cover {
+  display: block; width: 100%; height: auto; aspect-ratio: auto 1 / 1.45;
+  border-radius: 2px;
+  box-shadow: 0 1px 2px rgba(43, 27, 13, 0.28), 0 6px 14px -6px var(--shelf-shade);
+}
+/* 대체 표지. 서가의 `.cover__made` 와 같은 생김새이고 바탕은 가죽 장정의 녹색입니다. */
+.wc-cover--made {
+  display: grid; align-content: space-between; gap: 8px;
+  aspect-ratio: 1 / 1.45; padding: 12% 10% 10% 12%;
+  color: #f6f1e6; text-align: left; background-color: var(--accent);
+  background-image: linear-gradient(118deg,
+    rgba(255, 255, 255, 0.16) 0 28%, rgba(255, 255, 255, 0) 52%);
+}
+.wc-cover__title {
+  font-family: var(--display); font-size: 14px; font-weight: 600; line-height: 1.3;
+  display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical;
+  overflow: hidden; word-break: keep-all;
+}
+.wc-cover__author {
+  font-size: 11px; opacity: 0.8; line-height: 1.3;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden; word-break: keep-all;
+}
+
+/* 선반 판. 서가의 `.shelf__plank::after` 와 같은 차례로 칠합니다. */
+.wc-plank {
+  height: 16px; border-radius: 1px;
+  background: linear-gradient(180deg,
+    var(--wood-light) 0 3px, var(--wood) 3px 9px, var(--wood-dark) 9px 14px,
+    rgba(43, 27, 13, 0.28) 14px);
+  box-shadow: 0 6px 10px -6px var(--shelf-shade);
+}
+
+/* 시작 화면의 선반. 무엇을 고르게 되는지를 글 대신 표지 몇 장으로 말합니다. */
+.wc-shelf__books {
+  display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px;
+  align-items: end; padding: 4px 12px 0;
+}
+
+/* ── 대결 ── */
+
+.wc-round__theme { margin: 0; font-size: 13px; }
+.wc-round__name {
+  margin: 2px 0 10px; display: flex; align-items: baseline; gap: 10px;
+  font-family: var(--display); font-size: 26px; letter-spacing: 0.01em;
+}
+.wc-round__count { font-size: 16px; font-weight: 400; color: var(--muted); }
+/*
+  **전체에서 어디쯤인지.** 라운드 안의 「3/16」은 글자가 말하고, 이 선은 서른한 번 가운데
+  얼마나 왔는지를 말합니다. 잡을 것이 없는 가는 선 하나라 누르는 것으로 읽히지 않습니다.
+  「이 책 주변 서가」의 자리 눈금과 같은 관용구입니다.
+*/
+.wc-meter { height: 3px; border-radius: 2px; overflow: hidden; background: var(--line); }
+.wc-meter > span {
+  display: block; height: 100%; background: var(--brass);
+  transition: width 0.2s ease;
+}
+/* 아래 여백은 고른 책이 위로 올라오는 만큼 비워 둡니다. 좁으면 올라온 표지가 이 글을 덮습니다. */
+.wc-ask { margin: 14px 0 18px; text-align: center; font-size: 14px; color: var(--muted); }
+
+/*
+  **두 권을 나란히, 아래 선에 맞춰 세웁니다.** 제목과 저자의 자리를 줄 수로 못박아 두는
+  이유가 그것입니다. 글의 높이가 책마다 다르면 표지의 바닥선이 어긋나 선반 위에 한 권이
+  떠 있게 됩니다.
+*/
+.wc-duel { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: end; }
+.wc-duel__side {
+  appearance: none; background: none; border: 0; padding: 0; margin: 0;
+  font: inherit; color: inherit; text-align: center; cursor: pointer;
+  display: grid; gap: 2px; min-width: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+/*
+  **움직이는 것은 표지뿐입니다.** 칸을 통째로 올리면 선반 판까지 따라 올라가 두 책의 판이
+  어긋나고, 한 선반이 둘로 갈라져 보입니다. 책은 뽑혀 올라오고 선반은 제자리에 있어야 합니다.
+  아래를 축으로 키우는 것도 같은 이유입니다. 가운데를 축으로 하면 책이 판을 파고듭니다.
+*/
+.wc-duel .wc-cover {
+  transform-origin: 50% 100%;
+  /* 이 시간은 `WorldcupPlay.PICK_MS` 보다 짧아야 합니다. 끝까지 움직인 뒤에 넘어갑니다. */
+  transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+}
+.wc-duel__text { transition: opacity 0.2s ease; }
+.wc-duel__side:disabled { cursor: default; }
+.wc-duel__side:focus-visible { outline: 2px solid var(--accent); outline-offset: 6px; border-radius: 4px; }
+.wc-duel__book { position: relative; display: block; margin-bottom: 24px; }
+/* 책마다 제 판을 깔고 좌우로 조금 내밀어, 두 판이 가운데에서 이어져 한 선반이 됩니다. */
+.wc-duel__book::after {
+  content: ''; position: absolute; left: -10px; right: -10px; bottom: -16px; height: 16px;
+  border-radius: 1px;
+  background: linear-gradient(180deg,
+    var(--wood-light) 0 3px, var(--wood) 3px 9px, var(--wood-dark) 9px 14px,
+    rgba(43, 27, 13, 0.28) 14px);
+  box-shadow: 0 6px 10px -6px var(--shelf-shade);
+}
+/*
+  글 자리의 높이는 「제목 두 줄 + 저자 한 줄」로 못박습니다. 제목이 한 줄이면 남는 자리는
+  저자 아래로 갑니다. 제목과 저자 사이에 빈 줄이 끼면 저자가 다른 책의 것처럼 떨어져 보입니다.
+*/
+.wc-duel__text { display: grid; align-content: start; gap: 2px; min-height: 64px; min-width: 0; }
+.wc-duel__title {
+  font-family: var(--display); font-size: 16px; font-weight: 600; line-height: 1.35;
+  word-break: keep-all;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.wc-duel__author {
+  font-size: 13px; line-height: 1.35;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+@media (hover: hover) {
+  .wc-duel:not([data-busy]) .wc-duel__side:hover .wc-cover { transform: translateY(-4px); }
+}
+/*
+  **고른 책은 앞으로 나오고 다른 책은 물러납니다.** 서가에서 한 권을 뽑으면 옆 책은 그대로
+  서 있는 것과 같습니다. 고르지 않은 쪽을 지우지 않는 이유는, 자리가 사라지면 고른 책이
+  옆으로 미끄러져 「무엇을 눌렀는지」를 잃기 때문입니다.
+*/
+.wc-duel__side[data-picked] .wc-cover {
+  transform: translateY(-6px) scale(1.03);
+  box-shadow: 0 0 0 3px var(--brass), 0 12px 22px -8px var(--shelf-shade);
+}
+/* 물러나는 것도 책과 글뿐입니다. 선반 판까지 흐려지면 선반의 반쪽이 사라져 보입니다. */
+.wc-duel__side[data-passed] .wc-cover,
+.wc-duel__side[data-passed] .wc-duel__text { opacity: 0.32; }
+
+/* ── 결과 ── */
+
+.wc-result { text-align: center; }
+.wc-result__head {
+  margin: 4px 0 16px; display: grid; gap: 2px;
+  font-family: var(--display); font-size: 18px; font-weight: 600;
+}
+.wc-result__book { font-size: 28px; line-height: 1.3; word-break: keep-all; }
+.wc-winner { width: min(62%, 230px); margin: 0 auto; }
+.wc-winner__book { display: block; padding: 0 16px; }
+.wc-winner__meta { margin: 14px 0 0; font-size: 14px; word-break: keep-all; }
+/* 「이 책의 n번째 우승」. 놋쇠 선 하나로 위아래를 가릅니다. 색을 칠한 상자는 쓰지 않습니다. */
+.wc-statline {
+  margin: 12px auto 0; padding-top: 12px; max-width: 320px;
+  border-top: 1px solid var(--brass);
+  font-weight: 600; color: var(--accent-deep); word-break: keep-all;
+}
+.wc-actions { display: grid; gap: 8px; margin: 20px 0 0; }
+
+.wc-share {
+  margin: 14px 0 0; padding: 14px; display: grid; gap: 10px; justify-items: center;
+  background: var(--tile); border-radius: 8px;
+}
+.wc-share__card {
+  display: block; width: min(100%, 230px); height: auto;
+  border: 1px solid var(--line); border-radius: 6px;
+}
+.wc-share__buttons { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.wc-share__hint { margin: 0; font-size: 13px; word-break: keep-all; }
+
+.wc-sub { margin: 28px 0 10px; font-family: var(--display); font-size: 16px; text-align: left; }
+.wc-podium__list {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; align-items: end;
+}
+.wc-podium__item { display: grid; gap: 2px; justify-items: center; min-width: 0; }
+.wc-podium__book { display: block; width: 100%; max-width: 92px; margin-bottom: 6px; }
+.wc-podium__label { font-size: 12px; font-weight: 600; color: var(--muted); }
+.wc-podium__title { font-size: 13px; font-weight: 600; line-height: 1.35; word-break: keep-all; }
+
+.wc-rank__note { margin: 0 0 6px; font-size: 13px; text-align: left; word-break: keep-all; }
+.wc-rank__list { list-style: none; margin: 0; padding: 0; text-align: left; }
+.wc-rank__row {
+  display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 8px;
+  align-items: baseline; padding: 9px 8px; border-bottom: 1px solid var(--line);
+}
+/* 이 결과의 책이 순위표의 어디에 있는지. 가리키는 일이라 놋쇠를 씁니다. */
+.wc-rank__row[data-me] { background: var(--brass-soft); box-shadow: inset 3px 0 0 var(--brass); }
+.wc-rank__no { font-family: var(--display); color: var(--muted); text-align: center; }
+.wc-rank__title { font-weight: 600; word-break: keep-all; }
+.wc-rank__author { display: block; font-size: 12px; font-weight: 400; }
+.wc-rank__value { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* 움직임을 줄여 달라고 한 사람에게는 걸지 않습니다. 넘기는 시간도 화면 쪽에서 0 으로 둡니다. */
+@media (prefers-reduced-motion: reduce) {
+  .wc-duel .wc-cover,
+  .wc-duel__text,
+  .wc-meter > span {
+    transition: none;
+  }
+  .wc-duel__side[data-picked] .wc-cover { transform: none; }
+}

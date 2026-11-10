@@ -1,0 +1,276 @@
+{
+  "title": "세계문학 고전 32강",
+  "description": "세계문학 고전 서른두 권 가운데 둘씩 견주어 나의 인생 책 한 권을 고릅니다.",
+  "books": [
+    {
+      "id": "crime-and-punishment",
+      "title": "죄와 벌",
+      "author": "표도르 도스토옙스키",
+      "publisher": "민음사",
+      "isbn13": "9788937462849",
+      "coverSource": "https://image.aladin.co.kr/product/1621/17/cover/8937462842_2.jpg",
+      "note": "전 2권 가운데 1권"
+    },
+    {
+      "id": "brothers-karamazov",
+      "title": "카라마조프가의 형제들",
+      "author": "표도르 도스토옙스키",
+      "publisher": "민음사",
+      "isbn13": "9788937461545",
+      "coverSource": "https://image.aladin.co.kr/product/98/80/cover/8937461544_2.jpg",
+      "note": "전 3권 가운데 1권"
+    },
+    {
+      "id": "anna-karenina",
+      "title": "안나 카레니나",
+      "author": "레프 톨스토이",
+      "publisher": "민음사",
+      "isbn13": "9788937462191",
+      "coverSource": "https://image.aladin.co.kr/product/461/57/cover/s852532176_1.jpg",
+      "note": "전 3권 가운데 1권"
+    },
+    {
+      "id": "war-and-peace",
+      "title": "전쟁과 평화",
+      "author": "레프 톨스토이",
+      "publisher": "문학동네",
+      "isbn13": "9788954642576",
+      "coverSource": "https://bookthumb-phinf.pstatic.net/cover/111/731/11173190.jpg?type=m1&udate=20170412",
+      "note": "전 4권 가운데 1권"
+    },
+    {
+      "id": "pride-and-prejudice",
+      "title": "오만과 편견",
+      "author": "제인 오스틴",
+      "publisher": "민음사",
+      "isbn13": "9788937460883",
+      "coverSource": "https://bookthumb-phinf.pstatic.net/cover/001/324/00132469.jpg?type=m1&udate=20170328"
+    },
+    {
+      "id": "jane-eyre",
+      "title": "제인 에어",
+      "author": "샬럿 브론테",
+      "publisher": "민음사",
+      "isbn13": "9788937461095",
+      "coverSource": "https://bookthumb-phinf.pstatic.net/cover/014/709/01470990.jpg?type=m1&udate=20130128",
+      "note": "전 2권 가운데 1권"
+    },
+    {
+      "id": "wuthering-heights",
+      "title": "폭풍의 언덕",
+      "author": "에밀리 브론테",
+      "publisher": "민음사",
+      "isbn13": "9788937461187",
+      "coverSource": "https://image.aladin.co.kr/product/54/93/cover/8937461188_3.jpg"
+    },
+    {
+      "id": "great-expectations",
+      "title": "위대한 유산",
+      "author": "찰스 디킨스",
+      "publisher": "민음사",
+      "isbn13": "9788937462122",
+      "coverSource": "https://image.aladin.co.kr/product/421/38/cover/8937462125_2.jpg",
+      "note": "전 2권 가운데 1권"
+    },
+    {
+      "id": "les-miserables",
+      "title": "레 미제라블",
+      "author": "빅토르 위고",
+      "publisher": "민음사",
+      "isbn13": "9788937463013",
+      "coverSource": "https://bookthumb-phinf.pstatic.net/cover/070/437/07043756.jpg?type=m1&udate=20130115",
+      "note": "전 5권 가운데 1권"
+    },
+    {
+      "id": "count-of-monte-cristo",
+      "title": "몬테크리스토 백작",
+      "author": "알렉상드르 뒤마",
+      "publisher": "민음사",
+      "isbn13": "9788937403866",
+      "coverSource": "https://image.aladin.co.kr/product/34/13/cover/8937403862_2.jpg",
+      "note": "전 5권 가운데 1권"
+    },
+    {
+      "id": "madame-bovary",
+      "title": "마담 보바리",
+      "author": "귀스타브 플로베르",
+      "publisher": "민음사",
+      "isbn13": "9788937460364",
+      "coverSource": "https://bookthumb-phinf.pstatic.net/cover/000/051/00005178.jpg?type=m1&udate=20141126"
+    },
+    {
+      "id": "the-red-and-the-black",
+      "title": "적과 흑",
+      "author": "스탕달",
+      "publisher": "민음사",
+      "isbn13": "9788937460951",
+      "coverSource": "https://bookthumb-phinf.pstatic.net/cover/001/407/00140765.jpg?type=m1&udate=20140925",
+      "note": "전 2권 가운데 1권"
+    },
+    {
+      "id": "the-stranger",
+      "title": "이방인",
+      "author": "알베르 카뮈",
+      "publisher": "민음사",
+      "isbn13": "9788937462665",
+      "coverSource": "https://image.aladin.co.kr/product/1126/72/cover/8937462664_2.jpg"
+    },
+    {
+      "id": "the-plague",
+      "title": "페스트",
+      "author": "알베르 카뮈",
+      "publisher": "민음사",
+      "isbn13": "9788937462672",
+      "coverSource": "https://bookthumb-phinf.pstatic.net/cover/066/073/06607390.jpg?type=m1&udate=20160331"
+    },
+    {
+      "id": "the-metamorphosis",
+      "title": "변신",
+      "author": "프란츠 카프카",
+      "publisher": "을유문화사",
+      "isbn13": "9788932404349",
+      "coverSource": "https://image.aladin.co.kr/product/5143/3/cover/8932404348_1.jpg",
+      "note": "이 판의 표제는 「변신·선고 외」"
+    },
+    {
+      "id": "demian",
+      "title": "데미안",
+      "author": "헤르만 헤세",
+      "publisher": "민음사",
+      "isbn13": "9788937460449",
+      "coverSource": "https://bookthumb-phinf.pstatic.net/cover/000/051/00005186.jpg?type=m1&udate=20160509"
+    },
+    {
+      "id": "sorrows-of-young-werther",
+      "title": "젊은 베르테르의 슬픔",
+      "author": "요한 볼프강 폰 괴테",
+      "publisher": "민음사",
+      "isbn13": "9788937460258",
+      "coverSource": "https://bookthumb-phinf.pstatic.net/cover/001/169/00116960.jpg?type=m1&udate=20100902"
+    },
+    {
+      "id": "faust",
+      "title": "파우스트",
+      "author": "요한 볼프강 폰 괴테",
+      "publisher": "민음사",
+      "isbn13": "9788937460210",
+      "coverSource": "https://image.aladin.co.kr/product/18/75/cover/8937460211_3.jpg",
+      "note": "전 2권 가운데 1권"
+    },
+    {
+      "id": "don-quixote",
+      "title": "돈키호테",
+      "author": "미겔 데 세르반테스",
+      "publisher": "열린책들",
+      "isbn13": "9788932916804",
+      "coverSource": "https://image.aladin.co.kr/product/4922/52/cover/8932916802_1.jpg",
+      "note": "전 2권 가운데 1권"
+    },
+    {
+      "id": "one-hundred-years-of-solitude",
+      "title": "백년의 고독",
+      "author": "가브리엘 가르시아 마르케스",
+      "publisher": "민음사",
+      "isbn13": "9788937460340",
+      "coverSource": "https://bookthumb-phinf.pstatic.net/cover/000/051/00005176.jpg?type=m1&udate=20141126",
+      "note": "전 2권 가운데 1권"
+    },
+    {
+      "id": "the-great-gatsby",
+      "title": "위대한 개츠비",
+      "author": "F. 스콧 피츠제럴드",
+      "publisher": "민음사",
+      "isbn13": "9788937460753",
+      "coverSource": "https://image.aladin.co.kr/product/41/79/cover/8937460750_3.jpg"
+    },
+    {
+      "id": "the-catcher-in-the-rye",
+      "title": "호밀밭의 파수꾼",
+      "author": "J. D. 샐린저",
+      "publisher": "민음사",
+      "isbn13": "9788937460470",
+      "coverSource": "https://bookthumb-phinf.pstatic.net/cover/000/051/00005188.jpg?type=m1&udate=20140728"
+    },
+    {
+      "id": "the-old-man-and-the-sea",
+      "title": "노인과 바다",
+      "author": "어니스트 헤밍웨이",
+      "publisher": "민음사",
+      "isbn13": "9788937462788",
+      "coverSource": "https://bookthumb-phinf.pstatic.net/cover/068/016/06801622.jpg?type=m1&udate=20170117"
+    },
+    {
+      "id": "to-kill-a-mockingbird",
+      "title": "앵무새 죽이기",
+      "author": "하퍼 리",
+      "publisher": "열린책들",
+      "isbn13": "9788932917207",
+      "coverSource": "https://bookthumb-phinf.pstatic.net/cover/092/203/09220376.jpg?type=m1&udate=20170801"
+    },
+    {
+      "id": "nineteen-eighty-four",
+      "title": "1984",
+      "author": "조지 오웰",
+      "publisher": "민음사",
+      "isbn13": "9788937460777",
+      "coverSource": "https://image.aladin.co.kr/product/41/89/cover/s122531356_1.jpg"
+    },
+    {
+      "id": "animal-farm",
+      "title": "동물농장",
+      "author": "조지 오웰",
+      "publisher": "민음사",
+      "isbn13": "9788937460050",
+      "coverSource": "https://bookthumb-phinf.pstatic.net/cover/000/051/00005151.jpg?type=m1&udate=20180718"
+    },
+    {
+      "id": "brave-new-world",
+      "title": "멋진 신세계",
+      "author": "올더스 헉슬리",
+      "publisher": "소담출판사",
+      "isbn13": "9788973814725",
+      "coverSource": "https://image.aladin.co.kr/product/6083/61/cover/8973814729_1.jpg"
+    },
+    {
+      "id": "the-little-prince",
+      "title": "어린 왕자",
+      "author": "앙투안 드 생텍쥐페리",
+      "publisher": "열린책들",
+      "isbn13": "9788932917245",
+      "coverSource": "https://bookthumb-phinf.pstatic.net/cover/097/003/09700399.jpg?type=m1&udate=20151218"
+    },
+    {
+      "id": "hamlet",
+      "title": "햄릿",
+      "author": "윌리엄 셰익스피어",
+      "publisher": "민음사",
+      "isbn13": "9788937460036",
+      "coverSource": "https://bookthumb-phinf.pstatic.net/cover/000/051/00005149.jpg?type=m1&udate=20161004"
+    },
+    {
+      "id": "divine-comedy",
+      "title": "신곡",
+      "author": "단테 알리기에리",
+      "publisher": "민음사",
+      "isbn13": "9788937461507",
+      "coverSource": "https://bookthumb-phinf.pstatic.net/cover/030/273/03027362.jpg?type=m1&udate=20160915",
+      "note": "지옥편·연옥편·천국편 가운데 지옥편"
+    },
+    {
+      "id": "zorba-the-greek",
+      "title": "그리스인 조르바",
+      "author": "니코스 카잔차키스",
+      "publisher": "열린책들",
+      "isbn13": "9788932909349",
+      "coverSource": "https://bookthumb-phinf.pstatic.net/cover/062/002/06200221.jpg?type=m1&udate=20141001"
+    },
+    {
+      "id": "the-moon-and-sixpence",
+      "title": "달과 6펜스",
+      "author": "서머싯 몸",
+      "publisher": "민음사",
+      "isbn13": "9788937460388",
+      "coverSource": "https://bookthumb-phinf.pstatic.net/cover/000/051/00005180.jpg?type=m1&udate=20150225"
+    }
+  ]
+}

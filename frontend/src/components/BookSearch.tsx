@@ -73,9 +73,15 @@ type Checked = { key: string; facts: Map<number, HoldingFacts> };
 export function BookSearch({
   libraries,
   selected,
+  initialTitle = '',
 }: {
   libraries: readonly Library[];
   selected: ReadonlySet<string>;
+  /**
+   * 제목을 채운 채 들어온 경우. 한 번만 그 제목으로 검색합니다. 월드컵에서 「이 책이 어느
+   * 도서관에 있는지 찾기」를 누르면 이 길로 옵니다.
+   */
+  initialTitle?: string;
 }) {
   const [criteria, setCriteria] = useState<SearchCriteria>(EMPTY_CRITERIA);
   const [state, setState] = useState<State>({ kind: 'idle' });
@@ -182,8 +188,26 @@ export function BookSearch({
     return map;
   }, [libraries]);
 
-  async function submit(event: React.FormEvent) {
+  function submit(event: React.FormEvent) {
     event.preventDefault();
+    void run(criteria);
+  }
+
+  /*
+   * 채워서 들어온 제목은 사람이 「검색」을 누른 것과 같은 길로 한 번만 보냅니다. 칸만 채워
+   * 두고 기다리면 「찾기」를 누르고 온 사람이 같은 것을 한 번 더 눌러야 합니다.
+   */
+  const arrived = useRef(false);
+  useEffect(() => {
+    if (!initialTitle || arrived.current) return;
+    arrived.current = true;
+    const next = { ...EMPTY_CRITERIA, title: initialTitle };
+    setCriteria(next);
+    void run(next);
+    // 처음 한 번만 봅니다. `run` 은 그릴 때마다 새로 만들어지므로 의존성에 넣지 않습니다.
+  }, [initialTitle]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function run(criteria: SearchCriteria) {
     if (!hasCriteria(criteria)) return;
 
     setState({ kind: 'searching' });

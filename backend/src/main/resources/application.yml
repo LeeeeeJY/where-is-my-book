@@ -78,6 +78,16 @@ wimb:
     #       ghcr.io/leeeeejy/where-is-my-book:latest --wimb.shelf.harvest=141321:8
     harvest: ""
 
+  worldcup:
+    # **「인생 책 월드컵」의 집계를 두는 곳.** 누가 골랐는지는 없고 몇 번 골라졌는지만
+    # 있습니다. 소장 캐시와 같은 볼륨(wimb-data)에 둡니다. 컨테이너 안에 두면 재배포
+    # 때마다 0 에서 다시 시작하는데, 화면에는 「첫 번째 우승」으로만 보여 고장으로
+    # 읽히지 않습니다. 이미지가 WIMB_WORLDCUP_STATS_PATH=/data/... 로 덮습니다.
+    stats-path: data/worldcup-stats.tsv
+    # 소장 캐시(60초)보다 짧습니다. 캐시는 잃어도 다시 물어보면 되지만 이 집계는
+    # 다시 받을 곳이 없습니다. 바뀐 것이 없으면 쓰지 않습니다.
+    save-interval-ms: 15000
+
   rate-limit:
     # **주소 하나가 하루 몫을 통째로 태우지 못하게 막습니다.**
     # 우리 API 는 인증이 없고 주소는 번들에 박혀 있어 감출 수 없습니다. 감추는 것이 아니라
