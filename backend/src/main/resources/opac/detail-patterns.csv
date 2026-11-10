@@ -198,3 +198,10 @@ library.busan.go.kr/busanlibrary,href="(detail\.do\?menu_idx=71&(?:amp;)?isbn=[^
 lib.wonju.go.kr/ja,href=["'](/ja/menu/234/book/view/[^"']*)["']
 # 안동은 분관으로 좁힌 ISBN 검색의 제목 링크 속성값을 주소틀에 끼웁니다 (2026-11-10 오후).
 lib.andong.go.kr,@template:isbn="(\d{13})" tid="[^"]*" regNo="([^"]+)" manageCode="([A-Z0-9]+)" class="[^"]*goDetail => /andonglibrary/intro/search/detail.do?regNo={2}&isbn={1}&menu_idx=349&manageCode={3}
+# 규칙이 없던 곳에서 얻은 상세 규칙 (2026-11-10 오후). 울산도서관의 열쇠에 ?display 가 붙은 것은 같은 포털 주소를 쓰는
+# 다른 울산 도서관들의 결과에는 상세 링크가 없어서, 울산도서관 주소에만 걸리게 하려는 것입니다.
+www.haeundae.go.kr/library,href="(/library/index\.do\?menuCd=DOM_000001001001002000[^"]*)"
+www.bsdonggu.go.kr,@onclick:fn_go_detail
+library.ulsan.go.kr?display,@onclick:fn_view
+lib.jeongseon.go.kr,@json:GET https://lib.jeongseon.go.kr/api/search/total?manage_code=MA%2CMB&search_txt={isbn13}&book_type=BOOK&pageno=1&display=10&search_type=normal => LIST_DATA => /search/books/detail/{BOOK_KEY}?bookManageCode={MANAGE_CODE}&menuIds=3,4
+lib.jemulpo.go.kr,@template:name="reg_no" value="([^"]+)">\s*<input type="hidden" id="species_key" name="species_key" value="([^"]+)">\s*<input type="hidden" id="lib_code" name="lib_code" value="([^"]+)"> => /libsearch/book/bookSearchDetail.do?species_key={2}&reg_no={1}&lib_code={3}
