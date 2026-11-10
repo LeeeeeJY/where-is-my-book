@@ -117,6 +117,7 @@ public final class BibNormalizer {
 
     private static final Map<String, Contributor.Role> ROLE_MAP = Map.ofEntries(
             Map.entry("지음", Contributor.Role.AUTHOR),
+            Map.entry("지은이", Contributor.Role.AUTHOR),
             Map.entry("저자", Contributor.Role.AUTHOR),
             Map.entry("공저", Contributor.Role.AUTHOR),
             Map.entry("저", Contributor.Role.AUTHOR),
@@ -124,6 +125,7 @@ public final class BibNormalizer {
             Map.entry("씀", Contributor.Role.AUTHOR),
             Map.entry("著", Contributor.Role.AUTHOR),
             Map.entry("원작", Contributor.Role.ORIGINAL_AUTHOR),
+            Map.entry("원저자", Contributor.Role.ORIGINAL_AUTHOR),
             Map.entry("옮김", Contributor.Role.TRANSLATOR),
             Map.entry("옮긴이", Contributor.Role.TRANSLATOR),
             Map.entry("번역", Contributor.Role.TRANSLATOR),
@@ -137,6 +139,7 @@ public final class BibNormalizer {
             Map.entry("編", Contributor.Role.EDITOR),
             Map.entry("그림", Contributor.Role.ILLUSTRATOR),
             Map.entry("그린이", Contributor.Role.ILLUSTRATOR),
+            Map.entry("삽화", Contributor.Role.ILLUSTRATOR),
             Map.entry("만화", Contributor.Role.ILLUSTRATOR),
             Map.entry("사진", Contributor.Role.PHOTOGRAPHER),
             Map.entry("감수", Contributor.Role.SUPERVISOR),
@@ -149,6 +152,24 @@ public final class BibNormalizer {
     private static final Pattern MULTI_ROLE = Pattern.compile(
             "(" + String.join("|", Lexicons.ROLE_WORDS.stream()
                     .filter(w -> w.length() >= 2).toList()) + ")");
+
+    /**
+     * 「지은이: 알베르 카뮈」「[원저자]: 알베르 카뮈」처럼 <b>역할이 앞에 오고 콜론으로 이름을
+     * 잇는</b> 조각. 조각의 맨 앞에 있고 콜론이 따라올 때만 역할로 읽으므로 한 글자 역할어도
+     * 받습니다(「역: 김화영」).
+     */
+    private static final Pattern ROLE_FIRST = Pattern.compile(
+            "^\\s*\\[?\\s*(" + String.join("|", Lexicons.ROLE_WORDS) + ")\\s*\\]?\\s*:(.*)$");
+
+    /** 「알베르 카뮈 (지은이)」의 괄호. 안에 든 말이 역할어인지는 {@link #roleInParens} 가 봅니다. */
+    private static final Pattern PARENS = Pattern.compile("\\(([^()]*)\\)");
+
+    /**
+     * 괄호 안에 역할어가 둘 올 때 그 사이의 기호(「글.그림」). <b>실제로 받아 본 모양은
+     * 아닙니다.</b> 2026-11-10 에 본 괄호는 전부 역할어 하나였습니다. 둘이 왔을 때 괄호째
+     * 이름으로 읽지 않게 하려고 받아 둡니다.
+     */
+    private static final Pattern ROLE_JOINER = Pattern.compile("[\\s.,·/&+]+");
 
     // ---------------------------------------------------------------
     // 공유 정규화 함수
@@ -442,6 +463,24 @@ public final class BibNormalizer {
      * 때문입니다. 「롤링, 조앤 캐슬린」은 두 사람이 아니라 성을 앞세운 한 사람입니다.
      * 다만 「홍길동 지음, 김철수 옮김」처럼 역할어 뒤에 쉼표가 오는 형태는 실제로 목록이므로,
      * 역할어를 만나면 거기서 끊습니다.
+     *
+     * <p><b>정보나루는 이 필드를 세 가지 모양으로 섞어서 줍니다</b>(2026-11-10 실측, 같은
+     * 「이방인」 검색 한 번의 결과 안에서).
+     *
+     * <pre>
+     * 알베르 카뮈 지음;이휘영 옮김              역할이 이름 뒤
+     * 지은이: 알베르 카뮈 ;옮긴이: 김화영       역할이 이름 앞, 콜론
+     * 알베르 카뮈 (지은이), 이정서 (옮긴이)     역할이 이름 뒤 괄호, 사람은 쉼표로 나눔
+     * </pre>
+     *
+     * <p>첫째 모양만 읽던 때에는 둘째의 저자가 「지은이: 알베르 카뮈」라는 이름이 되고 역자가
+     * 저자로 읽혔으며, <b>셋째는 주저자가 「)」 한 글자가 되었습니다.</b> 그 표기는 저자가
+     * 누구든 똑같이 「)」라서, 화면에 저자가 「)」로 나가고, 저자 되찾기가 「가장 자주 나오는
+     * 주저자」로 사람 이름이 아닌 값을 뽑아 통째로 헛돌았습니다.
+     *
+     * <p><b>셋째 모양에서는 쉼표가 목록 구분자입니다.</b> 「김기수, 이현구 (그림)」은 그린이가
+     * 두 사람입니다. 도치 표기와 구별되는 근거는 괄호 안의 역할어이고, 그것이 없는 조각은
+     * 지금까지대로 쉼표를 도치로 읽습니다.
      */
     public static List<Contributor> parseContributors(String rawAuthors) {
         List<Contributor> out = new ArrayList<>();
@@ -455,6 +494,7 @@ public final class BibNormalizer {
     }
 
     private static void parseSegment(String segment, List<Contributor> out) {
+        if (parseRoleFirst(segment, out) || parseRoleInParens(segment, out)) return;
         String rest = segment;
         Matcher m = MULTI_ROLE.matcher(rest);
         int from = 0;
@@ -489,6 +529,60 @@ public final class BibNormalizer {
         }
         String name = cleanName(tail);
         if (!name.isEmpty()) out.add(new Contributor(name, Contributor.Role.AUTHOR));
+    }
+
+    /** 「지은이: 알베르 카뮈」. 읽었으면 true 입니다. */
+    private static boolean parseRoleFirst(String segment, List<Contributor> out) {
+        Matcher m = ROLE_FIRST.matcher(segment);
+        if (!m.matches()) return false;
+        String name = cleanName(m.group(2));
+        if (!name.isEmpty()) {
+            out.add(new Contributor(name, ROLE_MAP.getOrDefault(m.group(1), Contributor.Role.AUTHOR)));
+        }
+        return true;
+    }
+
+    /**
+     * 「알베르 카뮈 (지은이), 이정서 (옮긴이)」. 읽었으면 true 입니다.
+     *
+     * <p><b>괄호 안이 역할어일 때만</b> 이 모양으로 봅니다. 「홍길동(洪吉童) 지음」의 괄호는
+     * 이름의 일부라 건드리지 않습니다. 역할 괄호 앞에 쉼표로 늘어선 이름은 모두 그 역할이고,
+     * 마지막 역할 괄호 뒤에 남은 이름은 역할을 모르는 것이라 다른 모양과 같이 저자로 둡니다.
+     */
+    private static boolean parseRoleInParens(String segment, List<Contributor> out) {
+        Matcher m = PARENS.matcher(segment);
+        int from = 0;
+        boolean any = false;
+        while (m.find()) {
+            Contributor.Role role = roleInParens(m.group(1));
+            if (role == null) continue;
+            addNames(segment.substring(from, m.start()), role, out);
+            from = m.end();
+            any = true;
+        }
+        if (!any) return false;
+        addNames(segment.substring(from), Contributor.Role.AUTHOR, out);
+        return true;
+    }
+
+    /** 괄호 안의 말이 전부 역할어면 그 역할. 「글.그림」처럼 둘이면 저자 쪽을 고릅니다. */
+    private static Contributor.Role roleInParens(String inside) {
+        Contributor.Role first = null;
+        for (String word : ROLE_JOINER.split(inside.trim())) {
+            if (word.isEmpty()) continue;
+            Contributor.Role role = ROLE_MAP.get(word);
+            if (role == null) return null;
+            if (role == Contributor.Role.AUTHOR || role == Contributor.Role.ORIGINAL_AUTHOR) return role;
+            if (first == null) first = role;
+        }
+        return first;
+    }
+
+    private static void addNames(String names, Contributor.Role role, List<Contributor> out) {
+        for (String raw : names.split(",")) {
+            String name = cleanName(raw);
+            if (!name.isEmpty()) out.add(new Contributor(name, role));
+        }
     }
 
     private static String cleanName(String s) {

@@ -59,6 +59,64 @@ class RealResponseShapeTest {
         }
     }
 
+    /**
+     * <b>저자 필드는 한 가지 모양으로 오지 않습니다.</b> 2026-11-10 에 「이방인」 검색 한 번의
+     * 결과 안에서 아래 모양이 전부 나왔습니다. 첫째 모양만 읽던 때에는 셋째의 주저자가
+     * 저자와 무관하게 「)」 한 글자였고, 그것이 화면의 저자 칸과 저자 되찾기 질의로 그대로
+     * 나갔습니다.
+     */
+    @Test
+    @DisplayName("역할이 이름 뒤에 오든 앞에 오든 괄호에 들든 주저자는 사람 이름이다")
+    void primaryAuthorSurvivesEveryNotation() {
+        for (String raw : List.of(
+                "알베르 카뮈 지음;이휘영 옮김",
+                "알베르 카뮈 지음 ;김진하 옮김",
+                "지은이: 알베르 카뮈 ;옮긴이: 김화영",
+                "원작: 알베르 카뮈 ;옮긴이: 이재룡",
+                "[원저자]: 알베르 카뮈;삽화: 손창복",
+                "지은이: 알베르 카뮈 ;김준우",
+                "알베르 카뮈 (지은이), 이정서 (옮긴이)",
+                "알베르 카뮈, Matthew Ward (지은이)")) {
+            var primary = BibNormalizer.primaryAuthor(BibNormalizer.parseContributors(raw));
+            assertEquals("알베르 카뮈", primary == null ? null : primary.name(), raw);
+        }
+    }
+
+    @Test
+    @DisplayName("역할이 앞에 오는 표기에서 역자를 저자로 읽지 않는다")
+    void roleFirstNotationKeepsTheTranslatorOut() {
+        assertEquals(
+                List.of(new Contributor("알베르 카뮈", Contributor.Role.AUTHOR),
+                        new Contributor("김화영", Contributor.Role.TRANSLATOR)),
+                BibNormalizer.parseContributors("지은이: 알베르 카뮈 ;옮긴이: 김화영"));
+        assertEquals(
+                List.of(new Contributor("알베르 카뮈", Contributor.Role.ORIGINAL_AUTHOR),
+                        new Contributor("손창복", Contributor.Role.ILLUSTRATOR)),
+                BibNormalizer.parseContributors("[원저자]: 알베르 카뮈;삽화: 손창복"));
+    }
+
+    @Test
+    @DisplayName("괄호 표기에서는 쉼표가 사람을 나누고, 괄호 앞의 이름은 모두 그 역할이다")
+    void roleInParensSplitsPeopleByComma() {
+        assertEquals(
+                List.of(new Contributor("잠뜰TV", Contributor.Role.ORIGINAL_AUTHOR),
+                        new Contributor("uno", Contributor.Role.AUTHOR),
+                        new Contributor("김기수", Contributor.Role.ILLUSTRATOR),
+                        new Contributor("이현구", Contributor.Role.ILLUSTRATOR)),
+                BibNormalizer.parseContributors("잠뜰TV (원작), uno (글), 김기수, 이현구 (그림)"));
+    }
+
+    @Test
+    @DisplayName("역할어가 아닌 괄호는 이름의 일부로 두고, 괄호 없는 쉼표는 여전히 도치다")
+    void otherParensAndCommasAreLeftAlone() {
+        assertEquals(
+                List.of(new Contributor("홍길동(洪吉童)", Contributor.Role.AUTHOR)),
+                BibNormalizer.parseContributors("홍길동(洪吉童) 지음"));
+        assertEquals(
+                List.of(new Contributor("롤링, 조앤 캐슬린", Contributor.Role.AUTHOR)),
+                BibNormalizer.parseContributors("롤링, 조앤 캐슬린"));
+    }
+
     @Test
     @DisplayName("각색 표기가 부제로 밀려나도 병합 거부 근거를 잃지 않는다")
     void adaptationInSubtitleIsStillFound() {
