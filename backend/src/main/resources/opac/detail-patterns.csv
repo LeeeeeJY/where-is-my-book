@@ -184,3 +184,6 @@ www.gblib.or.kr/mia,@json:POST https://www.gblib.or.kr/ajaxForKolas.do uri=list&
 www.gblib.or.kr/solsem,@json:POST https://www.gblib.or.kr/ajaxForKolas.do uri=list&a_lib=MC&a_qf=I&a_q={isbn13} => item => /solsem/search/detail.do?uri=list&a_lib=MC&a_key={key}&a_v=f
 www.gblib.or.kr/suyu,@json:POST https://www.gblib.or.kr/ajaxForKolas.do uri=list&a_lib=ME&a_qf=I&a_q={isbn13} => item => /suyu/search/detail.do?uri=list&a_lib=ME&a_key={key}&a_v=f
 www.gblib.or.kr/kids,@json:POST https://www.gblib.or.kr/ajaxForKolas.do uri=list&a_lib=MH&a_qf=I&a_q={isbn13} => item => /kids/search/detail.do?uri=list&a_lib=MH&a_key={key}&a_v=f
+# 완주는 부천과 같은 시스템이고 포트가 31824 입니다. 목록의 libCode 가 정보나루 도서관부호라 누른 분관의 소장본으로 갑니다 (2026-11-10).
+lib.wanju.go.kr,@json:POST https://lib.wanju.go.kr:31824/api/search {"searchKeyword":"{isbn13}","pubFormCode":"ALL","page":"1","display":"100","article":"SCORE","order":"DESC","manageCode":"ALL"} => contents.bookList => /singleBook/{bookKey}/{speciesKey}/{isbn}
+www.seocheon.go.kr?searchLibraryArr,@anchor:@onclick:fnSearchResultDetail
