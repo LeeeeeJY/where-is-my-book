@@ -59,6 +59,95 @@ class RealResponseShapeTest {
         }
     }
 
+    /**
+     * <b>저자 필드는 한 가지 모양으로 오지 않습니다.</b> 2026-11-10 에 「이방인」 검색 한 번의
+     * 결과 안에서 아래 모양이 전부 나왔습니다. 첫째 모양만 읽던 때에는 셋째의 주저자가
+     * 저자와 무관하게 「)」 한 글자였고, 그것이 화면의 저자 칸과 저자 되찾기 질의로 그대로
+     * 나갔습니다.
+     */
+    @Test
+    @DisplayName("역할이 이름 뒤에 오든 앞에 오든 괄호에 들든 주저자는 사람 이름이다")
+    void primaryAuthorSurvivesEveryNotation() {
+        for (String raw : List.of(
+                "알베르 카뮈 지음;이휘영 옮김",
+                "알베르 카뮈 지음 ;김진하 옮김",
+                "지은이: 알베르 카뮈 ;옮긴이: 김화영",
+                "원작: 알베르 카뮈 ;옮긴이: 이재룡",
+                "[원저자]: 알베르 카뮈;삽화: 손창복",
+                "지은이: 알베르 카뮈 ;김준우",
+                "알베르 카뮈 (지은이), 이정서 (옮긴이)",
+                "알베르 카뮈, Matthew Ward (지은이)",
+                // 배포한 뒤에도 저자 칸이 「알베르 카뮈 [」로 나가던 판입니다.
+                "알베르 카뮈 [지음] ;유기환 옮김")) {
+            var primary = BibNormalizer.primaryAuthor(BibNormalizer.parseContributors(raw));
+            assertEquals("알베르 카뮈", primary == null ? null : primary.name(), raw);
+        }
+    }
+
+    @Test
+    @DisplayName("역할이 앞에 오는 표기에서 역자를 저자로 읽지 않는다")
+    void roleFirstNotationKeepsTheTranslatorOut() {
+        assertEquals(
+                List.of(new Contributor("알베르 카뮈", Contributor.Role.AUTHOR),
+                        new Contributor("김화영", Contributor.Role.TRANSLATOR)),
+                BibNormalizer.parseContributors("지은이: 알베르 카뮈 ;옮긴이: 김화영"));
+        assertEquals(
+                List.of(new Contributor("알베르 카뮈", Contributor.Role.ORIGINAL_AUTHOR),
+                        new Contributor("손창복", Contributor.Role.ILLUSTRATOR)),
+                BibNormalizer.parseContributors("[원저자]: 알베르 카뮈;삽화: 손창복"));
+    }
+
+    /**
+     * 대괄호는 「자료에 없어 사서가 보충했다」는 표시입니다. 첫 배포 뒤 「이방인」 저작 100개
+     * 가운데 넷의 저자 칸이 여전히 깨져 있었고, 그중 셋이 이 모양이었습니다(2026-11-10).
+     */
+    @Test
+    @DisplayName("대괄호는 떼고 읽는다. 역할이든 책임표시 전체든")
+    void squareBracketsAreDropped() {
+        assertEquals(
+                List.of(new Contributor("알베르 까뮈", Contributor.Role.AUTHOR),
+                        new Contributor("박용철", Contributor.Role.TRANSLATOR)),
+                BibNormalizer.parseContributors("알베르 까뮈 [지음];박용철 옮김"));
+        assertEquals(
+                List.of(new Contributor("알베르 까뮈", Contributor.Role.AUTHOR),
+                        new Contributor("김용길...등", Contributor.Role.ILLUSTRATOR)),
+                BibNormalizer.parseContributors("[알베르 까뮈 지음];김용길...[등]그림"));
+    }
+
+    /**
+     * 모르는 역할은 지어내지 않고 받은 글자를 그대로 둡니다. 정보나루의 도서 검색에 섞여 오는
+     * 영상물이 이 모양입니다.
+     */
+    @Test
+    @DisplayName("괄호 안이 모르는 말이면 원문을 그대로 둔다")
+    void unknownRolesInParensAreLeftAsReceived() {
+        String raw = "오손 웰즈 (감독), 오손 웰즈, 에드워드 G. 로빈슨, 로레타 영 (출연)";
+        assertEquals(List.of(new Contributor(raw, Contributor.Role.AUTHOR)),
+                BibNormalizer.parseContributors(raw));
+    }
+
+    @Test
+    @DisplayName("괄호 표기에서는 쉼표가 사람을 나누고, 괄호 앞의 이름은 모두 그 역할이다")
+    void roleInParensSplitsPeopleByComma() {
+        assertEquals(
+                List.of(new Contributor("잠뜰TV", Contributor.Role.ORIGINAL_AUTHOR),
+                        new Contributor("uno", Contributor.Role.AUTHOR),
+                        new Contributor("김기수", Contributor.Role.ILLUSTRATOR),
+                        new Contributor("이현구", Contributor.Role.ILLUSTRATOR)),
+                BibNormalizer.parseContributors("잠뜰TV (원작), uno (글), 김기수, 이현구 (그림)"));
+    }
+
+    @Test
+    @DisplayName("역할어가 아닌 괄호는 이름의 일부로 두고, 괄호 없는 쉼표는 여전히 도치다")
+    void otherParensAndCommasAreLeftAlone() {
+        assertEquals(
+                List.of(new Contributor("홍길동(洪吉童)", Contributor.Role.AUTHOR)),
+                BibNormalizer.parseContributors("홍길동(洪吉童) 지음"));
+        assertEquals(
+                List.of(new Contributor("롤링, 조앤 캐슬린", Contributor.Role.AUTHOR)),
+                BibNormalizer.parseContributors("롤링, 조앤 캐슬린"));
+    }
+
     @Test
     @DisplayName("각색 표기가 부제로 밀려나도 병합 거부 근거를 잃지 않는다")
     void adaptationInSubtitleIsStillFound() {
