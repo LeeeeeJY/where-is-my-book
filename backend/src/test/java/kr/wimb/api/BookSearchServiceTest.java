@@ -799,6 +799,225 @@ class BookSearchServiceTest {
                 "제목이 맞는 책이 있어도 띄어 쓴 판은 되찾아야 합니다");
     }
 
+    // ── 정보나루의 제목 검색이 빠뜨리는 판 ───────────────────────────────
+    //
+    // 2026-11-10 에 배포된 서버로 확인한 「이방인」 검색의 모양을 줄인 것입니다.
+    // `title=이방인` 은 표제가 「이방인 」(낱말 하나에 끝 공백)으로 등록된 판을 하나도
+    // 돌려주지 않았고, 그 가운데 대출 47,534건인 민음사 세계문학전집판이 있었습니다.
+    // 저자·표제·ISBN·대출건수는 그날 정보나루가 실제로 들고 있던 값입니다.
+
+    /**
+     * {@code title=이방인} 이 돌려주는 것. <b>민음사 전집판이 없습니다.</b> 저자 표기가 세 가지
+     * 모양으로 섞여 있고, 그중 「이름 (역할)」 모양이 가장 많습니다. 그 모양을 못 읽던 때에는
+     * 주저자가 저자와 무관하게 「)」 가 되어 「가장 자주 나오는 주저자」로 뽑혔습니다.
+     */
+    private static final String STRANGER_BY_TITLE = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <response>
+          <docs>
+            <doc>
+              <bookname><![CDATA[이방인]]></bookname>
+              <authors><![CDATA[알베르 카뮈 지음;이휘영 옮김]]></authors>
+              <publisher><![CDATA[문예출판사]]></publisher>
+              <publication_year>2001</publication_year>
+              <isbn13>9788931001433</isbn13>
+              <loan_count>830</loan_count>
+            </doc>
+            <doc>
+              <bookname><![CDATA[이방인]]></bookname>
+              <authors><![CDATA[잠뜰TV (원작), uno (글), 김기수, 이현구 (그림)]]></authors>
+              <publisher><![CDATA[서울문화사]]></publisher>
+              <publication_year>2021</publication_year>
+              <isbn13>9791164387762</isbn13>
+              <loan_count>4890</loan_count>
+            </doc>
+            <doc>
+              <bookname><![CDATA[이방인 (양장) - 개정증보판]]></bookname>
+              <authors><![CDATA[알베르 카뮈 (지은이), 이정서 (옮긴이)]]></authors>
+              <publisher><![CDATA[새움]]></publisher>
+              <publication_year>2018</publication_year>
+              <isbn13>9791189271046</isbn13>
+              <loan_count>2619</loan_count>
+            </doc>
+            <doc>
+              <bookname><![CDATA[이방인]]></bookname>
+              <authors><![CDATA[알베르 카뮈 (지은이), 최헵시바 (옮긴이)]]></authors>
+              <publisher><![CDATA[더클래식]]></publisher>
+              <publication_year>2020</publication_year>
+              <isbn13>9791164453665</isbn13>
+              <loan_count>503</loan_count>
+            </doc>
+            <doc>
+              <bookname><![CDATA[이방인 :큰글자책 ]]></bookname>
+              <authors><![CDATA[지은이: 알베르 카뮈 ;옮긴이: 김화영]]></authors>
+              <publisher><![CDATA[민음사]]></publisher>
+              <publication_year>2026</publication_year>
+              <isbn13>9788937448836</isbn13>
+              <loan_count>40</loan_count>
+            </doc>
+            <doc>
+              <bookname><![CDATA[이방인의 아이 ]]></bookname>
+              <authors><![CDATA[지은이: 앨런 홀링허스트 ;옮긴이: 정해영]]></authors>
+              <publisher><![CDATA[민음사]]></publisher>
+              <publication_year>2018</publication_year>
+              <isbn13>9788937417696</isbn13>
+              <loan_count>555</loan_count>
+            </doc>
+          </docs>
+        </response>
+        """;
+
+    /** {@code author=알베르 카뮈} 가 돌려주는 것. 제목 검색이 빠뜨린 판이 여기에 있습니다. */
+    private static final String CAMUS_BY_AUTHOR = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <response>
+          <docs>
+            <doc>
+              <bookname><![CDATA[이방인 ]]></bookname>
+              <authors><![CDATA[지은이: 알베르 카뮈 ;옮긴이: 김화영]]></authors>
+              <publisher><![CDATA[민음사]]></publisher>
+              <publication_year>2011</publication_year>
+              <isbn13>9788937462665</isbn13>
+              <loan_count>47534</loan_count>
+            </doc>
+            <doc>
+              <bookname><![CDATA[페스트 ]]></bookname>
+              <authors><![CDATA[지은이: 알베르 카뮈 ;옮긴이: 김화영]]></authors>
+              <publisher><![CDATA[민음사]]></publisher>
+              <publication_year>2011</publication_year>
+              <isbn13>9788937462672</isbn13>
+              <loan_count>42974</loan_count>
+            </doc>
+            <doc>
+              <bookname><![CDATA[이방인 ]]></bookname>
+              <authors><![CDATA[알베르 카뮈 지음 ;최수철 옮김]]></authors>
+              <publisher><![CDATA[시공사]]></publisher>
+              <publication_year>2012</publication_year>
+              <isbn13>9788952766083</isbn13>
+              <loan_count>4022</loan_count>
+            </doc>
+          </docs>
+        </response>
+        """;
+
+    /**
+     * 그날의 정보나루처럼 답합니다. 제목이 든 질의에는 전집판을 주지 않고, 저자만 넣은
+     * 질의에는 그 이름이 「알베르 카뮈」일 때만 답합니다. 이름이 아닌 조각에는 오류로 답합니다
+     * (실제로 {@code author=)} 가 그랬습니다).
+     */
+    private static Data4LibraryClient.Transport strangerShelf(List<String> log) {
+        return uri -> {
+            String q = decoded(uri);
+            log.add(q);
+            String title = param(q, "title");
+            String author = param(q, "author");
+            if (title != null) {
+                if (!title.equals("이방인")) return EMPTY_RESPONSE;
+                if (author != null && !author.equals("알베르 카뮈")) return EMPTY_RESPONSE;
+                return STRANGER_BY_TITLE;
+            }
+            if ("알베르 카뮈".equals(author)) return CAMUS_BY_AUTHOR;
+            if (author != null && author.chars().noneMatch(Character::isLetterOrDigit)) {
+                throw new IllegalStateException("정보나루가 오류로 답했습니다: author=" + author);
+            }
+            return EMPTY_RESPONSE;
+        };
+    }
+
+    /**
+     * <b>가장 많이 빌리는 판이 목록에 없었습니다.</b> 「이방인」을 찾으면 저작 283개가 나오는데
+     * 민음사 세계문학전집판(대출 47,534건)이 그 안에 없었습니다. 1위가 4,892건이었으니
+     * 압도적인 1위여야 하는 판입니다.
+     *
+     * <p>원인은 둘이 겹친 것이었습니다. 정보나루의 제목 검색이 그 판을 돌려주지 않았고(우리가
+     * 고칠 수 없습니다), 그런 판을 데려오라고 만든 저자 되찾기는 <b>저자 필드를 잘못 읽어
+     * 사람 이름이 아닌 값으로 나갔습니다</b>(고칠 수 있습니다). {@code author=)} 에 정보나루는
+     * 오류로 답하는데, 덤 호출의 실패는 조용히 삼켜지므로 남은 흔적은
+     * {@code recoveredByAuthor: false} 뿐이었습니다.
+     */
+    @Test
+    @DisplayName("저자 표기가 세 가지 모양으로 섞여 와도 제목 검색이 빠뜨린 판을 저자로 되찾는다")
+    void recoversWhenAuthorNotationsAreMixed() {
+        List<String> log = java.util.Collections.synchronizedList(new java.util.ArrayList<>());
+
+        var response = serviceWith(strangerShelf(log)).search("이방인");
+
+        assertTrue(isbnsOf(response).contains("9788937462665"),
+                "제목 검색이 빠뜨린 민음사 전집판을 저자로 되찾아야 합니다: " + log);
+        assertTrue(response.recoveredByAuthor());
+        assertEquals(List.of("9788937462665"), response.works().get(0).isbn13List(),
+                "제목이 그대로 맞고 가장 많이 빌리는 판이 맨 위여야 합니다");
+        assertFalse(isbnsOf(response).contains("9788937462672"),
+                "같은 저자의 「페스트」까지 끌어오면 안 됩니다");
+        assertTrue(log.stream().anyMatch(q -> "알베르 카뮈".equals(param(q, "author"))),
+                "되찾기는 사람 이름으로 나가야 합니다: " + log);
+        assertTrue(log.stream().map(q -> param(q, "author")).filter(java.util.Objects::nonNull)
+                        .allMatch(a -> a.chars().anyMatch(Character::isLetterOrDigit)),
+                "「)」 같은 조각으로 정보나루를 부르면 안 됩니다: " + log);
+    }
+
+    @Test
+    @DisplayName("화면에 나가는 저자는 사람 이름이다. 역할 꼬리표나 괄호 조각이 아니다")
+    void authorOnScreenIsAName() {
+        var response = serviceWith(strangerShelf(new java.util.concurrent.CopyOnWriteArrayList<>()))
+                .search("이방인");
+
+        for (var work : response.works()) {
+            assertFalse(work.author().contains(")") || work.author().contains("("),
+                    "괄호 조각이 저자로 나갔습니다: " + work.title() + " / " + work.author());
+            assertFalse(work.author().contains(":"),
+                    "역할 꼬리표가 저자 이름에 붙어 나갔습니다: " + work.title() + " / " + work.author());
+        }
+    }
+
+    /**
+     * <b>저자까지 넣은 검색에는 되찾기가 없었습니다.</b> 「저자로 이미 찾고 있으면 되찾을 것이
+     * 없다」고 보았기 때문인데, 질의에 제목이 남아 있는 한 정보나루의 제목 색인이 빠뜨린 판은
+     * 어느 회전에서도 오지 않습니다. 실측으로 {@code title=이방인&author=알베르 카뮈} 는 69건을
+     * 주면서 전집판을 주지 않았습니다. 여러 권 검색의 「이방인 - 알베르 카뮈」 줄이 이 길을
+     * 탑니다.
+     */
+    @Test
+    @DisplayName("제목과 저자를 함께 넣어도 제목 검색이 빠뜨린 판을 찾는다")
+    void recoversByGivenAuthorWhenTitleIndexMisses() {
+        List<String> log = java.util.Collections.synchronizedList(new java.util.ArrayList<>());
+
+        var response = serviceWith(strangerShelf(log)).search(
+                new Data4LibraryClient.BookQuery("이방인", "알베르 카뮈", null, null, false));
+
+        assertTrue(isbnsOf(response).contains("9788937462665"), "전집판이 있어야 합니다: " + log);
+        assertFalse(isbnsOf(response).contains("9788937462672"),
+                "제목이 다른 「페스트」를 끌어오면 안 됩니다");
+        assertEquals(1, log.stream().filter(q -> param(q, "title") == null).count(),
+                "저자만으로 묻는 호출은 한 번입니다: " + log);
+    }
+
+    @Test
+    @DisplayName("저자만으로 되찾을 때 출판사는 떼고 묻고 우리가 거른다")
+    void recoveryByGivenAuthorFiltersPublisherItself() {
+        List<String> log = java.util.Collections.synchronizedList(new java.util.ArrayList<>());
+
+        var response = serviceWith(strangerShelf(log)).search(
+                new Data4LibraryClient.BookQuery("이방인", "알베르 카뮈", "민음사", null, false));
+
+        assertTrue(isbnsOf(response).contains("9788937462665"), "민음사 전집판이 있어야 합니다");
+        assertFalse(isbnsOf(response).contains("9788952766083"),
+                "출판사가 다른 시공사 판을 끌어오면 안 됩니다");
+        assertTrue(log.stream().filter(q -> param(q, "title") == null)
+                        .allMatch(q -> param(q, "publisher") == null),
+                "출판사 표기가 틀렸을 때 여기서도 0건이 되지 않게 떼고 물어야 합니다: " + log);
+    }
+
+    @Test
+    @DisplayName("여러 권 검색 경로도 제목과 저자로 전집판을 찾는다")
+    void worksForRecoversByGivenAuthor() {
+        var works = serviceWith(strangerShelf(new java.util.concurrent.CopyOnWriteArrayList<>()))
+                .worksFor(new Data4LibraryClient.BookQuery("이방인", "알베르 카뮈", null, null, false));
+
+        assertTrue(works.stream().anyMatch(w -> w.isbn13List().contains("9788937462665")),
+                "한 권 검색과 같은 조회 함수를 쓰므로 여기서도 나와야 합니다: " + works);
+    }
+
     // ── 띄어쓰기 표기 통일 ─────────────────────────────────────────────
 
     /** 표기마다 다르게 답하는 정보나루. 실제 「레미제라블」 검색의 모양을 줄인 것입니다. */
