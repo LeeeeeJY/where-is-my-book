@@ -161,6 +161,42 @@ class RealResponseShapeTest {
         }
     }
 
+    /**
+     * <b>큰글자책이 보통 판과 한 저작으로 합쳐져 있었습니다.</b> 김영사는 그 표기를 부제가 아니라
+     * 대등표제 자리에 적습니다(2026-11-10, 정보나루 상세 페이지에서 확인한 등록 표제). 판본·각색
+     * 표기를 본표제와 부제에서만 찾던 때에는 이 판이 각색 표기가 없는 책으로 읽혔습니다.
+     */
+    @Test
+    @DisplayName("각색 표기가 대등표제 자리에 있어도 병합 거부 근거를 잃지 않는다")
+    void adaptationInParallelTitleIsStillFound() {
+        for (String raw : List.of(
+                "숙론 =큰글자책 /Discourse ",
+                "식물학자의 노트 =큰글자책 /Notes of a botanist ",
+                "존 리, 새로운 10년의 시작 =큰글자책 /The beginning of next 10 years ")) {
+            var parts = BibNormalizer.parseTitle(raw);
+            assertTrue(parts.adaptationTokens().contains("큰글자책"),
+                    raw + " 에서 각색 표기를 놓쳤습니다: " + parts.adaptationTokens());
+        }
+    }
+
+    @Test
+    @DisplayName("대등표제가 보통의 다른 말이면 각색 표기를 지어내지 않는다")
+    void ordinaryParallelTitleAddsNothing() {
+        // 같은 책의 보통 판은 그 자리에 부제를 적어 두었습니다. 이쪽까지 각색으로 읽으면
+        // 반대로 멀쩡한 판이 갈라집니다.
+        var plain = BibNormalizer.parseTitle(
+                "식물학자의 노트 =식물이 내게 들려준 이야기 /Notes of a botanist ");
+        assertEquals(List.of(), plain.adaptationTokens());
+        assertEquals("식물학자의 노트", plain.titleProper());
+        assertEquals(List.of(), BibNormalizer.parseTitle("코스모스 = Cosmos").adaptationTokens());
+    }
+
+    @Test
+    @DisplayName("판본 표기가 대등표제 자리에 있으면 판본 표기로 읽는다")
+    void editionInParallelTitleIsFound() {
+        assertEquals(List.of("특별판"), BibNormalizer.parseTitle("코스모스 =특별판").editionTokens());
+    }
+
     @Test
     @DisplayName("공백 없는 콜론과 슬래시는 쪼개지 않는다")
     void doesNotSplitOnBareDelimiters() {
