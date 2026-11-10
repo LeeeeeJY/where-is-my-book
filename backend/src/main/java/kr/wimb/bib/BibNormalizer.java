@@ -478,6 +478,9 @@ public final class BibNormalizer {
      * 누구든 똑같이 「)」라서, 화면에 저자가 「)」로 나가고, 저자 되찾기가 「가장 자주 나오는
      * 주저자」로 사람 이름이 아닌 값을 뽑아 통째로 헛돌았습니다.
      *
+     * <p>여기에 <b>대괄호</b>가 어느 모양에든 섞입니다(「알베르 카뮈 [지음]」, 「[원저자]:
+     * 알베르 카뮈」, 「[알베르 까뮈 지음]」). 사서가 보충한 말이라는 표시라 떼고 읽습니다.
+     *
      * <p><b>셋째 모양에서는 쉼표가 목록 구분자입니다.</b> 「김기수, 이현구 (그림)」은 그린이가
      * 두 사람입니다. 도치 표기와 구별되는 근거는 괄호 안의 역할어이고, 그것이 없는 조각은
      * 지금까지대로 쉼표를 도치로 읽습니다.
@@ -486,7 +489,12 @@ public final class BibNormalizer {
         List<Contributor> out = new ArrayList<>();
         if (rawAuthors == null || rawAuthors.isBlank()) return out;
 
-        String normalized = Normalizer.normalize(rawAuthors, Normalizer.Form.NFKC);
+        // **대괄호는 떼고 읽습니다.** 목록 규칙에서 대괄호는 「자료에 적혀 있지 않아 사서가
+        // 보충한 말」이라는 표시일 뿐 이름도 역할도 바꾸지 않습니다. 실제로 「알베르 카뮈
+        // [지음] ;유기환 옮김」과 「[알베르 까뮈 지음];김용길...[등]그림」이 왔는데(2026-11-10),
+        // 그대로 두면 주저자가 「알베르 카뮈 [」와 「[알베르 까뮈」가 됩니다.
+        String normalized = Normalizer.normalize(rawAuthors, Normalizer.Form.NFKC)
+                .replace("[", "").replace("]", "");
         for (String segment : normalized.split("[;；]")) {
             parseSegment(segment, out);
         }
