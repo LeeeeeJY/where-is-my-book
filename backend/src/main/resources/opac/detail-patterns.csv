@@ -57,7 +57,7 @@ sclib.cne.go.kr,href=["'](/api/srch/bookDetail\.do\?regNo=[^"']*)["']
 aslib.cne.go.kr,href=["'](/api/srch/bookDetail\.do\?regNo=[^"']*)["']
 yslib.cne.go.kr,href=["'](/api/srch/bookDetail\.do\?regNo=[^"']*)["']
 shlib.cne.go.kr,href=["'](/api/srch/bookDetail\.do\?regNo=[^"']*)["']
-libsearch.jecheon.go.kr,href=["'](/bookDetail\.do\?bookKey=[^"']*)["']
+libsearch.jecheon.go.kr?manageCode,href=["'](/bookDetail\.do\?bookKey=[^"']*)["']
 lib.gwe.go.kr/gnecc,href=["'](/gnecc/menu/234/book/view/[^"']*)["']
 lib.gwe.go.kr/dhlib,href=["'](/dhlib/menu/3025/book/view/[^"']*)["']
 lib.gwe.go.kr/mjlib,href=["'](/mjlib/menu/2251/book/view/[^"']*)["']
@@ -196,3 +196,5 @@ www.bsbukgu.go.kr/mdlib,@template:action="/\w+/index\.bsbukgu\?menuCd=(\w+)"[\s\
 lib.namhae.go.kr,@template:name="beforequery" value="\s*SIB:(\d{13})"[\s\S]*?href="javascript:detailview\('(\d+)','(\w)',''\)" => detailview_result.do?sort=RK+DESC&beforequery=+SIB%3A{1}&msa={3}&offset={2}&maxoffset=1&jongbook=&historycount=0&book_code=
 library.busan.go.kr/busanlibrary,href="(detail\.do\?menu_idx=71&(?:amp;)?isbn=[^"]*?regNo=[^"]*)"
 lib.wonju.go.kr/ja,href=["'](/ja/menu/234/book/view/[^"']*)["']
+# 안동은 분관으로 좁힌 ISBN 검색의 제목 링크 속성값을 주소틀에 끼웁니다 (2026-11-10 오후).
+lib.andong.go.kr,@template:isbn="(\d{13})" tid="[^"]*" regNo="([^"]+)" manageCode="([A-Z0-9]+)" class="[^"]*goDetail => /andonglibrary/intro/search/detail.do?regNo={2}&isbn={1}&menu_idx=349&manageCode={3}
