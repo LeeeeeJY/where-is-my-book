@@ -43,7 +43,7 @@ www.unilib.dobong.kr,href=["'](\?manage_code=[^"']*)["']
 www.uilib.go.kr/english,href=["'](detail\.do\?menu_idx=89&isbn=[^"']*)["']
 www.uilib.go.kr/main,href=["'](detail\.do\?menu_idx=9&isbn=[^"']*)["']
 library.suncheon.go.kr,href=["'](/lib/book/search/searchView\.do\?menuCd=L001001001&regNo=[^"']*)["']
-library.gyeongju.go.kr,href=["'](/\?page_id=search_bookdetail&mode=bDetailView&pre_page_id=search_booklist&manageCode=[^"']*)["']
+library.gyeongju.go.kr?manage_code,href=["'](/\?page_id=search_bookdetail&mode=bDetailView&pre_page_id=search_booklist&manageCode=[^"']*)["']
 lib.gwangyang.go.kr,href=["'](/lib/book/search/searchView\.do\?menuCd=L001001001&regNo=[^"']*)["']
 gjlib.cne.go.kr,href=["'](/api/srch/bookDetail\.do\?regNo=[^"']*)["']
 yglib.cne.go.kr,href=["'](/api/srch/bookDetail\.do\?regNo=[^"']*)["']
@@ -187,3 +187,12 @@ www.gblib.or.kr/kids,@json:POST https://www.gblib.or.kr/ajaxForKolas.do uri=list
 # 완주는 부천과 같은 시스템이고 포트가 31824 입니다. 목록의 libCode 가 정보나루 도서관부호라 누른 분관의 소장본으로 갑니다 (2026-11-10).
 lib.wanju.go.kr,@json:POST https://lib.wanju.go.kr:31824/api/search {"searchKeyword":"{isbn13}","pubFormCode":"ALL","page":"1","display":"100","article":"SCORE","order":"DESC","manageCode":"ALL"} => contents.bookList => /singleBook/{bookKey}/{speciesKey}/{isbn}
 www.seocheon.go.kr?searchLibraryArr,@anchor:@onclick:fnSearchResultDetail
+# ISBN 검색에서 멈추던 계열의 상세 규칙 (2026-11-10 오후). 양산은 분관 부호 하나로 좁힌 검색에만 겁니다. 인천 서구는 목록의
+# libCode 가 정보나루 도서관부호입니다. 부산 북구는 화명을 뺀 금곡·만덕에만 겁니다(화명은 첫 줄이 다른 책인 경우를 봤습니다).
+lib.yangsan.go.kr?search_manage_code,@template:onclick="javascript:dataDetail\('([A-Za-z0-9]+)'\);" => /YS/search/bookdetail.do?regNo={1}
+www.issl.go.kr,@json:POST https://www.issl.go.kr/sch/bsch/reSearchList.do searchLibMngCd=ALL&searchKeyword={isbn13}&contTypeCode=ALL&searchReKeyword=&pageNo=1 => bookList => /sch/bkdt/{bookKey}/{speciesKey}/{isbn}.do?mnidx=1597
+www.bsbukgu.go.kr/bglib,@template:action="/\w+/index\.bsbukgu\?menuCd=(\w+)"[\s\S]*?onclick="fn_view\('([A-Z0-9]+)', '(\w+)'\);" => index.bsbukgu?menuCd={1}&mode=view&reg_no={2}&currentLibraryPath={3}&libraryPath={3}
+www.bsbukgu.go.kr/mdlib,@template:action="/\w+/index\.bsbukgu\?menuCd=(\w+)"[\s\S]*?onclick="fn_view\('([A-Z0-9]+)', '(\w+)'\);" => index.bsbukgu?menuCd={1}&mode=view&reg_no={2}&currentLibraryPath={3}&libraryPath={3}
+lib.namhae.go.kr,@template:name="beforequery" value="\s*SIB:(\d{13})"[\s\S]*?href="javascript:detailview\('(\d+)','(\w)',''\)" => detailview_result.do?sort=RK+DESC&beforequery=+SIB%3A{1}&msa={3}&offset={2}&maxoffset=1&jongbook=&historycount=0&book_code=
+library.busan.go.kr/busanlibrary,href="(detail\.do\?menu_idx=71&(?:amp;)?isbn=[^"]*?regNo=[^"]*)"
+lib.wonju.go.kr/ja,href=["'](/ja/menu/234/book/view/[^"']*)["']
