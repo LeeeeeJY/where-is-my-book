@@ -1,32 +1,25 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ApiUnavailable, fetchLibraries } from './api';
 import { BookSearch } from './components/BookSearch';
 import { Shelf } from './components/Shelf';
-import { BrandMark } from './components/Brand';
 import { MultiCheck } from './components/MultiCheck';
 import { LibraryPicker } from './components/LibraryPicker';
+import { ModeTabs, SiteFoot, SiteHead } from './components/SiteChrome';
 import { SAMPLE_LIBRARIES } from './data/sampleLibraries';
+import { isMode, type Mode } from './domain/modes';
+import { navigate, paths } from './domain/route';
 import { loadSelection, saveSelection } from './domain/selectionStorage';
 import { paramsToSelection, selectionToParams } from './domain/selectionUrl';
 import type { Library, UserPosition } from './domain/types';
 
 /**
- * 주소를 쓰기 전에 한 번만 붙잡아 둡니다.
- *
- * 도서관 목록이 늦게 도착하는데 그 사이에 주소를 손대면, 공유받은 링크의 선택이
- * 복원되기도 전에 지워집니다.
+ * 다른 화면(월드컵)에서 넘어올 때 열어 둘 탭. 주소가 아니라 이동할 때 함께 넘긴 값에서
+ * 읽습니다. 탭은 주소에 없는 상태라, 주소로 넘기면 그때부터 탭마다 주소가 생깁니다.
  */
-const INITIAL_SEARCH = window.location.search;
-
-/**
- * 화면 셋. **위의 탭과 서가의 아래 탭 바가 같은 목록을 씁니다.** 따로 적으면 탭을
- * 하나 더할 때 한쪽에만 들어가고, 그 화면은 다른 쪽에서 갈 수 없는 곳이 됩니다.
- */
-const MODES = [
-  ['single', '한 권 검색'],
-  ['multi', '여러 권 검색'],
-  ['shelf', '서가'],
-] as const;
+function arrivingMode(): Mode {
+  const state = window.history.state as { mode?: unknown } | null;
+  return isMode(state?.mode) ? state.mode : 'single';
+}
 
 type Catalog =
   | { kind: 'loading' }
@@ -49,7 +42,26 @@ export default function App() {
    * **서가를 셋째 탭에 둡니다.** 검색하러 온 사람에게는 검색 칸만 보이는 편이 낫고,
    * 서가는 애초에 다른 행동이라 들어오는 문을 따로 두는 것이 맞습니다.
    */
-  const [mode, setMode] = useState<'single' | 'multi' | 'shelf'>('single');
+  const [mode, setMode] = useState<Mode>(arrivingMode);
+  /**
+   * 주소를 쓰기 전에 한 번만 붙잡아 둡니다.
+   *
+   * 도서관 목록이 늦게 도착하는데 그 사이에 주소를 손대면, 공유받은 링크의 선택이
+   * 복원되기도 전에 지워집니다.
+   *
+   * **이 화면이 그려질 때의 주소입니다. 페이지를 처음 받았을 때의 주소가 아닙니다.**
+   * 월드컵 화면에 다녀오면 이 화면이 새로 그려지는데, 처음 받은 주소를 계속 들고 있으면
+   * 그 사이에 바꾼 선택이 공유받은 링크의 선택으로 되돌아갑니다.
+   */
+  const [initialSearch] = useState(() => window.location.search);
+  /**
+   * 검색어를 채운 채 들어온 경우(`/?q=제목`). 월드컵의 「이 책이 어느 도서관에 있는지
+   * 찾기」가 이 길로 옵니다. 한 번 읽고 주소에서는 지웁니다. 남겨 두면 다른 책을 찾은
+   * 뒤에도 주소가 예전 제목을 말합니다.
+   */
+  const [arrivedWith] = useState(
+    () => new URLSearchParams(window.location.search).get('q')?.trim() ?? '',
+  );
   /**
    * 「내 주변」에서 잡은 위치. 도서관 선택 칸이 잡고 여러 권 검색이 거리를 재는 데 씁니다.
    * 한쪽 컴포넌트 안에 두면 다른 쪽이 볼 수 없어 여기에 올려 둡니다.
@@ -85,7 +97,7 @@ export default function App() {
   useEffect(() => {
     if (restored || libraries.length === 0) return;
 
-    const fromUrl = paramsToSelection(new URLSearchParams(INITIAL_SEARCH), libraries);
+    const fromUrl = paramsToSelection(new URLSearchParams(initialSearch), libraries);
     if (fromUrl.size > 0) {
       setSelected(fromUrl);
     } else {
@@ -95,7 +107,20 @@ export default function App() {
       if (stored) setSelected(new Set(stored.filter((code) => known.has(code))));
     }
     setRestored(true);
-  }, [libraries, restored]);
+  }, [libraries, restored, initialSearch]);
+
+  /*
+   * 책을 찾아 달라는 채로 들어왔고 고른 도서관이 있으면 결과가 보이는 자리로 내립니다.
+   * 좁은 화면에서는 도서관 선택 칸이 결과보다 위에 있어서, 그대로 두면 방금 누른 「찾기」의
+   * 답이 화면 밖에 있습니다. 고른 도서관이 없으면 내리지 않습니다. 그때 먼저 할 일은
+   * 맨 위의 도서관 선택입니다.
+   */
+  const resultsColumn = useRef<HTMLDivElement>(null);
+  const hadLibraries = restored && selected.size > 0;
+  useEffect(() => {
+    if (arrivedWith && hadLibraries) resultsColumn.current?.scrollIntoView({ block: 'start' });
+    // 되살린 직후 한 번만 봅니다. 그 뒤에 도서관을 고를 때마다 화면을 옮기면 안 됩니다.
+  }, [restored]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 선택이 바뀔 때마다 브라우저에 저장하고 주소에도 반영합니다.
   useEffect(() => {
@@ -105,6 +130,7 @@ export default function App() {
     const url = new URL(window.location.href);
     url.searchParams.delete('libs');
     url.searchParams.delete('libsb');
+    url.searchParams.delete('q');
     const params = selectionToParams(selected, libraries);
     if (params) url.searchParams.set(params.key, params.value);
     window.history.replaceState(null, '', url);
@@ -112,19 +138,7 @@ export default function App() {
 
   return (
     <div className="app">
-      <header className="app__head">
-        <div className="brand">
-          <BrandMark />
-          {/* 약어만 두면 무엇을 하는 곳인지 알 수 없으므로 풀이를 같은 제목 안에 둡니다. */}
-          <h1 className="brand__title">
-            <span className="brand__mark">WIMB</span>
-            <span className="brand__name">Where Is My Book</span>
-          </h1>
-        </div>
-        <p className="muted">
-          자주 가는 도서관을 골라 두면, 읽고 싶은 책이 그 중 어디에 있는지 알려 줍니다.
-        </p>
-      </header>
+      <SiteHead />
 
       {catalog.kind === 'sample' && (
         <div className="banner banner--warn">
@@ -142,6 +156,18 @@ export default function App() {
               동작하지 않습니다.
             </>
           )}
+        </div>
+      )}
+
+      {/*
+        책을 찾아 달라는 채로 들어왔는데 고른 도서관이 없는 경우입니다. 검색은 이미 해
+        두었지만 어디에 있는지는 도서관을 골라야 답할 수 있으므로, 다음에 할 일을 한 번
+        말해 줍니다. 안내라서 노란 상자를 쓰지 않습니다.
+      */}
+      {arrivedWith && restored && selected.size === 0 && (
+        <div className="banner banner--info">
+          <strong>《{arrivedWith}》 검색을 해 두었습니다.</strong> 「도서관 선택」에서 자주 가는
+          곳을 고른 뒤 검색 결과 위의 확인 단추를 누르면, 그중 어디에 있는지 알려 드립니다.
         </div>
       )}
 
@@ -163,22 +189,22 @@ export default function App() {
             두 카드의 윗선이 어긋났습니다. 격자의 첫 줄에 탭만 두고 둘째 줄에 카드 둘을 두면
             윗선이 맞습니다. 좁은 화면에서는 DOM 순서 그대로 선택 → 탭 → 내용으로 쌓입니다.
           */}
-          <nav className="tabs tabs--mode" role="tablist">
-            {MODES.map(([key, label]) => (
-              <button
-                key={key}
-                role="tab"
-                aria-selected={mode === key}
-                className={mode === key ? 'tab tab--active' : 'tab'}
-                onClick={() => setMode(key)}
-              >
-                {label}
-              </button>
-            ))}
-          </nav>
+          <ModeTabs
+            active={mode}
+            onMode={setMode}
+            onWorldcup={() => navigate(paths.worldcup())}
+          />
 
-          <div className="results-column">
-            {mode === 'single' && <BookSearch libraries={libraries} selected={selected} />}
+          <div className="results-column" ref={resultsColumn}>
+            {mode === 'single' && (
+              <BookSearch
+                libraries={libraries}
+                selected={selected}
+                // 고른 도서관을 되살린 뒤에 넘깁니다. 먼저 넘기면 도서관 없이 검색이
+                // 나가고, 되살아난 선택으로는 사람이 「확인」을 한 번 더 눌러야 합니다.
+                initialTitle={restored ? arrivedWith : ''}
+              />
+            )}
             {mode === 'multi' && (
               <MultiCheck libraries={libraries} selected={selected} position={position} />
             )}
@@ -196,34 +222,7 @@ export default function App() {
         </main>
       )}
 
-      {/*
-        정보나루는 국립중앙도서관이 운영하는 서비스입니다. 가운뎃점으로 이으면 서로 다른 두
-        곳에서 데이터를 받아 오는 것처럼 읽히는데, 지금 쓰는 출처는 정보나루 하나뿐입니다.
-        국립중앙도서관 ISBN 서지정보 API 는 별도 서비스이고 아직 붙이지 않았습니다.
-        그것을 붙이면 그때 출처를 하나 더 적습니다.
-      */}
-      <footer className="app__foot muted">
-        <div>
-          출처:{' '}
-          <a href="https://www.data4library.kr" target="_blank" rel="noreferrer noopener">
-            도서관 정보나루
-          </a>{' '}
-          (국립중앙도서관)
-        </div>
-        {/*
-          **개인정보처리방침을 출처와 한 줄에 두지 마세요.** 가운뎃점으로 이어 붙였더니
-          출처가 두 곳인 것처럼, 「개인정보처리방침」까지 데이터를 받아 오는 곳 이름으로
-          읽혔습니다. 바로 위에서 정보나루와 국립중앙도서관을 가운뎃점으로 잇지 않는
-          것과 같은 이유입니다. 성격이 다른 것은 줄을 나눕니다.
-
-          **그리고 앱 밖의 정적 페이지라 리액트 라우팅을 타지 않습니다.** 자바스크립트가
-          돌지 않아도, API 서버가 죽어 있어도 열려야 하기 때문입니다. 그래서 `<a>` 로
-          그냥 넘깁니다. 주소 규칙은 `vercel.json` 에 있습니다.
-        */}
-        <div>
-          <a href="/privacy">개인정보처리방침</a>
-        </div>
-      </footer>
+      <SiteFoot />
     </div>
   );
 }

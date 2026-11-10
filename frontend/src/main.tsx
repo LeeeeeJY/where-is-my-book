@@ -1,7 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Analytics, type BeforeSendEvent } from '@vercel/analytics/react';
-import App from './App';
+import Root from './Root';
 import './styles.css';
 
 /**
@@ -27,7 +27,7 @@ function withoutQuery(event: BeforeSendEvent): BeforeSendEvent {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <Root />
     {/*
       Vercel 웹 분석. 기기에 표시를 남기지 않고(쿠키도 브라우저 저장소도 쓰지 않습니다),
       스크립트는 남의 도메인이 아니라 같은 주소의 `/_vercel/insights/script.js` 에서

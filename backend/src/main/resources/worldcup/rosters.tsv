@@ -1,0 +1,34 @@
+# 월드컵 주제마다 서버가 받는 책의 이름표입니다. 손으로 고치지 마세요.
+# frontend/tools/make-worldcup-assets.mjs 가 frontend/src/worldcup/themes/*.json 에서 만듭니다.
+classics	crime-and-punishment
+classics	brothers-karamazov
+classics	anna-karenina
+classics	war-and-peace
+classics	pride-and-prejudice
+classics	jane-eyre
+classics	wuthering-heights
+classics	great-expectations
+classics	les-miserables
+classics	count-of-monte-cristo
+classics	madame-bovary
+classics	the-red-and-the-black
+classics	the-stranger
+classics	the-plague
+classics	the-metamorphosis
+classics	demian
+classics	sorrows-of-young-werther
+classics	faust
+classics	don-quixote
+classics	one-hundred-years-of-solitude
+classics	the-great-gatsby
+classics	the-catcher-in-the-rye
+classics	the-old-man-and-the-sea
+classics	to-kill-a-mockingbird
+classics	nineteen-eighty-four
+classics	animal-farm
+classics	brave-new-world
+classics	the-little-prince
+classics	hamlet
+classics	divine-comedy
+classics	zorba-the-greek
+classics	the-moon-and-sixpence

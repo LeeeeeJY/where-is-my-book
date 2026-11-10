@@ -580,3 +580,37 @@ export async function fetchHoldings(
 ): Promise<HoldingsResponse> {
   return post<HoldingsResponse>('/api/holdings', { isbn13List, libs: libCodes });
 }
+
+/**
+ * 「인생 책 월드컵」의 집계. 책마다 몇 번 우승했는지와 전체 완주 횟수입니다.
+ *
+ * <p><b>이 값이 없어도 월드컵은 끝까지 진행됩니다.</b> 받지 못하면 화면은 통계 자리만
+ * 비웁니다. 후보 책은 화면이 들고 있는 고정 목록이라 서버가 내려가 있어도 고를 수 있습니다.
+ */
+export type WorldcupStats = {
+  themeId: string;
+  completions: number;
+  wins: Record<string, number>;
+};
+
+export async function fetchWorldcupStats(themeId: string): Promise<WorldcupStats> {
+  return get<WorldcupStats>(`/api/worldcup/${themeId}/stats`);
+}
+
+/**
+ * 완주 한 번을 알리고 <b>그것이 더해진 뒤의 집계</b>를 받습니다.
+ *
+ * @param matches 대결마다 [이긴 책, 진 책]. 서버가 대진이 성립하는지 봅니다.
+ */
+export async function finishWorldcup(
+  themeId: string,
+  winner: string,
+  matches: readonly (readonly [string, string])[],
+): Promise<WorldcupStats> {
+  return post<WorldcupStats>(`/api/worldcup/${themeId}/finish`, { winner, matches });
+}
+
+/** 진행 단계 하나를 셉니다. 무엇을 눌렀는지와 어느 광고로 왔는지만 보냅니다. */
+export async function countWorldcupEvent(themeId: string, name: string, utm: string): Promise<void> {
+  await post<{ counted: boolean }>(`/api/worldcup/${themeId}/event`, { name, utm });
+}

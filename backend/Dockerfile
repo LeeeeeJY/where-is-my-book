@@ -36,6 +36,9 @@ ENV WIMB_HOLDINGS_CACHE_PATH=/data/holding-cache.tsv.gz
 # 수천 건 나갑니다. 볼륨을 붙이지 않으면 배포 몇 번으로 하루 한도가 사라집니다.
 # 수집은 저절로 돌지 않습니다. WIMB_SHELF_HARVEST 를 준 컨테이너만 일하고 끝나면 나갑니다.
 ENV WIMB_SHELF_DATA_DIR=/data/shelf
+# **월드컵 집계도 같은 볼륨입니다.** 다시 받을 곳이 없는 값이라 컨테이너와 함께 사라지면
+# 그대로 잃습니다.
+ENV WIMB_WORLDCUP_STATS_PATH=/data/worldcup-stats.tsv
 
 USER wimb
 

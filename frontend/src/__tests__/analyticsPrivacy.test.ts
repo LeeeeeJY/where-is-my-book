@@ -27,6 +27,46 @@ const packageJson = JSON.parse(read('package.json')) as {
  */
 const counting = mainTsx.includes('@vercel/analytics');
 
+/**
+ * 월드컵은 화면 수가 아니라 **무엇을 눌렀는지**를 세고, 고른 결과를 서버에 모읍니다.
+ * 방문자 수 세기와는 다른 종류의 일이라 문서에도 따로 적혀 있어야 합니다.
+ */
+const worldcupTrack = read('src/worldcup/track.ts');
+const worldcupStorage = read('src/worldcup/storage.ts');
+
+describe('인생 책 월드컵', () => {
+  it('세는 것과 모으는 것이 개인정보처리방침에 적혀 있다', () => {
+    expect(privacyHtml).toMatch(/인생 책 월드컵/);
+    // 완주한 결과가 서버로 간다는 것
+    expect(privacyHtml).toMatch(/고르신 결과가 저희 쪽으로 옵니다/);
+    // 진행 단계를 센다는 것과 들어온 링크의 이름이 함께 간다는 것
+    expect(privacyHtml).toMatch(/어디까지 하셨는지를 횟수로 셉니다/);
+    expect(privacyHtml).toMatch(/링크에 적힌 이름/);
+  });
+
+  it('기기에 남기는 것이 개인정보처리방침에 적힌 것과 같다', () => {
+    // 저장소 열쇠가 늘면 여기서 걸립니다. 문서를 함께 고친 뒤 이 목록에 더합니다.
+    const keys = [
+      ...worldcupStorage.matchAll(/'(wimb\.worldcup\.[a-z.0-9]+)'/g),
+      ...worldcupTrack.matchAll(/'(wimb\.worldcup\.[a-z.0-9]+)'/g),
+    ].map((match) => match[1]);
+    expect(keys.sort()).toEqual([
+      'wimb.worldcup.progress.v1.',
+      'wimb.worldcup.submitted.v1',
+      'wimb.worldcup.utm.v1',
+    ]);
+    expect(privacyHtml).toMatch(/하시는 동안의 기록은 내 기기에만 있습니다/);
+    expect(privacyHtml).toMatch(/한 번 참여하셨다는 표시를 내 기기에 남깁니다/);
+  });
+
+  it('유입 표시는 정해 둔 다섯 칸만 읽는다', () => {
+    // 주소의 다른 값(고른 도서관, 검색어)을 함께 실어 보내면 안 됩니다.
+    const keys = [...worldcupTrack.matchAll(/'(utm_[a-z]+)'/g)].map((match) => match[1]);
+    expect(keys).toEqual(['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term']);
+    expect(worldcupTrack).not.toMatch(/params\.get\('(?!utm_)/);
+  });
+});
+
 describe('방문자 수 세기', () => {
   it('의존성과 진입점이 따로 놀지 않는다', () => {
     // 한쪽만 지우면 빌드는 그대로 통과합니다. 의존성만 남으면 번들만 무거워지고,
