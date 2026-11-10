@@ -203,11 +203,8 @@ def decode(raw: bytes, content_type: str) -> str:
 
 # ── robots.txt ───────────────────────────────────────────────────────────────
 
-def robots_disallows(origin: str, pacer: Pacer) -> list[str]:
-    """User-agent: * 에 걸린 Disallow 경로. 받지 못하면 제한이 없는 것으로 봅니다."""
-    status, body, _ = fetch(urllib.parse.urljoin(origin, "/robots.txt"), pacer, timeout=10)
-    if status != 200 or "<html" in body[:200].lower():
-        return []
+def parse_robots(body: str) -> list[str]:
+    """robots.txt 본문에서 User-agent: * 에 걸린 Disallow 경로를 꺼냅니다."""
     out, applies = [], False
     for line in body.splitlines():
         line = line.split("#", 1)[0].strip()
@@ -220,6 +217,39 @@ def robots_disallows(origin: str, pacer: Pacer) -> list[str]:
         elif key == "disallow" and applies and value:
             out.append(value)
     return out
+
+
+def robots_rules(origin: str, pacer: Pacer) -> list[str] | None:
+    """User-agent: * 에 걸린 Disallow 경로. **robots.txt 를 받지 못했으면 None 입니다.**
+
+    「받았는데 없다」(404, 또는 robots.txt 자리에 HTML 을 주는 곳)와 「받지 못했다」(접속 실패·
+    TLS 오류·시간 초과)는 다릅니다. 앞은 제한이 없는 것이고 뒤는 **모르는 것**입니다. 예전에는 둘 다
+    빈 목록으로 돌려줘서 모르는 것이 「제한 없음」으로 읽혔습니다. 실제로 2026-11-10 에 오산·영천·
+    순창이 그렇게 통과했습니다. 홈페이지 주소가 `http://` 로 등록돼 있는데 그 주소는 답하지 않거나
+    `https://` 로 넘기고, `https://…/robots.txt` 에는 `Disallow: /` 가 적혀 있었습니다.
+
+    그래서 못 받으면 **스킴을 바꿔 한 번 더** 받아 봅니다. 그래도 못 받으면 None 입니다.
+    """
+    parsed = urllib.parse.urlparse(origin)
+    other = ("https" if parsed.scheme == "http" else "http") + "://" + parsed.netloc
+    for base in (f"{parsed.scheme}://{parsed.netloc}", other):
+        status, body, _ = fetch(urllib.parse.urljoin(base, "/robots.txt"), pacer, timeout=10)
+        if status == 0:
+            continue                                    # 받지 못했습니다. 다른 스킴으로 한 번 더
+        if status != 200 or "<html" in body[:200].lower():
+            return []                                   # 받았는데 robots.txt 가 없습니다
+        return parse_robots(body)
+    return None
+
+
+def robots_disallows(origin: str, pacer: Pacer) -> list[str]:
+    """User-agent: * 에 걸린 Disallow 경로. **받지 못하면 전부 막힌 것으로 봅니다**(`["/"]`).
+
+    모르는 것을 허용으로 읽지 않으려는 것입니다. 브라우저로 한 번 더 읽어 볼 수 있는 도구
+    (opac-browse.py)는 `robots_rules` 를 직접 불러 None 일 때 그 길을 씁니다.
+    """
+    rules = robots_rules(origin, pacer)
+    return ["/"] if rules is None else rules
 
 
 def blocked(url: str, disallows: list[str]) -> bool:
