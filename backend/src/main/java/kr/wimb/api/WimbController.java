@@ -379,8 +379,25 @@ public class WimbController {
         return ResponseEntity.status(HttpStatus.FOUND).location(URI.create(url)).build();
     }
 
-    /** ISBN 검색 링크에 상세 패턴이 있으면 상세를 찾아 보고, 못 찾으면 그 링크 그대로입니다. */
+    /**
+     * 검색 링크에 상세 패턴이 있으면 상세를 찾아 보고, 못 찾으면 그 링크 그대로입니다.
+     *
+     * <p><b>제목 검색 링크는 {@code @anchor:} 규칙이 붙어 있고 그 검색이 분관으로 좁혀져 있을 때만
+     * 찾아 봅니다</b>({@code OpacTemplates.titleDetailPatternFor}). 제목으로 찾은 결과에는 같은 제목의
+     * 다른 판이 섞여 있어서, 목록에 적힌 ISBN 으로 그 도서관이 가진 판의 줄을 골라야 합니다. 결과는
+     * 한 번만 받고 앞의 ISBN 부터 차례로 찾습니다.
+     */
     private String detailOrSame(String libCode, OpacLink link, List<String> isbns) {
+        if (link.kind() == OpacLink.Kind.TITLE_SEARCH) {
+            // 닻 규칙인지, 그 검색 주소를 이 도서관만 쓰는지는 OpacTemplates 가 함께 봅니다. 화면에
+            // 미리 밝힌 단계(kindFor)와 여기서 실제로 하는 일이 같은 조건이어야 합니다.
+            var anchored = opacTemplates.titleDetailPatternFor(libCode);
+            if (anchored.isEmpty() || isbns.isEmpty()) return link.url();
+            List<String> anchors = isbns.subList(0, Math.min(MAX_DETAIL_ATTEMPTS, isbns.size()));
+            var outcome = detailResolver.resolve(link.url(), anchored.get().rule(),
+                    new DetailResolver.Context(anchors.get(0), libCode, anchors));
+            return outcome.status() == DetailResolver.Status.RESOLVED ? outcome.detailUrl() : link.url();
+        }
         if (link.kind() != OpacLink.Kind.ISBN_SEARCH) return link.url();
         var pattern = opacTemplates.detailPatternFor(link.url());
         if (pattern.isEmpty()) return link.url();

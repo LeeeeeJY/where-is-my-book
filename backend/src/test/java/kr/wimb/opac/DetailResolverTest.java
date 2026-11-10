@@ -50,9 +50,11 @@ class DetailResolverTest {
         }
 
         final List<String> bodies = new ArrayList<>();
+        final List<String> contentTypes = new ArrayList<>();
 
         @Override public DetailResolver.Page fetch(URI url, String method, String body, String contentType) throws IOException {
             bodies.add(method + " " + body);
+            contentTypes.add(contentType);
             return fetch(url);
         }
     }
@@ -581,16 +583,55 @@ class DetailResolverTest {
     }
 
     @Test
-    @DisplayName("누른 도서관의 소장본이 없으면 ISBN 이 같은 항목, 그것도 없으면 첫 항목이다")
+    @DisplayName("목록이 도서관을 가려 주는데 누른 도서관이 없으면 남의 분관으로 보내지 않는다")
+    void doesNotSendToAnotherBranch() {
+        var site = new FakeSite();
+        site.page("https://alpasq.bcl.go.kr/api/search", BCL_JSON);
+        var rule = DetailRule.parse(BCL_RULE);
+        var resolver = resolver(site);
+
+        // 정보나루는 그 도서관이 소장한다고 했는데 OPAC 목록에는 그 분관이 없는 경우입니다. 예전에는
+        // ISBN 이 같은 첫 항목(한울빛)으로 보냈습니다. 누른 곳이 아닌 분관의 소장본입니다.
+        var other = resolver.resolve("https://alpasq.bcl.go.kr/search/keyword/9788937473135", rule,
+                new DetailResolver.Context("9788937473135", "999999"));
+        assertEquals(DetailResolver.Status.NO_MATCH, other.status());
+        assertTrue(other.note().contains("999999"), other.note());
+    }
+
+    @Test
+    @DisplayName("한 도서관이 두 판을 가졌으면 ISBN 까지 같은 소장본을 고른다")
+    void prefersTheSameEditionWithinTheLibrary() {
+        var site = new FakeSite();
+        // 심곡(141043)이 큰글자판을 먼저, 보통판을 뒤에 가진 목록입니다.
+        site.page("https://alpasq.bcl.go.kr/api/search", """
+                {"contents":{"bookList":[
+                  {"bookKey":"600000001","speciesKey":"600000000","isbn":"9788937470000","pubFormCode":"MO","manageCode":"MA","libCode":"141043","libName":"심곡"},
+                  {"bookKey":"559700001","speciesKey":"559700000","isbn":"9788937473135","pubFormCode":"MO","manageCode":"MA","libCode":"141043","libName":"심곡"}
+                ]}}
+                """);
+        var rule = DetailRule.parse(BCL_RULE);
+
+        var same = resolver(site).resolve("https://alpasq.bcl.go.kr/search/keyword/9788937473135", rule,
+                new DetailResolver.Context("9788937473135", "141043"));
+        assertEquals("https://alpasq.bcl.go.kr/singleBook/559700001/559700000/9788937473135/MO/MA", same.detailUrl());
+
+        // 같은 판이 없으면 그 도서관의 첫 소장본입니다. 남의 분관보다는 낫습니다.
+        var onlyOther = resolver(site).resolve("https://alpasq.bcl.go.kr/search/keyword/9788937479999", rule,
+                new DetailResolver.Context("9788937479999", "141043"));
+        assertTrue(onlyOther.detailUrl().contains("/600000001/"), onlyOther.detailUrl());
+    }
+
+    @Test
+    @DisplayName("누른 도서관을 모르면 ISBN 이 같은 항목, 그것도 없으면 첫 항목이다")
     void fallsBackToIsbnThenFirstItem() {
         var site = new FakeSite();
         site.page("https://alpasq.bcl.go.kr/api/search", BCL_JSON);
         var rule = DetailRule.parse(BCL_RULE);
         var resolver = resolver(site);
 
-        var other = resolver.resolve("https://alpasq.bcl.go.kr/search/keyword/9788937473135", rule,
-                new DetailResolver.Context("9788937473135", "999999"));
-        assertEquals("https://alpasq.bcl.go.kr/singleBook/559849542/559849540/9788937473135/MO/AG", other.detailUrl());
+        var sameIsbn = resolver.resolve("https://alpasq.bcl.go.kr/search/keyword/9788937470000", rule,
+                new DetailResolver.Context("9788937470000", null));
+        assertTrue(sameIsbn.detailUrl().contains("/600000001/"), "ISBN 이 같은 셋째 항목");
 
         var unknownIsbn = resolver.resolve("https://alpasq.bcl.go.kr/search/keyword/9788900000000", rule,
                 new DetailResolver.Context("9788900000000", null));
@@ -632,5 +673,237 @@ class DetailResolverTest {
         site.page("https://alpasq.bcl.go.kr/api/search", "{\"contents\":{\"bookList\":[]}}");
         assertEquals(DetailResolver.Status.NO_MATCH, resolver(site).resolve("https://alpasq.bcl.go.kr/search/keyword/2", rule,
                 new DetailResolver.Context("9788937473135", null)).status());
+    }
+
+    // 수원(mob.suwonlib.go.kr)에서 실제로 받은 모양입니다(2026-11-10). 본문이 폼이고, 분관을 정보나루
+    // 도서관부호 그대로 받고, 칸 이름이 대문자입니다.
+    private static final String SUWON_RULE = "@json:POST https://mob.suwonlib.go.kr/getSearchResult/normal "
+            + "displayNo=100&manageCode={libCode}&searchTxt={isbn13}&pageNo=1&isSearchType=normal&searchKind=book"
+            + " => SEARCH_RESULT.SEARCH_LIST => /detail/{ISBN}/{book_key}";
+    private static final String SUWON_JSON = """
+            {"SEARCH_PARAMS":{},"SEARCH_RESULT":{"SEARCH_COUNT":2,"SEARCH_LIST":[
+              {"TITLE_INFO":"82년생 김지영","ISBN":"9788937473135","book_key":1001862971715,"LIB_CODE":"141595","LIB_NAME":"광교푸른숲"},
+              {"TITLE_INFO":"82년생 김지영","ISBN":"9788937473135","book_key":1001745414420,"LIB_CODE":"141025","LIB_NAME":"선경"}
+            ]}}
+            """;
+
+    @Test
+    @DisplayName("본문이 폼이면 폼으로 보내고, {libCode} 에 누른 도서관의 부호를 넣는다")
+    void sendsAFormBodyWithTheClickedLibrary() {
+        var site = new FakeSite();
+        site.page("https://mob.suwonlib.go.kr/getSearchResult/normal", SUWON_JSON);
+        var rule = DetailRule.parse(SUWON_RULE);
+
+        var outcome = resolver(site).resolve("https://mob.suwonlib.go.kr/search?searchTxt=9788937473135&manageCode=141595",
+                rule, new DetailResolver.Context("9788937473135", "141595"));
+
+        assertEquals(DetailResolver.Status.RESOLVED, outcome.status(), outcome.note());
+        assertEquals("https://mob.suwonlib.go.kr/detail/9788937473135/1001862971715", outcome.detailUrl());
+        assertEquals(List.of("POST displayNo=100&manageCode=141595&searchTxt=9788937473135&pageNo=1&isSearchType=normal&searchKind=book"),
+                site.bodies);
+        // 수원은 JSON 본문에 HTTP 200 과 빈 답을 줍니다. 종류를 틀리면 「그 책이 없다」와 구별되지 않습니다.
+        assertEquals(List.of("application/x-www-form-urlencoded"), site.contentTypes);
+    }
+
+    @Test
+    @DisplayName("본문이 { 나 [ 로 시작하면 JSON 이고 나머지는 폼이다")
+    void tellsJsonBodiesFromForms() {
+        assertEquals("application/json", DetailResolver.bodyTypeOf("{\"k\":\"v\"}"));
+        assertEquals("application/json", DetailResolver.bodyTypeOf(" [1]"));
+        assertEquals("application/x-www-form-urlencoded", DetailResolver.bodyTypeOf("a=1&b=2"));
+        assertEquals("application/json", DetailResolver.bodyTypeOf(null), "GET 은 본문이 없고 받는 것만 JSON 입니다");
+    }
+
+    @Test
+    @DisplayName("누른 도서관을 모르면 {libCode} 를 비워 보내고, 칸 이름이 LIB_CODE·ISBN 이어도 견준다")
+    void matchesUpperCaseFieldNames() {
+        var site = new FakeSite();
+        site.page("https://mob.suwonlib.go.kr/getSearchResult/normal", SUWON_JSON);
+        var rule = DetailRule.parse(SUWON_RULE.replace("manageCode={libCode}", "manageCode="));
+        var resolver = resolver(site);
+
+        // 분관으로 좁히지 않은 목록에서 누른 도서관(선경)의 소장본을 고릅니다. 글자 그대로 libCode 만
+        // 찾으면 견줄 칸이 없어 조용히 첫 항목(광교푸른숲)으로 갑니다.
+        var seongyeong = resolver.resolve("https://mob.suwonlib.go.kr/search?searchTxt=9788937473135&manageCode=141025",
+                rule, new DetailResolver.Context("9788937473135", "141025"));
+        assertEquals("https://mob.suwonlib.go.kr/detail/9788937473135/1001745414420", seongyeong.detailUrl());
+
+        var unknown = resolver(site).resolve("https://mob.suwonlib.go.kr/search?searchTxt=9788937473135",
+                DetailRule.parse(SUWON_RULE), new DetailResolver.Context("9788937473135", null));
+        assertEquals(DetailResolver.Status.RESOLVED, unknown.status(), unknown.note());
+        assertTrue(site.bodies.get(site.bodies.size() - 1).contains("manageCode=&"), "모르는 도서관은 비워 보냅니다");
+    }
+
+    @Test
+    @DisplayName("목록의 첫 칸이 책이 아니라 건수 정보여도 책인 항목을 고른다")
+    void skipsItemsThatCannotFillTheTemplate() {
+        // 세종교육청(life.sje.go.kr)의 목록은 첫 칸이 SEARCH_COUNT 와 묶음 정보입니다.
+        var site = new FakeSite();
+        site.page("https://life.sje.go.kr/api/book/booksearch", """
+                {"LIST_DATA":[
+                  {"SEARCH_COUNT":3,"FACET_GROUP":{}},
+                  {"TITLE_INFO":"다른 책","ISBN":"9788900000000","BOOK_KEY":2000000000001,"LIB_CODE":"144011"},
+                  {"TITLE_INFO":"82년생 김지영","ISBN":"9788937473135","BOOK_KEY":2000173319706,"LIB_CODE":"150019"}
+                ]}
+                """);
+        var rule = DetailRule.parse("@json:POST https://life.sje.go.kr/api/book/booksearch "
+                + "{\"search_txt\":\"{isbn13}\"} => LIST_DATA => /edu-culture/book/detail?bookKey={BOOK_KEY}&bookType=book");
+
+        var outcome = resolver(site).resolve("https://life.sje.go.kr/edu-culture/search/search-list?search_text=9788937473135",
+                rule, new DetailResolver.Context("9788937473135", "150019"));
+
+        assertEquals(DetailResolver.Status.RESOLVED, outcome.status(), outcome.note());
+        // 누른 도서관(150019)의 소장본입니다. 건수 칸도, 앞에 있는 다른 도서관의 다른 책도 아닙니다.
+        assertEquals("https://life.sje.go.kr/edu-culture/book/detail?bookKey=2000173319706&bookType=book", outcome.detailUrl());
+        assertEquals(List.of("application/json"), site.contentTypes);
+
+        site.page("https://life.sje.go.kr/api/book/booksearch", "{\"LIST_DATA\":[{\"SEARCH_COUNT\":0}]}");
+        assertEquals(DetailResolver.Status.NO_MATCH, resolver(site).resolve("https://life.sje.go.kr/x", rule,
+                new DetailResolver.Context("9788937473135", null)).status());
+    }
+    // ── 제목 검색 결과에서 그 ISBN 의 줄을 고르는 규칙 (@anchor:) ─────────────────
+
+    // 동대문(www.l4d.or.kr)의 제목 검색 결과를 줄인 것입니다(2026-11-10). 「미움받을 용기」로 찾으면
+    // ISBN 이 일곱 가지 나옵니다. 제목 링크가 먼저, 「ISBN: …」 이 뒤입니다.
+    private static final String PLUS_TITLE_PAGE = """
+            <html><head><script>
+            function fnSearchResultDetail(recKey, bookKey, publishFormCode){
+                var form = document.paramForm;
+                form.recKey.value = recKey;
+                form.bookKey.value = bookKey;
+                form.publishFormCode.value = publishFormCode;
+                form.action = "/info/menu/10142/program/30010/plusSearchResultDetail.do";
+                form.submit();
+            }
+            </script></head><body>
+            <form name="paramForm" id="paramForm" method="get">
+                <input type="hidden" name="searchType" value="SIMPLE">
+                <input type="hidden" name="recKey" value="">
+                <input type="hidden" name="bookKey" value="">
+                <input type="hidden" name="publishFormCode" value="">
+            </form>
+            <ul>
+             <li><a href="#link" onclick="javascript:fnSearchResultDetail(111,112,'BO'); return false;">미움받을 용기 2</a>
+                 <span>ISBN: 9791186560136</span></li>
+             <li><a href="#link" onclick="javascript:fnSearchResultDetail(210791177,212537932,'BO'); return false;">미움받을 용기</a>
+                 <span>ISBN: 9788996991342</span></li>
+             <li><a href="#link" onclick="javascript:fnSearchResultDetail(333,334,'BO'); return false;">만화 미움받을 용기</a>
+                 <span>ISBN: 9788901222127</span></li>
+            </ul></body></html>
+            """;
+    private static final String TITLE_SEARCH = "https://www.l4d.or.kr/info/plusSearchResultList.do?searchKeyword=%EB%AF%B8%EC%9B%80";
+
+    @Test
+    @DisplayName("@anchor: 규칙은 제목 검색 결과에서 그 ISBN 이 적힌 줄의 호출로 상세 주소를 만든다")
+    void anchoredOnclickPicksTheRowWithTheIsbn() {
+        var site = new FakeSite();
+        site.page(TITLE_SEARCH, PLUS_TITLE_PAGE);
+        var rule = DetailRule.parse("@anchor:@onclick:fnSearchResultDetail");
+
+        var outcome = resolver(site).resolve(TITLE_SEARCH, rule, new DetailResolver.Context("9788996991342", "111065"));
+
+        assertEquals(DetailResolver.Status.RESOLVED, outcome.status(), outcome.note());
+        // 첫 줄(2권)이 아니라 둘째 줄입니다. 닻 없는 규칙이었다면 recKey=111 로 갔습니다.
+        assertEquals("https://www.l4d.or.kr/info/menu/10142/program/30010/plusSearchResultDetail.do"
+                + "?searchType=SIMPLE&recKey=210791177&bookKey=212537932&publishFormCode=BO", outcome.detailUrl());
+
+        var plain = resolver(site).resolve(TITLE_SEARCH, DetailRule.parse("@onclick:fnSearchResultDetail"));
+        assertTrue(plain.detailUrl().contains("recKey=111"), "닻이 없으면 첫 줄, 곧 다른 책입니다");
+    }
+
+    @Test
+    @DisplayName("닻으로 삼을 ISBN 을 앞에서부터 해 보고, 결과는 한 번만 받는다")
+    void triesAnchorsInOrderWithOneFetch() {
+        var site = new FakeSite();
+        site.page(TITLE_SEARCH, PLUS_TITLE_PAGE);
+        var rule = DetailRule.parse("@anchor:@onclick:fnSearchResultDetail");
+
+        // 그 도서관이 가졌다는 판(첫 ISBN)은 결과에 없고, 둘째 ISBN 이 있습니다.
+        var outcome = resolver(site).resolve(TITLE_SEARCH, rule, new DetailResolver.Context("9788937473135", "111065",
+                List.of("9788937473135", "9788901222127")));
+
+        assertEquals(DetailResolver.Status.RESOLVED, outcome.status(), outcome.note());
+        assertTrue(outcome.detailUrl().contains("recKey=333"), outcome.detailUrl());
+        assertEquals(1, site.asked.stream().filter(TITLE_SEARCH::equals).count(), "ISBN 마다 다시 받지 않습니다");
+    }
+
+    @Test
+    @DisplayName("결과에 그 ISBN 이 없으면 첫 줄로 내려가지 않고 검색 결과로 보낸다")
+    void anchoredRuleDoesNotFallBackToTheFirstRow() {
+        var site = new FakeSite();
+        site.page(TITLE_SEARCH, PLUS_TITLE_PAGE);
+        var rule = DetailRule.parse("@anchor:@onclick:fnSearchResultDetail");
+
+        var outcome = resolver(site).resolve(TITLE_SEARCH, rule, new DetailResolver.Context("9788937473135", "111065"));
+
+        assertEquals(DetailResolver.Status.NO_MATCH, outcome.status());
+        assertTrue(outcome.note().contains("적혀 있지 않습니다"), outcome.note());
+    }
+
+    @Test
+    @DisplayName("같은 제목 검색이라도 책이 다르면 답을 따로 기억한다")
+    void anchoredAnswersAreCachedPerIsbn() {
+        var site = new FakeSite();
+        site.page(TITLE_SEARCH, PLUS_TITLE_PAGE);
+        var rule = DetailRule.parse("@anchor:@onclick:fnSearchResultDetail");
+        var resolver = resolver(site);
+
+        var first = resolver.resolve(TITLE_SEARCH, rule, new DetailResolver.Context("9788996991342", "111065"));
+        var second = resolver.resolve(TITLE_SEARCH, rule, new DetailResolver.Context("9791186560136", "111065"));
+        var again = resolver.resolve(TITLE_SEARCH, rule, new DetailResolver.Context("9788996991342", "111065"));
+
+        // 주소만 열쇠로 삼으면 첫 책의 답이 둘째 책을 누른 사람에게 그대로 나갑니다.
+        assertTrue(first.detailUrl().contains("recKey=210791177"));
+        assertTrue(second.detailUrl().contains("recKey=111"), second.detailUrl());
+        assertTrue(again.fromCache());
+        assertEquals(first.detailUrl(), again.detailUrl());
+    }
+
+    @Test
+    @DisplayName("@anchor: 규칙에 ISBN 을 주지 않으면 남의 서버를 두드리지 않고 끝낸다")
+    void anchoredRuleNeedsAnIsbn() {
+        var site = new FakeSite();
+        site.page(TITLE_SEARCH, PLUS_TITLE_PAGE);
+
+        var outcome = resolver(site).resolve(TITLE_SEARCH, DetailRule.parse("@anchor:@onclick:fnSearchResultDetail"),
+                DetailResolver.Context.NONE);
+
+        assertEquals(DetailResolver.Status.NO_MATCH, outcome.status());
+        assertTrue(site.asked.isEmpty(), "닻이 없으면 고를 수 없으므로 받아 볼 이유가 없습니다");
+    }
+
+    @Test
+    @DisplayName("@anchor-after: 는 ISBN 뒤의 링크를, 정규식 규칙으로도 고른다")
+    void anchoredHrefAfterTheIsbn() {
+        var site = new FakeSite();
+        String search = "https://lib.example.kr/search?title=%EB%8D%B0%EB%AF%B8%EC%95%88";
+        site.page(search, """
+                <li><img data-isbn="9788937460449"><a href="/book/view?key=100&amp;m=1">데미안 (민음사)</a></li>
+                <li><img data-isbn="9788954615860"><a href="/book/view?key=200&amp;m=1">데미안 (문학동네)</a></li>
+                """);
+        var rule = DetailRule.parse("@anchor-after:href=\"(/book/view\\?key=[^\"]+)\"");
+
+        var outcome = resolver(site).resolve(search, rule, new DetailResolver.Context("9788954615860", "111111"));
+
+        assertEquals(DetailResolver.Status.RESOLVED, outcome.status(), outcome.note());
+        assertEquals("https://lib.example.kr/book/view?key=200&m=1", outcome.detailUrl());
+    }
+
+    @Test
+    @DisplayName("@anchor: 뒤에는 정규식·@onclick·@template 만 오고, 규칙 글자를 그대로 되돌려 적는다")
+    void parsesAnchoredRules() {
+        var before = DetailRule.parse("@anchor:@onclick:fnSearchResultDetail");
+        assertTrue(before instanceof DetailRule.Anchored a && a.linkBeforeIsbn() && a.inner() instanceof DetailRule.OnclickForm);
+        assertEquals("@anchor:@onclick:fnSearchResultDetail", before.describe());
+
+        var after = DetailRule.parse("@anchor-after:href=\"(/v/[^\"]+)\"");
+        assertTrue(after instanceof DetailRule.Anchored a && !a.linkBeforeIsbn() && a.inner() instanceof DetailRule.Href);
+        assertEquals("@anchor-after:href=\"(/v/[^\"]+)\"", after.describe());
+
+        // JSON 검색은 목록에서 도서관으로 고르므로 닻이 필요 없고, 닻을 두 겹으로 감쌀 일도 없습니다.
+        assertThrows(IllegalArgumentException.class,
+                () -> DetailRule.parse("@anchor:@json:GET https://x.kr/api?q={isbn13} => list => /d/{id}"));
+        assertThrows(IllegalArgumentException.class, () -> DetailRule.parse("@anchor:@anchor:@onclick:f"));
+        assertThrows(IllegalArgumentException.class, () -> DetailRule.parse("@anchor:"));
     }
 }

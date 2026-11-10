@@ -33,7 +33,8 @@ import java.util.regex.PatternSyntaxException;
  * 갑니다. 그래서 조사 도구({@code scripts/opac-onclick-probe.py})가 실제로 만든 주소를 열어 그 책이
  * 나오고 다른 책은 나오지 않는 것을 본 것만 넣습니다.
  */
-public sealed interface DetailRule permits DetailRule.Href, DetailRule.OnclickForm, DetailRule.Template, DetailRule.Json {
+public sealed interface DetailRule
+        permits DetailRule.Href, DetailRule.OnclickForm, DetailRule.Template, DetailRule.Json, DetailRule.Anchored {
 
     /** 정규식 하나. 그룹 하나가 href 입니다. */
     record Href(Pattern regex) implements DetailRule {
@@ -56,10 +57,16 @@ public sealed interface DetailRule permits DetailRule.Href, DetailRule.OnclickFo
      * <p>노원·부천·서초·안산(ALPAS-Q)과 구로·시흥(Pyxis)은 검색 결과 HTML 에 책이 없고 화면이 JSON 을
      * 받아 그립니다. 서버가 그 JSON 검색을 대신 불러(주소의 {@code {isbn13}} 과 본문의 {@code {isbn13}} 을
      * 채워) 목록경로({@code contents.bookList})의 항목에서 열쇠를 꺼내 상세주소틀의 {@code {bookKey}}
-     * 같은 자리에 끼웁니다. 항목이 여럿이면 <b>누른 도서관의 {@code libCode} 가 같은 것</b>, 없으면
-     * <b>ISBN 이 같은 것</b>, 그것도 없으면 첫 항목입니다. 부천·서초·안산은 소장본마다 정보나루
-     * 도서관부호를 {@code libCode} 로 함께 주어서, 누른 분관의 소장본 상세로 바로 보낼 수 있습니다.
-     * 본문은 공백 없는 JSON 한 덩이이고 GET 이면 생략합니다.
+     * 같은 자리에 끼웁니다. 항목이 여럿이면 <b>누른 도서관의 {@code libCode} 가 같은 것</b>입니다.
+     * 부천·서초·안산·창원은 소장본마다 정보나루 도서관부호를 {@code libCode} 로 함께 주어서, 누른 분관의
+     * 소장본 상세로 바로 보낼 수 있습니다. <b>목록이 도서관을 가려 주는데 누른 도서관이 없으면 남의
+     * 분관으로 보내지 않고 {@code NO_MATCH} 입니다.</b> ISBN 이 같은 것 → 첫 항목으로 내려가는 것은
+     * 목록이 도서관을 가려 주지 않거나(시흥) 누른 도서관을 모를 때뿐입니다.
+     *
+     * <p>요청의 주소와 본문에는 {@code {isbn13}} 과 {@code {libCode}}(누른 도서관의 정보나루 부호)를 쓸
+     * 수 있습니다. 수원·세종교육청은 분관을 그 부호 그대로 받아서 요청에서 바로 좁힙니다. 본문은 공백
+     * 없는 한 덩이이고 GET 이면 생략합니다. <b>{@code {} 나 {@code [} 로 시작하면 JSON, 아니면 폼</b>
+     * ({@code a=1&b=2})으로 보냅니다. 수원의 검색은 JSON 본문에 빈 답을 줍니다.
      */
     record Json(String method, String url, String body, String listPath, String urlTemplate) implements DetailRule {
         @Override public String describe() {
@@ -68,6 +75,28 @@ public sealed interface DetailRule permits DetailRule.Href, DetailRule.OnclickFo
         }
     }
 
+    /**
+     * {@code @anchor:규칙} / {@code @anchor-after:규칙} — 결과 목록에서 <b>그 ISBN 이 적힌 항목의</b> 링크를
+     * 고릅니다. 안쪽 규칙은 정규식·{@code @onclick:}·{@code @template:} 가운데 하나입니다.
+     *
+     * <p>제목으로만 찾아지는 OPAC 을 위한 것입니다. 제목 검색 결과는 같은 제목의 다른 판이 섞여 나와
+     * 「첫 링크」를 쓸 수 없습니다. 대신 목록에 적힌 ISBN 을 닻으로 삼아 그 항목의 링크를 고릅니다
+     * ({@link IsbnAnchor}). {@code @anchor:} 는 항목 안에서 링크가 ISBN 보다 앞에 오는 목록,
+     * {@code @anchor-after:} 는 뒤에 오는 목록입니다. <b>어느 쪽인지는 조사 도구가 뽑은 상세 화면에
+     * 그 ISBN 이 적혀 있는 것을 보고 정합니다.</b> 틀리면 윗줄이나 아랫줄 책으로 갑니다.
+     *
+     * <p>ISBN 검색 규칙에 달아도 됩니다. 그때도 첫 링크가 아니라 그 ISBN 의 항목을 고릅니다.
+     * 거꾸로 <b>제목 검색 규칙은 이 규칙이 달렸을 때만 상세로 갑니다.</b> 닻 없는 규칙을 제목 검색
+     * 결과에 쓰면 첫 줄, 곧 아무 판으로나 갑니다.
+     */
+    record Anchored(DetailRule inner, boolean linkBeforeIsbn) implements DetailRule {
+        @Override public String describe() {
+            return (linkBeforeIsbn ? ANCHOR_PREFIX : ANCHOR_AFTER_PREFIX) + inner.describe();
+        }
+    }
+
+    String ANCHOR_PREFIX = "@anchor:";
+    String ANCHOR_AFTER_PREFIX = "@anchor-after:";
     String JSON_PREFIX = "@json:";
     Pattern FIELD_PLACEHOLDER = Pattern.compile("\\{([A-Za-z_][\\w]*)}");
     String ONCLICK_PREFIX = "@onclick:";
@@ -87,6 +116,16 @@ public sealed interface DetailRule permits DetailRule.Href, DetailRule.OnclickFo
     static DetailRule parse(String text) {
         String value = text.strip();
         if (value.isEmpty()) throw new IllegalArgumentException("규칙이 비어 있습니다");
+        String lowered = value.toLowerCase(Locale.ROOT);
+        // 긴 쪽을 먼저 봅니다. "@anchor-after:" 는 "@anchor:" 로 시작하지 않지만 차례를 못박아 둡니다.
+        for (String prefix : new String[] {ANCHOR_AFTER_PREFIX, ANCHOR_PREFIX}) {
+            if (!lowered.startsWith(prefix)) continue;
+            DetailRule inner = parse(value.substring(prefix.length()));
+            if (inner instanceof Json || inner instanceof Anchored) {
+                throw new IllegalArgumentException(prefix + " 뒤에는 정규식·@onclick:·@template: 규칙이 와야 합니다 — " + text);
+            }
+            return new Anchored(inner, prefix.equals(ANCHOR_PREFIX));
+        }
         if (value.toLowerCase(Locale.ROOT).startsWith(ONCLICK_PREFIX)) {
             String function = value.substring(ONCLICK_PREFIX.length()).strip();
             if (!IDENTIFIER.matcher(function).matches()) {

@@ -112,9 +112,24 @@ public final class DetailResolver {
         }
     }
 
-    /** 누른 도서관과 책. {@code @json:} 규칙이 목록에서 어느 항목을 고를지에 씁니다. 없어도 됩니다. */
-    public record Context(String isbn13, String libCode) {
+    /**
+     * 누른 도서관과 책. {@code @json:} 규칙이 목록에서 어느 항목을 고를지에 쓰고, {@code @anchor:} 규칙이
+     * 결과 목록에서 어느 ISBN 의 항목을 찾을지에 씁니다. 없어도 됩니다.
+     *
+     * <p>{@code anchors} 는 닻으로 삼을 ISBN 들이고 <b>앞의 것이 먼저</b>입니다. 그 도서관이 실제로 가진
+     * 판을 앞에 세워 넘깁니다. 제목 검색 결과는 한 번만 받고 그 안에서 차례로 찾으므로, 여럿을 넘겨도
+     * 그 도서관으로 가는 요청은 늘지 않습니다.
+     */
+    public record Context(String isbn13, String libCode, List<String> anchors) {
         public static final Context NONE = new Context(null, null);
+
+        public Context {
+            anchors = anchors == null ? List.of() : List.copyOf(anchors);
+        }
+
+        public Context(String isbn13, String libCode) {
+            this(isbn13, libCode, isbn13 == null ? List.of() : List.of(isbn13));
+        }
     }
 
     private record Cached(String detailUrl, Instant insertedAt, Instant expiresAt) {}
@@ -192,6 +207,9 @@ public final class DetailResolver {
     /** 같은 검색이라도 {@code @json:} 은 누른 도서관마다 다른 소장본으로 가므로 열쇠에 도서관을 넣습니다. */
     private static String cacheKey(String searchUrl, DetailRule rule, Context context) {
         if (rule instanceof DetailRule.Json && context.libCode() != null) return searchUrl + "|" + context.libCode();
+        // 제목 검색은 같은 주소의 결과에서 책마다 다른 항목을 고릅니다. 주소만 열쇠로 삼으면 「데미안」
+        // 민음사 판을 누른 사람의 답이 문학동네 판을 누른 사람에게 그대로 나갑니다.
+        if (rule instanceof DetailRule.Anchored) return searchUrl + "|" + String.join(",", context.anchors());
         return searchUrl;
     }
 
@@ -224,12 +242,17 @@ public final class DetailResolver {
                 return Outcome.of(Status.NO_MATCH, "@json: 규칙은 어느 책인지(ISBN) 알아야 합니다");
             }
             try {
-                search = URI.create(json.url().replace("{isbn13}", context.isbn13()));
+                search = URI.create(fillRequest(json.url(), context));
             } catch (IllegalArgumentException e) {
                 failed.incrementAndGet();
                 return Outcome.of(Status.FETCH_FAILED, "주소가 아닙니다: " + json.url());
             }
-            jsonBody = json.body() == null ? null : json.body().replace("{isbn13}", context.isbn13());
+            jsonBody = json.body() == null ? null : fillRequest(json.body(), context);
+        }
+        if (rule instanceof DetailRule.Anchored && context.anchors().isEmpty()) {
+            // 받아 보기 전에 끝냅니다. 닻이 없으면 고를 수 없는데 남의 서버만 두드리게 됩니다.
+            missed.incrementAndGet();
+            return Outcome.of(Status.NO_MATCH, "@anchor: 규칙은 어느 책인지(ISBN) 알아야 합니다");
         }
         String host = search.getHost();
         if (host == null) {
@@ -265,7 +288,7 @@ public final class DetailResolver {
         }
         try {
             Page page = rule instanceof DetailRule.Json json
-                    ? fetcher.fetch(search, json.method(), jsonBody, "application/json")
+                    ? fetcher.fetch(search, json.method(), jsonBody, bodyTypeOf(jsonBody))
                     : fetcher.fetch(search);
             health.remove(hostKey);                       // 답을 받았으면 닿는 것입니다. 상태 코드와 무관합니다.
             if (page.status() != 200) {
@@ -274,7 +297,7 @@ public final class DetailResolver {
             }
             Outcome outcome = rule instanceof DetailRule.Json json
                     ? extractFromJson(page, json, search, context)
-                    : extract(page, rule, search);
+                    : extract(page, rule, search, context);
             remember(cacheKey(searchUrl, rule, context), outcome);
             return outcome;
         } catch (InterruptedException e) {
@@ -293,37 +316,77 @@ public final class DetailResolver {
         }
     }
 
-    /** 받은 HTML 에서 규칙대로 상세 주소를 얻어 절대 주소로 만듭니다. */
-    private Outcome extract(Page page, DetailRule rule, URI search) {
+    /**
+     * 받은 HTML 에서 규칙대로 상세 주소를 얻어 절대 주소로 만듭니다.
+     *
+     * <p>보통 규칙은 <b>첫 번째로 잡히는 것</b>을 씁니다. ISBN 으로 검색한 결과라 첫 줄이 그 책입니다.
+     * {@code @anchor:} 규칙은 잡히는 것을 전부 모아 <b>그 ISBN 이 적힌 항목의 것</b>을 고릅니다
+     * ({@link IsbnAnchor}). 제목으로 검색한 결과는 첫 줄이 그 책이라는 보장이 없습니다.
+     */
+    private Outcome extract(Page page, DetailRule rule, URI search, Context context) {
         String body = page.body() == null ? "" : page.body();
         URI base = page.finalUri() != null ? page.finalUri() : search;
+        boolean anchored = rule instanceof DetailRule.Anchored;
+        boolean linkFirst = rule instanceof DetailRule.Anchored a && a.linkBeforeIsbn();
+        DetailRule inner = rule instanceof DetailRule.Anchored a ? a.inner() : rule;
         String href;
         String how = "찾았습니다";
-        if (rule instanceof DetailRule.Href(Pattern regex)) {
+        if (inner instanceof DetailRule.Href(Pattern regex)) {
             Matcher m = regex.matcher(body);
-            if (!m.find()) {
-                missed.incrementAndGet();
-                return Outcome.of(Status.NO_MATCH, "패턴에 맞는 링크가 없습니다");
+            String found;
+            if (anchored) {
+                List<IsbnAnchor.Span<String>> spans = new ArrayList<>();
+                while (m.find()) spans.add(new IsbnAnchor.Span<>(m.start(), m.end(), m.group(1)));
+                IsbnAnchor.Pick<String> pick = pickNear(body, spans, context.anchors(), linkFirst);
+                if (!pick.found()) {
+                    missed.incrementAndGet();
+                    return Outcome.of(Status.NO_MATCH, pick.how());
+                }
+                found = pick.payload();
+                how = pick.how();
+            } else {
+                if (!m.find()) {
+                    missed.incrementAndGet();
+                    return Outcome.of(Status.NO_MATCH, "패턴에 맞는 링크가 없습니다");
+                }
+                found = m.group(1);
             }
-            href = unescape(m.group(1)).strip();
-        } else if (rule instanceof DetailRule.Template(Pattern regex, String template)) {
+            href = unescape(found).strip();
+        } else if (inner instanceof DetailRule.Template(Pattern regex, String template)) {
             Matcher m = regex.matcher(body);
-            if (!m.find()) {
-                missed.incrementAndGet();
-                return Outcome.of(Status.NO_MATCH, "패턴에 맞는 자리가 없습니다");
+            if (anchored) {
+                List<IsbnAnchor.Span<String>> spans = new ArrayList<>();
+                while (m.find()) spans.add(new IsbnAnchor.Span<>(m.start(), m.end(), fillTemplate(template, m)));
+                IsbnAnchor.Pick<String> pick = pickNear(body, spans, context.anchors(), linkFirst);
+                if (!pick.found()) {
+                    missed.incrementAndGet();
+                    return Outcome.of(Status.NO_MATCH, pick.how());
+                }
+                href = pick.payload();
+                how = "속성값을 주소틀에 끼웠습니다 (" + pick.how() + ")";
+            } else {
+                if (!m.find()) {
+                    missed.incrementAndGet();
+                    return Outcome.of(Status.NO_MATCH, "패턴에 맞는 자리가 없습니다");
+                }
+                href = fillTemplate(template, m);
+                how = "속성값을 주소틀에 끼웠습니다";
             }
-            Matcher ph = DetailRule.PLACEHOLDER.matcher(template);
-            StringBuilder filled = new StringBuilder();
-            while (ph.find()) {
-                String value = m.group(Integer.parseInt(ph.group(1)));
-                ph.appendReplacement(filled, Matcher.quoteReplacement(
-                        java.net.URLEncoder.encode(unescape(value == null ? "" : value).strip(), StandardCharsets.UTF_8)));
+        } else if (inner instanceof DetailRule.OnclickForm(String function)) {
+            Optional<OnclickFormReader.Call> call;
+            String picked = null;
+            if (anchored) {
+                IsbnAnchor.Pick<OnclickFormReader.Call> pick =
+                        pickNear(body, OnclickFormReader.allCalls(body, function), context.anchors(), linkFirst);
+                if (!pick.found()) {
+                    missed.incrementAndGet();
+                    return Outcome.of(Status.NO_MATCH, pick.how());
+                }
+                call = Optional.of(pick.payload());
+                picked = pick.how();
+            } else {
+                call = OnclickFormReader.firstCall(body, function);
             }
-            ph.appendTail(filled);
-            href = filled.toString();
-            how = "속성값을 주소틀에 끼웠습니다";
-        } else if (rule instanceof DetailRule.OnclickForm(String function)) {
-            Optional<OnclickFormReader.Call> call = OnclickFormReader.firstCall(body, function);
             if (call.isEmpty()) {
                 missed.incrementAndGet();
                 return Outcome.of(Status.NO_MATCH, function + "( 호출이 없습니다");
@@ -340,7 +403,7 @@ public final class DetailResolver {
                 return Outcome.of(Status.NO_MATCH, built.note());
             }
             href = built.url();
-            how = built.note();
+            how = picked == null ? built.note() : built.note() + " (" + picked + ")";
         } else {
             throw new IllegalStateException("이 규칙은 여기서 다루지 않습니다: " + rule);
         }
@@ -376,9 +439,13 @@ public final class DetailResolver {
     }
 
     /**
-     * JSON 검색의 답에서 항목을 골라 상세주소틀을 채웁니다. 누른 도서관의 {@code libCode} 가 같은 항목 →
-     * ISBN 이 같은 항목 → 첫 항목 순입니다. 부천은 한 ISBN 에 소장본 63건이 오는데 그 가운데 누른
+     * JSON 검색의 답에서 항목을 골라 상세주소틀을 채웁니다. 누른 도서관의 {@code libCode} 가 같은 항목
+     * (그 가운데 ISBN 까지 같은 것이 먼저)입니다. 부천은 한 ISBN 에 소장본 63건이 오는데 그 가운데 누른
      * 분관의 것으로 가야 「소장한다더니 다른 도서관 책」이 되지 않습니다.
+     *
+     * <p>목록이 도서관을 가려 주지 않는 시스템(시흥의 Pyxis)이거나 누른 도서관을 모를 때만 ISBN 이
+     * 같은 항목 → 첫 항목으로 내려갑니다. <b>목록이 도서관을 가려 주는데 누른 도서관이 없으면
+     * {@code NO_MATCH} 입니다.</b> 남의 분관 소장본으로 보내느니 검색 결과가 낫습니다.
      */
     private Outcome extractFromJson(Page page, DetailRule.Json rule, URI api, Context context) {
         com.fasterxml.jackson.databind.JsonNode root;
@@ -394,14 +461,41 @@ public final class DetailResolver {
             missed.incrementAndGet();
             return Outcome.of(Status.NO_MATCH, "목록 " + rule.listPath() + " 이 비어 있습니다");
         }
+        // 상세주소틀이 쓰는 칸을 다 가진 항목만 후보입니다. 세종교육청의 목록은 첫 칸이 책이 아니라
+        // 건수와 묶음 정보라, 그것을 「첫 항목」으로 집으면 멀쩡한 답을 두고 「칸이 없다」로 끝납니다.
+        List<com.fasterxml.jackson.databind.JsonNode> candidates = new ArrayList<>();
+        for (var item : list) if (hasEveryField(item, rule.urlTemplate())) candidates.add(item);
+        if (candidates.isEmpty()) {
+            missed.incrementAndGet();
+            return Outcome.of(Status.NO_MATCH, "목록 " + list.size() + "건 가운데 상세주소틀의 칸을 다 가진 항목이 없습니다");
+        }
         com.fasterxml.jackson.databind.JsonNode pick = null;
         if (context.libCode() != null) {
-            for (var item : list) if (context.libCode().equals(text(item.get("libCode")))) { pick = item; break; }
+            // 누른 도서관의 소장본, 그 가운데서도 같은 판(ISBN)이 먼저입니다. 한 도서관이 보통판과
+            // 큰글자판을 함께 가진 목록에서 도서관만 견주면 앞에 있는 다른 판으로 갑니다.
+            boolean namesLibraries = false;
+            for (var item : candidates) {
+                String lib = text(field(item, "libCode"));
+                if (lib == null || lib.isEmpty()) continue;
+                namesLibraries = true;
+                if (!context.libCode().equals(lib)) continue;
+                if (pick == null) pick = item;
+                if (context.isbn13().equals(text(field(item, "isbn")))) { pick = item; break; }
+            }
+            // **목록이 도서관을 가려 주는데 누른 도서관이 거기 없으면 남의 분관으로 보내지 않습니다.**
+            // 예전에는 ISBN 이 같은 첫 항목으로 내려갔는데, 그것은 「소장한다더니 다른 도서관 책」입니다.
+            // 창원은 한 ISBN 에 여든 곳의 소장본이 오므로 그렇게 내려가면 거의 늘 남의 분관입니다.
+            // 검색 결과로 내려가면 적어도 어느 분관에 있는지는 사용자가 봅니다.
+            if (pick == null && namesLibraries) {
+                missed.incrementAndGet();
+                return Outcome.of(Status.NO_MATCH, "목록 " + candidates.size() + "건 가운데 누른 도서관("
+                        + context.libCode() + ")의 소장본이 없습니다");
+            }
         }
         if (pick == null) {
-            for (var item : list) if (context.isbn13().equals(text(item.get("isbn")))) { pick = item; break; }
+            for (var item : candidates) if (context.isbn13().equals(text(field(item, "isbn")))) { pick = item; break; }
         }
-        if (pick == null) pick = list.get(0);
+        if (pick == null) pick = candidates.get(0);
         Matcher ph = DetailRule.FIELD_PLACEHOLDER.matcher(rule.urlTemplate());
         StringBuilder filled = new StringBuilder();
         while (ph.find()) {
@@ -427,13 +521,103 @@ public final class DetailResolver {
             return Outcome.of(Status.NO_MATCH, "다른 기관의 주소입니다: " + target.getHost());
         }
         resolved.incrementAndGet();
-        String libName = text(pick.get("libName"));
+        String libName = text(field(pick, "libName"));
         return new Outcome(Status.RESOLVED, target.toString(),
                 "JSON 목록 " + list.size() + "건 가운데 " + (libName == null ? "첫 항목" : libName) + " 의 소장본", false);
     }
 
+    /** 닻으로 삼을 ISBN 을 차례로 해 봅니다. 앞의 것이 그 도서관이 가진 판입니다. */
+    private static <T> IsbnAnchor.Pick<T> pickNear(String body, List<IsbnAnchor.Span<T>> spans,
+                                                   List<String> anchors, boolean linkBeforeIsbn) {
+        IsbnAnchor.Pick<T> first = null;
+        for (String isbn : anchors) {
+            IsbnAnchor.Pick<T> pick = IsbnAnchor.pick(body, spans, isbn, linkBeforeIsbn);
+            if (pick.found()) return pick;
+            if (first == null) first = pick;
+        }
+        return first != null ? first : new IsbnAnchor.Pick<>(null, "닻으로 삼을 ISBN 이 없습니다");
+    }
+
+    /** {@code @template:} 의 주소틀에 정규식의 그룹을 끼웁니다. */
+    private static String fillTemplate(String template, Matcher m) {
+        Matcher ph = DetailRule.PLACEHOLDER.matcher(template);
+        StringBuilder filled = new StringBuilder();
+        while (ph.find()) {
+            String value = m.group(Integer.parseInt(ph.group(1)));
+            ph.appendReplacement(filled, Matcher.quoteReplacement(
+                    java.net.URLEncoder.encode(unescape(value == null ? "" : value).strip(), StandardCharsets.UTF_8)));
+        }
+        ph.appendTail(filled);
+        return filled.toString();
+    }
+
     private static String text(com.fasterxml.jackson.databind.JsonNode node) {
         return node == null || node.isNull() ? null : node.asText();
+    }
+
+    /**
+     * 요청 주소나 본문의 자리표를 채웁니다. {@code {isbn13}} 은 그 책이고 {@code {libCode}} 는 누른
+     * 도서관의 정보나루 부호입니다.
+     *
+     * <p>{@code {libCode}} 는 <b>그 OPAC 이 분관을 정보나루 부호 그대로 받는 시스템</b>을 위한 것입니다.
+     * 수원이 그렇습니다({@code manageCode=141595}). 그러면 목록에서 고를 것 없이 그 분관의 소장본만
+     * 받습니다. 누른 도서관을 모르면(진단에서 도서관 없이 부를 때) 비워 보냅니다. 수원은 비우면
+     * 전체 분관으로 답합니다.
+     */
+    static String fillRequest(String text, Context context) {
+        return text.replace("{isbn13}", context.isbn13())
+                   .replace("{libCode}", context.libCode() == null ? "" : context.libCode());
+    }
+
+    /**
+     * 본문이 JSON 인지 폼인지. {@code {} 나 {@code [} 로 시작하면 JSON 이고 나머지는
+     * {@code a=1&b=2} 모양의 폼입니다.
+     *
+     * <p>수원의 검색은 같은 주소가 JSON 본문에는 <b>HTTP 200 에 빈 답</b>을 주고 폼 본문에만 책을
+     * 줍니다(2026-11-10). 종류를 틀리면 오류가 아니라 「목록이 비어 있습니다」로 끝나서, 그 책이 없는
+     * 것과 구별되지 않습니다.
+     */
+    static String bodyTypeOf(String body) {
+        if (body == null) return "application/json";
+        String head = body.stripLeading();
+        return head.startsWith("{") || head.startsWith("[")
+                ? "application/json" : "application/x-www-form-urlencoded";
+    }
+
+    /**
+     * 항목의 칸을 이름으로 찾되 <b>대소문자와 밑줄을 가리지 않습니다.</b> 누른 도서관과 ISBN 을
+     * 견주는 칸은 시스템마다 표기가 다릅니다. 부천·안산은 {@code libCode} {@code isbn} 이고 수원·
+     * 세종교육청은 {@code LIB_CODE} {@code ISBN} 입니다. 글자 그대로만 찾으면 뒤의 시스템에서는
+     * 견줄 칸이 늘 없는 것이 되어 <b>조용히 첫 항목</b>, 곧 남의 분관 소장본으로 갑니다.
+     * 이름이 글자 그대로 같은 칸이 있으면 그것이 먼저입니다.
+     */
+    private static com.fasterxml.jackson.databind.JsonNode field(com.fasterxml.jackson.databind.JsonNode item, String name) {
+        com.fasterxml.jackson.databind.JsonNode exact = item.get(name);
+        if (exact != null) return exact;
+        String want = plain(name);
+        var names = item.fieldNames();
+        while (names.hasNext()) {
+            String candidate = names.next();
+            if (plain(candidate).equals(want)) return item.get(candidate);
+        }
+        return null;
+    }
+
+    private static String plain(String name) {
+        return name.replace("_", "").toLowerCase(Locale.ROOT);
+    }
+
+    /** 상세주소틀의 자리표({@code {isbn13}} 은 우리가 채우므로 뺍니다)를 이 항목이 다 채울 수 있는지. */
+    private static boolean hasEveryField(com.fasterxml.jackson.databind.JsonNode item, String urlTemplate) {
+        if (!item.isObject()) return false;
+        Matcher ph = DetailRule.FIELD_PLACEHOLDER.matcher(urlTemplate);
+        while (ph.find()) {
+            String name = ph.group(1);
+            if (name.equals("isbn13")) continue;
+            String value = text(item.get(name));
+            if (value == null || value.isEmpty()) return false;
+        }
+        return true;
     }
 
     /**
@@ -632,7 +816,8 @@ public final class DetailResolver {
                     throws IOException, InterruptedException {
                 // JSON 검색은 GET 이어도 Accept 가 JSON 이어야 합니다. 시흥의 Pyxis 는 text/html 을
                 // 받겠다고 하면 406 을 돌려주었습니다(2026-11-06 배포 서버 진단).
-                boolean wantsJson = contentType != null && contentType.contains("json");
+                // contentType 이 있으면 @json: 규칙입니다. 본문이 폼이어도(수원) 받는 것은 JSON 입니다.
+                boolean wantsJson = contentType != null;
                 HttpRequest.Builder builder = HttpRequest.newBuilder(url)
                         .timeout(FETCH_TIMEOUT)
                         .header("User-Agent", USER_AGENT)

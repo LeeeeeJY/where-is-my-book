@@ -83,11 +83,28 @@ final class OnclickFormReader {
      * 쓰는 것과 같은 전제입니다. {@code onclick="..."} 과 {@code href="javascript:..."} 둘 다 봅니다.
      */
     static Optional<Call> firstCall(String html, String function) {
-        Pattern call = Pattern.compile(
-                "(?:onclick|href)\\s*=\\s*[\"']\\s*(?:javascript:)?\\s*" + Pattern.quote(function) + "\\s*\\(([^)]*)\\)");
-        Matcher m = call.matcher(html);
+        Matcher m = callPattern(function).matcher(html);
         if (!m.find()) return Optional.empty();
         return Optional.of(new Call(function, splitArgs(DetailResolver.unescape(m.group(1)))));
+    }
+
+    /**
+     * 그 함수의 <b>모든 호출</b>을 문서에 놓인 자리와 함께. 제목 검색 결과에서는 첫 호출이 그 책이
+     * 아니므로({@code @anchor:}) 어느 호출이 그 ISBN 의 항목에 있는지 자리를 견줘 고릅니다.
+     */
+    static List<IsbnAnchor.Span<Call>> allCalls(String html, String function) {
+        List<IsbnAnchor.Span<Call>> out = new ArrayList<>();
+        Matcher m = callPattern(function).matcher(html);
+        while (m.find()) {
+            out.add(new IsbnAnchor.Span<>(m.start(), m.end(),
+                    new Call(function, splitArgs(DetailResolver.unescape(m.group(1))))));
+        }
+        return out;
+    }
+
+    private static Pattern callPattern(String function) {
+        return Pattern.compile(
+                "(?:onclick|href)\\s*=\\s*[\"']\\s*(?:javascript:)?\\s*" + Pattern.quote(function) + "\\s*\\(([^)]*)\\)");
     }
 
     /** 인자 목록. 따옴표 안의 쉼표는 나누지 않고, 따옴표는 벗깁니다. */

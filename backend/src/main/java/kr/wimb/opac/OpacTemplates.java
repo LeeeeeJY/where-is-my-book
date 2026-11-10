@@ -76,7 +76,23 @@ public final class OpacTemplates {
     private record Template(OpacLink.Kind kind, Charset encoding, String urlTemplate) {}
 
     /** 검색 결과 HTML 에서 상세 주소를 얻는 규칙({@link DetailRule})과, 그것이 어느 OPAC 의 것인지. */
-    public record DetailPattern(String key, DetailRule rule) {}
+    public record DetailPattern(String key, DetailRule rule) {
+        /** 열쇠의 호스트(와 경로) 부분. {@code ?칸이름} 은 뗀 것입니다. */
+        String hostPath() {
+            int q = key.indexOf('?');
+            return q < 0 ? key : key.substring(0, q);
+        }
+
+        /**
+         * 열쇠에 {@code ?칸이름} 이 붙어 있으면 그 이름. <b>검색 주소에 그 칸이 값과 함께 있을 때만</b>
+         * 이 규칙을 씁니다. {@code www.l4d.or.kr?searchLibraryArr} 는 분관 부호가 붙은 검색에만
+         * 걸리고, 같은 호스트의 {@code searchLibrary=ALL}(통합 검색)에는 걸리지 않습니다.
+         */
+        String requiredParam() {
+            int q = key.indexOf('?');
+            return q < 0 ? null : key.substring(q + 1);
+        }
+    }
 
     private final Map<String, Map<OpacLink.Kind, Template>> byLibCode;
     private final Map<String, DetailPattern> patterns;
@@ -103,6 +119,60 @@ public final class OpacTemplates {
         this.patterns = patterns;
         this.linksEnabled = linksEnabled;
         this.enabledHosts = Set.copyOf(enabledHosts);
+        Map<String, Integer> users = new java.util.HashMap<>();
+        for (Map<OpacLink.Kind, Template> templates : byLibCode.values()) {
+            Template title = templates.get(OpacLink.Kind.TITLE_SEARCH);
+            if (title != null) users.merge(title.urlTemplate(), 1, Integer::sum);
+        }
+        this.titleTemplateUsers = Map.copyOf(users);
+    }
+
+    /**
+     * 제목 검색 주소마다 그것을 쓰는 도서관 수. 둘 이상이면 <b>그 검색은 분관으로 좁혀지지 않은
+     * 것</b>이라 결과에 여러 분관의 소장본이 섞여 있습니다.
+     */
+    private final Map<String, Integer> titleTemplateUsers;
+
+    /**
+     * 이 도서관의 제목 검색 주소를 함께 쓰는 도서관 수(자기 포함). 제목 규칙이 없으면 0 입니다.
+     * 진단이 「왜 상세로 안 가는가」를 말하는 데 씁니다.
+     */
+    public int titleSearchSharedBy(String libCode) {
+        Map<OpacLink.Kind, Template> templates = byLibCode.get(libCode);
+        Template title = templates == null ? null : templates.get(OpacLink.Kind.TITLE_SEARCH);
+        return title == null ? 0 : titleTemplateUsers.getOrDefault(title.urlTemplate(), 0);
+    }
+
+    /**
+     * 이 도서관의 <b>제목 검색 결과에서 상세를 찾을 규칙</b>. 있으면 누를 때 그 결과에서 ISBN 이 적힌
+     * 줄을 골라 상세로 보냅니다.
+     *
+     * <p>셋을 다 채워야 합니다.
+     * <ol>
+     *   <li>그 주소를 덮는 상세 패턴이 있고,</li>
+     *   <li>그것이 <b>{@code @anchor:} 규칙</b>이고(닻 없는 규칙은 결과의 첫 줄, 곧 같은 제목의 아무
+     *       판으로나 갑니다),</li>
+     *   <li><b>그 검색 주소를 이 도서관만 씁니다.</b> 여러 도서관이 한 주소를 함께 쓰면 분관으로
+     *       좁히지 않은 통합 검색이라 결과에 여러 분관의 소장본이 섞여 있고, 같은 ISBN 이 적힌 줄
+     *       가운데 어느 것이 누른 분관의 것인지 닻만으로는 가를 수 없습니다. 실제로 부평은 갈산도서관
+     *       화면에서 찾은 「82년생 김지영」의 줄이 청천도서관과 희망천작은도서관의 것이었습니다
+     *       (2026-11-10). 그대로 보내면 「소장한다더니 다른 도서관 책」입니다.</li>
+     * </ol>
+     *
+     * <p><b>셋째 조건은 주소가 하나뿐이라는 것만 봅니다.</b> 한 도서관만 쓰는 주소인데도 분관으로
+     * 좁혀지지 않은 것이 있습니다. 부평과 파주의 분관 사이트는 주소가 저마다 다르지만 전부
+     * {@code searchLibrary=ALL} 입니다. 그것은 여기서 걸러지지 않습니다. 그래서 <b>닻 규칙의 열쇠에
+     * 분관을 좁히는 칸 이름을 적습니다</b>({@code lib.paju.go.kr?searchLibraryArr}). 그 칸이 값과
+     * 함께 있는 주소에만 규칙이 걸리므로 통합 검색은 주소가 하나뿐이어도 빠집니다. 칸 없이 사이트
+     * 경로가 좁혀 주는 시스템(성동)만 칸 조건 없는 열쇠를 쓰고, 그것은 사람이 결과를 보고 넣습니다.
+     */
+    public Optional<DetailPattern> titleDetailPatternFor(String libCode) {
+        if (!linksEnabled) return Optional.empty();
+        Map<OpacLink.Kind, Template> templates = byLibCode.get(libCode);
+        Template title = templates == null ? null : templates.get(OpacLink.Kind.TITLE_SEARCH);
+        if (title == null || !allowed(title)) return Optional.empty();
+        if (titleTemplateUsers.getOrDefault(title.urlTemplate(), 0) != 1) return Optional.empty();
+        return detailPatternFor(title.urlTemplate()).filter(pattern -> pattern.rule() instanceof DetailRule.Anchored);
     }
 
     /** 자원에서 읽어 들입니다. 파일이 없으면 규칙이 하나도 없는 것으로 보고 넘어갑니다. */
@@ -262,6 +332,14 @@ public final class OpacTemplates {
                         + parts[0]);
                 continue;
             }
+            int q = key.indexOf('?');
+            if (q >= 0 && !key.substring(q + 1).matches("[A-Za-z_][\\w.\\-]*")) {
+                // 값까지 적거나(?a=1) 여럿을 적은(?a&b) 열쇠입니다. 조용히 넘기면 그 규칙은 어느 주소에도
+                // 걸리지 않아 「패턴이 있는데 상세로 안 간다」가 됩니다.
+                problems.add("상세 패턴 " + lineNo + "행: 열쇠의 ? 뒤에는 검색 주소의 칸 이름 하나가 와야 합니다 — "
+                        + parts[0]);
+                continue;
+            }
             DetailRule rule;
             try {
                 // 정규식 하나, @onclick:함수, @template:정규식 => 주소틀. 검사는 DetailRule 이 합니다.
@@ -279,10 +357,17 @@ public final class OpacTemplates {
         return out;
     }
 
+    /**
+     * 열쇠를 견줄 모양으로. 호스트와 경로는 소문자로 바꾸고 끝의 {@code /} 를 뗍니다.
+     * <b>{@code ?} 뒤의 칸 이름은 글자 그대로 둡니다.</b> 주소의 칸 이름은 대소문자를 가립니다
+     * ({@code searchLibraryArr} 를 소문자로 바꾸면 어느 주소에도 걸리지 않습니다).
+     */
     private static String normalizeKey(String raw) {
-        String key = raw.strip().toLowerCase(Locale.ROOT);
-        while (key.endsWith("/")) key = key.substring(0, key.length() - 1);
-        return key;
+        String text = raw.strip();
+        int q = text.indexOf('?');
+        String hostPath = (q < 0 ? text : text.substring(0, q)).toLowerCase(Locale.ROOT);
+        while (hostPath.endsWith("/")) hostPath = hostPath.substring(0, hostPath.length() - 1);
+        return q < 0 ? hostPath : hostPath + "?" + text.substring(q + 1).strip();
     }
 
     /**
@@ -314,8 +399,9 @@ public final class OpacTemplates {
      * 그 도서관 링크가 어느 단계까지 갈 수 있는지. 화면에 미리 밝히는 데 씁니다.
      *
      * <p>ISBN 과 제목이 모두 있다고 보고 계산합니다. 검색 결과에는 둘 다 있습니다.
-     * ISBN 검색 규칙에 상세 패턴이 붙어 있으면 {@code DETAIL_LOOKUP} 입니다. <b>누를 때 찾는
-     * 것이라 못 찾을 수 있고</b>, 그때는 검색 결과로 내려갑니다. 화면 문구가 그것을 말합니다.
+     * ISBN 검색 규칙에 상세 패턴이 붙어 있으면 {@code DETAIL_LOOKUP} 입니다. 제목 검색 규칙은
+     * {@link #titleDetailPatternFor} 가 규칙을 줄 때만 그렇습니다. <b>누를 때 찾는 것이라 못 찾을 수
+     * 있고</b>, 그때는 검색 결과로 내려갑니다. 화면 문구가 그것을 말합니다.
      */
     public OpacLink.Kind kindFor(String libCode) {
         if (!linksEnabled) return OpacLink.Kind.HOMEPAGE;
@@ -327,6 +413,11 @@ public final class OpacTemplates {
             if (kind == OpacLink.Kind.ISBN_SEARCH && detailPatternFor(template.urlTemplate()).isPresent()) {
                 return OpacLink.Kind.DETAIL_LOOKUP;
             }
+            // 제목 검색은 ISBN 을 닻으로 삼는 규칙(@anchor:)이 달렸고 그 주소를 이 도서관만 쓸 때만
+            // 상세를 찾습니다. 조건은 titleDetailPatternFor 한 곳에 있습니다.
+            if (kind == OpacLink.Kind.TITLE_SEARCH && titleDetailPatternFor(libCode).isPresent()) {
+                return OpacLink.Kind.DETAIL_LOOKUP;
+            }
             return kind;
         }
         return OpacLink.Kind.HOMEPAGE;
@@ -335,6 +426,11 @@ public final class OpacTemplates {
     /**
      * 이 검색 주소의 결과 화면에서 상세 링크를 뽑을 패턴. 열쇠가 여럿 맞으면 <b>가장 긴 것</b>이
      * 이깁니다. 한 호스트에 시스템이 둘 있어 경로로 갈라 둔 경우를 위해서입니다.
+     *
+     * <p>열쇠에 {@code ?칸이름} 이 붙어 있으면 <b>그 칸이 값과 함께 있는 주소에만</b> 걸립니다.
+     * 제목 검색의 닻 규칙이 「분관으로 좁힌 검색에만」 쓰이게 하는 장치입니다
+     * ({@code www.l4d.or.kr?searchLibraryArr}). 같은 호스트의 통합 검색({@code searchLibrary=ALL})은
+     * 한 도서관만 쓰는 주소여도 여기서 빠집니다.
      *
      * <p>자리표가 든 규칙 주소({@code /KeywordSearchResult/{isbn13}})도 받아야 하므로 URI 로
      * 파싱하지 않고 글자로 자릅니다.
@@ -345,12 +441,37 @@ public final class OpacTemplates {
 
         DetailPattern best = null;
         for (DetailPattern candidate : patterns.values()) {
-            String key = candidate.key();
-            if (keyCovers(key, hostPath) && (best == null || key.length() > best.key().length())) {
-                best = candidate;
-            }
+            if (!keyCovers(candidate.hostPath(), hostPath)) continue;
+            String param = candidate.requiredParam();
+            if (param != null && !hasParam(url, param)) continue;
+            if (best == null || moreSpecific(candidate, best)) best = candidate;
         }
         return Optional.ofNullable(best);
+    }
+
+    /** 경로가 더 긴 열쇠가 이기고, 같으면 칸 조건이 붙은 쪽이 이깁니다. */
+    private static boolean moreSpecific(DetailPattern a, DetailPattern b) {
+        int byPath = Integer.compare(a.hostPath().length(), b.hostPath().length());
+        if (byPath != 0) return byPath > 0;
+        return a.requiredParam() != null && b.requiredParam() == null;
+    }
+
+    /**
+     * 주소의 질의에 그 칸이 <b>비어 있지 않은 값으로</b> 있는지. 마포 작은도서관의 통합 검색은
+     * {@code searchLibraryArr=&searchKeyword=…} 처럼 칸은 있고 값이 비어 있습니다. 그것은 분관으로
+     * 좁힌 것이 아닙니다.
+     */
+    static boolean hasParam(String url, String name) {
+        int q = url.indexOf('?');
+        if (q < 0) return false;
+        String query = url.substring(q + 1);
+        int hash = query.indexOf('#');
+        if (hash >= 0) query = query.substring(0, hash);
+        for (String pair : query.split("&")) {
+            int eq = pair.indexOf('=');
+            if (eq > 0 && pair.substring(0, eq).equals(name) && eq + 1 < pair.length()) return true;
+        }
+        return false;
     }
 
     /**

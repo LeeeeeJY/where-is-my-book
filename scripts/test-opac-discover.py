@@ -383,6 +383,9 @@ def check_import_patterns(work: str) -> list[str]:
     cases = [
         ("정상", f"www.lib.example.go.kr | DETAIL_PATTERN | www.lib.example.go.kr | {good}", 1),
         ("경로로 좁힌 열쇠", f"www.lib.example.go.kr | DETAIL_PATTERN | www.lib.example.go.kr/opac | {good}", 1),
+        # 「이 칸이 있는 검색에만」. 칸 이름은 대소문자를 가리므로 글자 그대로 나가야 합니다.
+        ("칸으로 좁힌 열쇠", f"www.lib.example.go.kr | DETAIL_PATTERN | WWW.lib.example.go.kr?searchLibraryArr | @anchor:@onclick:fnDetail", 1),
+        ("칸 이름이 아닌 것", f"www.lib.example.go.kr | DETAIL_PATTERN | www.lib.example.go.kr?a=1 | {good}", 0),
         ("다른 기관 열쇠", f"www.lib.example.go.kr | DETAIL_PATTERN | vendor.example.com | {good}", 0),
         ("모르는 묶음", f"nowhere.example.kr | DETAIL_PATTERN | nowhere.example.kr | {good}", 0),
         ("그룹이 둘", 'www.lib.example.go.kr | DETAIL_PATTERN | www.lib.example.go.kr | href=["\'](/a)(/b)["\']', 0),
@@ -407,10 +410,27 @@ def check_import_patterns(work: str) -> list[str]:
             # 서버는 첫 쉼표 뒤를 그대로 정규식으로 읽습니다. 따옴표가 있다고 CSV 규칙대로
             # 감싸 버리면 깨진 정규식이 들어가 서버가 뜨지 않습니다. 글자 그대로 나가야 합니다.
             regex = line.split("|", 3)[3].strip()
-            ok = rows[0] == f"{line.split('|')[2].strip().lower()},{regex}"
+            ok = rows[0] == f"{od.pattern_key(line.split('|')[2])},{regex}"
+            if "?" in line.split("|")[2]:
+                ok = ok and rows[0].startswith("www.lib.example.go.kr?searchLibraryArr,")
         print(f"  {'✓' if ok else '✗'} {label:22s} 줄 {len(rows)}개 (기대 {want}개)")
         if not ok:
             failures.append(f"패턴 받기:{label}")
+
+    # 열쇠가 어느 검색 주소에 걸리는지. 서버(OpacTemplates.detailPatternFor)와 같은 답이어야 합니다.
+    patterns = {"lib.paju.go.kr?searchLibraryArr": "A", "lib.paju.go.kr/small": "B", "lib.other.kr": "C"}
+    for label, url, want in [
+        ("분관으로 좁힌 검색", "https://lib.paju.go.kr/grlib/list.do?searchLibraryArr=MM&q={title}", "lib.paju.go.kr?searchLibraryArr"),
+        ("통합 검색(ALL)", "https://lib.paju.go.kr/gclib/list.do?searchLibrary=ALL&q={title}", None),
+        ("칸은 있고 값이 빔", "https://lib.paju.go.kr/x/list.do?searchLibraryArr=&q={title}", None),
+        ("경로가 긴 열쇠가 이김", "https://LIB.paju.go.kr/small/list.do?searchLibraryArr=MM", "lib.paju.go.kr/small"),
+        ("포트는 뗌", "http://lib.other.kr:8080/s?q=1", "lib.other.kr"),
+    ]:
+        got = od.pattern_for(patterns, url)
+        ok = (got[0] if got else None) == want
+        print(f"  {'✓' if ok else '✗'} {label:22s} {got[0] if got else '걸리는 열쇠 없음'}")
+        if not ok:
+            failures.append(f"열쇠 걸림:{label}")
 
     # 이미 들어 있는 열쇠. 같은 정규식이면 조용히 건너뛰고, 다르면 넣지 않고 알립니다.
     existing = os.path.join(work, "detail-patterns.csv")
@@ -470,6 +490,17 @@ def check_import_patterns(work: str) -> list[str]:
         ('@json:PUT https://x.kr/api?q={isbn13} => data.list => /#/detail/{id}', False),
         ('@json:POST https://x.kr/api => list => /d/{id}', False),                     # POST 본문 없음
         ('@json:GET https://x.kr/api?q={isbn13} => list', False),                      # 셋이 아님
+        # 폼 본문과 {libCode} (수원). 본문에 공백이 없으면 됩니다.
+        ('@json:POST https://x.kr/s manageCode={libCode}&searchTxt={isbn13} => R.LIST => /detail/{ISBN}/{book_key}', True),
+        # @anchor: — 제목 검색 결과에서 그 ISBN 이 적힌 항목의 링크. 안쪽 규칙의 조건을 그대로 받습니다.
+        ("@anchor:@onclick:fnSearchResultDetail", True),
+        ('@anchor-after:href="(/book/view\\?key=[^"]+)"', True),
+        ('@anchor:@template:regNo="([^"]+)" => detail.do?regNo={1}', True),
+        ("@anchor:", False),                                                           # 안쪽 규칙 없음
+        ("@anchor:@onclick:", False),
+        ("@anchor:@anchor:@onclick:fnDetail", False),                                  # 두 겹
+        ('@anchor:@json:GET https://x.kr/api?q={isbn13} => list => /d/{id}', False),   # JSON 은 도서관으로 고릅니다
+        ('@anchor:href="/book/view"', False),                                          # 그룹 없음
     ]
     for rule, want_ok in grammar:
         problem = od.pattern_problem(rule)
