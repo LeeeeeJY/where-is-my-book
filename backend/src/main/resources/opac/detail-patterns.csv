@@ -203,3 +203,7 @@ lib.jemulpo.go.kr,@template:name="reg_no" value="([^"]+)">\s*<input type="hidden
 
 # robots.txt 가 검색 경로를 별표 규칙으로 막는 세종·양주·성동·의정부의 상세 규칙은 뺐습니다 (2026-11-10). 서버가 받을 수 없는
 # 경로라 두어도 늘 검색 결과로 내려갑니다. 판정이 앞머리만 견주던 때에는 그 규칙을 읽지 못했습니다.
+# 부산도서관 통합 웹서비스. 구립·교육청 도서관의 자료검색이 이 호스트로 나갑니다 (2026-11-10). 앞 줄은 도서관마다 있는
+# <이름>books 사이트, 뒷줄은 도서관포털의 통합 검색이고 둘 다 분관 부호 하나로 좁힌 주소에만 겁니다.
+library.busan.go.kr?manage_code,@template:href="javascript:bookSearch\.goDetail\('([^']+)', '([^']+)', '([^']+)'\);" => collectionOfMaterialsView?reg_no={1}&manage_code={2}&rec_key={3}&book_type=BOOK
+library.busan.go.kr/portal?libraryCodes,href="(detail\.do\?[^"]*?regNo=[^"]*)"
