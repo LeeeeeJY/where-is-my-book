@@ -168,3 +168,19 @@ lib.gwangsan.go.kr?libCodeArr,@anchor:href=["'](/main/bookSearch/view/[^"']*)["'
 www.gaplib.go.kr?searchLibraryArr,@anchor:@onclick:fnSearchDetailView
 lib.ddc.go.kr?searchLibraryArr,@anchor:@onclick:fnSearchResultDetail
 www.saha.go.kr?manage_code,@anchor:@onclick:viewaction
+# 제목·ISBN 검색에서 멈추던 계열의 상세 규칙 (2026-11-10 오후). 경북교육청·전북교육청·인천교육청·칠곡은 제목 링크의
+# 속성값(vLoca·vCtrl·regNo·manageCode)을 주소틀에 끼우고, 강북은 화면이 부르는 JSON 검색을 대신 부릅니다.
+# 전북·인천교육청의 열쇠에 분관 칸이 없는 것은 사이트 경로가 분관으로 좁혀 주기 때문이고, 도서관마다 줄의 부호로 확인했습니다.
+www.gbelib.kr,@template:<a href="#" vLoca="(\d+)" vCtrl="(\d+)"[^>]*\bisbn="(\d*)"[^>]*class="name goDetail" => detail.do?vLoca={1}&vCtrl={2}&isbn={3}
+lib.jbe.go.kr,@anchor:@template:<a href="#"[^>]*\bisbn="([^"]*)"[^>]*\bregNo="([^"]*)"\s+manageCode="([^"]*)"[^>]*class="name goDetail => detail.do?regNo={2}&isbn={1}&manageCode={3}&booktype=BOOK
+lib.ice.go.kr,@anchor:@template:<a href="#"[^>]*\bisbn="([^"]*)"[^>]*\bregNo="([^"]*)"\s+manageCode="([^"]*)"[^>]*class="name goDetail => detail.do?regNo={2}&isbn={1}&manageCode={3}&booktype=BOOK
+library.chilgok.go.kr?manage_code,@template:<a href="#" vLoca="\d+" vCtrl="\d*"[^>]*\bisbn="([^"]*)"[^>]*\bregNo="([^"]*)"\s+manageCode="([^"]*)"\s+bookkey="([^"]*)"\s+libName="([^"]*)"\s+libCode="(\d+)" class="name goDetail => detail.do?regNo={2}&isbn={1}&menu_idx=349&manageCode={3}&bookkey={4}&booktype=BOOK&lib_name={5}&lib_code={6}
+usbl.bukgu.ulsan.kr?manage_code,@anchor:href=["'](\?manage_code=[^"']*)["']
+www.libyj.go.kr?searchLibraryArr,@onclick:fnSearchResultDetail
+www.gb.go.kr/lib,@anchor:@template:href="javascript:searchDetail\('(\d+)'\);" => /lib/solars/book/searchDetail.tc?mn=2355&pageSeq=1594&biblioId={1}&searchAt=Y
+www.gblib.or.kr/gangbuk,@json:POST https://www.gblib.or.kr/ajaxForKolas.do uri=list&a_lib=MA&a_qf=I&a_q={isbn13} => item => /gangbuk/search/detail.do?uri=list&a_lib=MA&a_key={key}&a_v=f
+www.gblib.or.kr/youth,@json:POST https://www.gblib.or.kr/ajaxForKolas.do uri=list&a_lib=MB&a_qf=I&a_q={isbn13} => item => /youth/search/detail.do?uri=list&a_lib=MB&a_key={key}&a_v=f
+www.gblib.or.kr/mia,@json:POST https://www.gblib.or.kr/ajaxForKolas.do uri=list&a_lib=MG&a_qf=I&a_q={isbn13} => item => /mia/search/detail.do?uri=list&a_lib=MG&a_key={key}&a_v=f
+www.gblib.or.kr/solsem,@json:POST https://www.gblib.or.kr/ajaxForKolas.do uri=list&a_lib=MC&a_qf=I&a_q={isbn13} => item => /solsem/search/detail.do?uri=list&a_lib=MC&a_key={key}&a_v=f
+www.gblib.or.kr/suyu,@json:POST https://www.gblib.or.kr/ajaxForKolas.do uri=list&a_lib=ME&a_qf=I&a_q={isbn13} => item => /suyu/search/detail.do?uri=list&a_lib=ME&a_key={key}&a_v=f
+www.gblib.or.kr/kids,@json:POST https://www.gblib.or.kr/ajaxForKolas.do uri=list&a_lib=MH&a_qf=I&a_q={isbn13} => item => /kids/search/detail.do?uri=list&a_lib=MH&a_key={key}&a_v=f
