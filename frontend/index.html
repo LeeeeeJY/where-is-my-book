@@ -6,10 +6,10 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="theme-color" content="#2f6f4f" />
 
-    <title>WIMB · Where Is My Book</title>
+    <title>WIMB · 여러 도서관 책 소장 통합 검색 | 도서관 책 찾기</title>
     <meta
       name="description"
-      content="자주 가는 공공도서관을 골라 두면, 읽고 싶은 책이 그중 어디에 있는지 한 번에 알려 줍니다."
+      content="전국 공공도서관에서 읽고 싶은 책이 어디에 있는지 한 번에 검색하세요. 자주 가는 도서관을 선택하면 책 소장 여부를 통합 조회하고, 대출 가능한 곳을 바로 확인할 수 있습니다. 한 권 검색, 여러 권 검색, 서가 둘러보기 등 다양한 기능을 무료로 이용하세요."
     />
 
     <!--
@@ -41,10 +41,10 @@
     <meta property="og:site_name" content="WIMB" />
     <meta property="og:locale" content="ko_KR" />
     <meta property="og:url" content="https://where-is-my-book.vercel.app/" />
-    <meta property="og:title" content="WIMB · 어느 도서관에 있는지 한 번에" />
+    <meta property="og:title" content="WIMB · 여러 도서관 책 소장 통합 검색 | 도서관 책 찾기" />
     <meta
       property="og:description"
-      content="자주 가는 공공도서관을 골라 두면, 읽고 싶은 책이 그중 어디에 있는지 한 번에 알려 줍니다."
+      content="전국 공공도서관에서 읽고 싶은 책이 어디에 있는지 한 번에 검색하세요. 자주 가는 도서관을 선택하면 책 소장 여부를 통합 조회하고, 대출 가능한 곳을 바로 확인할 수 있습니다."
     />
     <meta property="og:image" content="https://where-is-my-book.vercel.app/og.png" />
     <meta property="og:image:width" content="1200" />
@@ -52,15 +52,45 @@
     <meta property="og:image:alt" content="WIMB — 자주 가는 도서관을 골라 두면 읽고 싶은 책이 그중 어디에 있는지 알려 줍니다." />
 
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="WIMB · 어느 도서관에 있는지 한 번에" />
+    <meta name="twitter:title" content="WIMB · 여러 도서관 책 소장 통합 검색 | 도서관 책 찾기" />
     <meta
       name="twitter:description"
-      content="자주 가는 공공도서관을 골라 두면, 읽고 싶은 책이 그중 어디에 있는지 한 번에 알려 줍니다."
+      content="전국 공공도서관에서 읽고 싶은 책이 어디에 있는지 한 번에 검색하세요. 자주 가는 도서관을 선택하면 책 소장 여부를 통합 조회하고, 대출 가능한 곳을 바로 확인할 수 있습니다."
     />
     <meta name="twitter:image" content="https://where-is-my-book.vercel.app/og.png" />
+
+    <!-- JSON-LD 구조화 데이터 -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "WIMB - 여러 도서관 책 소장 통합 검색",
+      "alternateName": "WIMB",
+      "url": "https://where-is-my-book.vercel.app/",
+      "description": "전국 공공도서관에서 읽고 싶은 책이 어디에 있는지 한 번에 검색하세요. 자주 가는 도서관을 선택하면 책 소장 여부를 통합 조회하고, 대출 가능한 곳을 바로 확인할 수 있습니다.",
+      "applicationCategory": "UtilitiesApplication",
+      "operatingSystem": "Any",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "KRW"
+      },
+      "inLanguage": "ko",
+      "keywords": "도서관 통합 검색, 도서관 책 찾기, 여러 도서관 검색, 공공도서관, 책 소장 검색, 도서관 소장 확인"
+    }
+    </script>
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+
+    <!-- SEO: 서비스 소개 (실제로 보임) -->
+    <div id="seo-content" style="max-width: 1100px; margin: 0 auto; padding: 32px 16px 48px;">
+      <section style="padding: 14px 18px; background: #fdfaf3; border: 1px solid #ded4c1; border-radius: 8px; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 1px 2px rgba(36, 29, 20, 0.05); font-size: 13px; line-height: 1.65; color: #6e6354; text-align: center;">
+        <strong style="color: #241d14;">WIMB</strong>는 전국 공공도서관 통합 검색 서비스입니다. 
+        자주 가는 도서관을 선택하면 책이 어디에 있는지 한 번에 확인할 수 있습니다.
+        <a href="/faq" style="color: #2a5741; margin-left: 6px;">자주 묻는 질문 →</a>
+      </section>
+    </div>
   </body>
 </html>

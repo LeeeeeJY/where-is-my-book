@@ -16,6 +16,9 @@
     <loc>https://where-is-my-book.vercel.app/</loc>
   </url>
   <url>
+    <loc>https://where-is-my-book.vercel.app/faq</loc>
+  </url>
+  <url>
     <loc>https://where-is-my-book.vercel.app/privacy</loc>
   </url>
 </urlset>
