@@ -171,12 +171,62 @@ def main() -> int:
     failures += check_import_patterns(work)
     failures += check_gaps(work)
     failures += check_unescape()
+    failures += check_robots(ports["normal"])
 
     if failures:
         print(f"\n실패: {', '.join(failures)}")
         return 1
     print("\n전부 통과했습니다.")
     return 0
+
+
+def check_robots(port: int) -> list[str]:
+    """robots.txt 를 「받았는데 없다」와 「받지 못했다」를 가릅니다.
+
+    받지 못한 것을 빈 목록으로 돌려주던 때에는 모르는 것이 「제한 없음」으로 읽혀, robots.txt 가
+    `Disallow: /` 인 곳(오산·영천·순창)을 조사 도구가 그대로 조사했습니다(2026-11-10).
+    """
+    pacer = od.Pacer(0.0)
+    cases = [
+        ("받은 규칙", od.robots_rules(f"http://127.0.0.1:{port}/", pacer), ["/admin"]),
+        # 아무도 듣지 않는 포트입니다. http 도 https 도 붙지 못합니다.
+        ("받지 못하면 모름", od.robots_rules("http://127.0.0.1:9/", pacer), None),
+        ("모르면 전부 막힘", od.robots_disallows("http://127.0.0.1:9/", pacer), ["/"]),
+        ("본문 읽기", od.parse_robots("User-agent: Yeti\nDisallow: /a\nUser-agent: *\nDisallow: /\n"), ["/"]),
+        ("이름 붙은 봇의 규칙은 우리 것이 아님",
+         od.parse_robots("User-agent: *\nDisallow: /x\nUser-agent: Googlebot\nDisallow: /y\n"), ["/x"]),
+    ]
+    failures = []
+    for name, got, want in cases:
+        ok = got == want
+        print(f"  {'✓' if ok else '✗'} robots: {name}  {got}")
+        if not ok:
+            failures.append(f"robots: {name}")
+    # 별표와 달러. 서버의 DetailResolverTest.robotsWildcards 와 같은 경우들입니다.
+    for rule, target, want in [
+        ("/search", "/search?q=1", True),
+        ("/admin", "/search", False),
+        ("/*/intro/search/", "/main/intro/search/index.do?menu_idx=9", True),    # 의정부
+        ("/*/intro/search/", "/main/intro/guide.do", False),
+        ("/*/program/*Search*.do$", "/soriul/program/plusSearchResultList.do", True),   # 오산
+        ("/*/program/*Search*.do$", "/soriul/program/plusSearchResultList.do?q=1", False),
+        ("*/api/bookDetail/", "/x/api/bookDetail/1", True),
+        ("/a.b", "/axb", False),
+    ]:
+        got = od.robots_match(rule, target)
+        ok = got == want
+        print(f"  {'✓' if ok else '✗'} robots: {rule}  ↔  {target}  → {got}")
+        if not ok:
+            failures.append(f"robots: {rule}")
+    ok = od.blocked("https://x.kr/main/intro/search/index.do?isbn=1", ["/*/intro/search/"])
+    print(f"  {'✓' if ok else '✗'} robots: 별표 규칙이 막은 주소")
+    if not ok:
+        failures.append("robots: 별표 규칙")
+    ok = od.blocked("http://127.0.0.1:9/any/path", od.robots_disallows("http://127.0.0.1:9/", pacer))
+    print(f"  {'✓' if ok else '✗'} robots: 못 받은 호스트의 경로는 막힌 것으로 본다")
+    if not ok:
+        failures.append("robots: 못 받은 호스트")
+    return failures
 
 
 def check_unescape() -> list[str]:
@@ -423,6 +473,8 @@ def check_import_patterns(work: str) -> list[str]:
         ("분관으로 좁힌 검색", "https://lib.paju.go.kr/grlib/list.do?searchLibraryArr=MM&q={title}", "lib.paju.go.kr?searchLibraryArr"),
         ("통합 검색(ALL)", "https://lib.paju.go.kr/gclib/list.do?searchLibrary=ALL&q={title}", None),
         ("칸은 있고 값이 빔", "https://lib.paju.go.kr/x/list.do?searchLibraryArr=&q={title}", None),
+        ("분관을 여러 번 늘어놓음", "https://lib.paju.go.kr/x/list.do?searchLibraryArr=MA&searchLibraryArr=BR&q={title}", None),
+        ("분관을 쉼표로 늘어놓음", "https://lib.paju.go.kr/x/list.do?searchLibraryArr=MA%2CBR&q={title}", None),
         ("경로가 긴 열쇠가 이김", "https://LIB.paju.go.kr/small/list.do?searchLibraryArr=MM", "lib.paju.go.kr/small"),
         ("포트는 뗌", "http://lib.other.kr:8080/s?q=1", "lib.other.kr"),
     ]:

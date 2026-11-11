@@ -710,10 +710,32 @@ public final class DetailResolver {
             robots.put(origin, rules);
         }
         String path = search.getRawPath() == null || search.getRawPath().isEmpty() ? "/" : search.getRawPath();
+        String target = search.getRawQuery() == null ? path : path + "?" + search.getRawQuery();
         for (String rule : rules.disallows()) {
-            if (path.startsWith(rule)) return true;
+            if (robotsMatches(rule, target)) return true;
         }
         return false;
+    }
+
+    /**
+     * {@code Disallow} 규칙 하나가 그 경로(질의 포함)에 걸리는지. {@code *} 는 아무 글자열이고 끝의
+     * {@code $} 는 「여기서 끝난다」입니다. 둘 다 없으면 앞머리 견주기입니다.
+     *
+     * <p>앞머리만 견주던 때에는 의정부의 {@code Disallow: /}{@code *}{@code /intro/search/} 를 읽지 못해
+     * 막힌 검색 경로를 받고 있었습니다. 조사 스크립트의 {@code robots_match} 와 같은 판정입니다.
+     * <b>한쪽을 고치면 다른 쪽도 고치세요.</b>
+     */
+    static boolean robotsMatches(String rule, String target) {
+        boolean anchored = rule.endsWith("$");
+        String body = anchored ? rule.substring(0, rule.length() - 1) : rule;
+        String[] parts = body.split("\\*", -1);
+        StringBuilder regex = new StringBuilder();
+        for (int i = 0; i < parts.length; i++) {
+            if (i > 0) regex.append(".*");
+            regex.append(Pattern.quote(parts[i]));
+        }
+        if (!anchored) regex.append(".*");
+        return Pattern.compile(regex.toString(), Pattern.DOTALL).matcher(target).matches();
     }
 
     private List<String> fetchDisallows(URI robotsUrl) {

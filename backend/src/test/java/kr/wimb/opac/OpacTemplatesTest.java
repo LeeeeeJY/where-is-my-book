@@ -344,6 +344,22 @@ class OpacTemplatesTest {
     }
 
     @Test
+    @DisplayName("분관을 여럿 늘어놓은 검색은 칸이 있어도 좁힌 것이 아니다")
+    void severalBranchesAreNotNarrowed() {
+        // 연천·광산은 칸을 여러 번, 사하는 쉼표로 분관을 전부 늘어놓습니다. 통합 검색과 같습니다.
+        assertTrue(OpacTemplates.hasParam("https://x.kr/s?searchLibraryArr=MA&q={title}", "searchLibraryArr"));
+        assertFalse(OpacTemplates.hasParam("https://x.kr/s?searchLibraryArr=MA&searchLibraryArr=BR&q={title}", "searchLibraryArr"));
+        assertFalse(OpacTemplates.hasParam("https://x.kr/s?manage_code=BC%2CCE%2CGS&q={title}", "manage_code"));
+        assertFalse(OpacTemplates.hasParam("https://x.kr/s?manage_code=BC,CE&q={title}", "manage_code"));
+        assertFalse(OpacTemplates.hasParam("https://x.kr/s?searchLibraryArr=&q={title}", "searchLibraryArr"));
+        assertFalse(OpacTemplates.hasParam("https://x.kr/s?q={title}", "searchLibraryArr"));
+        // 이름이 다른 칸에 같은 글자가 들어 있어도 그 칸이 아닙니다.
+        assertFalse(OpacTemplates.hasParam("https://x.kr/s?xsearchLibraryArr=MA", "searchLibraryArr"));
+        // 조각(#) 뒤는 질의가 아닙니다.
+        assertFalse(OpacTemplates.hasParam("https://x.kr/s?q=1#searchLibraryArr=MA", "searchLibraryArr"));
+    }
+
+    @Test
     @DisplayName("칸 이름은 대소문자를 가리고, 같은 경로면 칸 조건이 붙은 열쇠가 이긴다")
     void requiredParamIsCaseSensitiveAndMoreSpecific() {
         var templates = with(List.of(

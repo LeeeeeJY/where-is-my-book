@@ -559,6 +559,33 @@ def best_note(notes: list[str]) -> str:
     return notes[-1] if notes else "주소에 검색어가 남지 않습니다"
 
 
+def robots_via_browser(browser, home: str, pacer, timeout: float) -> list[str] | None:
+    """파이썬이 붙지 못한 호스트의 robots.txt 를 브라우저로 읽습니다. 못 읽으면 None.
+
+    두 스킴을 다 해 봅니다. 받았는데 robots.txt 가 아니면(404, HTML) 제한이 없는 것입니다.
+    """
+    parsed = urllib.parse.urlparse(home)
+    schemes = [parsed.scheme] + [s for s in ("https", "http") if s != parsed.scheme]
+    for scheme in schemes:
+        context = browser.new_context()
+        try:
+            page = context.new_page()
+            pacer.wait(parsed.netloc)
+            response = page.goto(f"{scheme}://{parsed.netloc}/robots.txt",
+                                 timeout=min(timeout, 15) * 1000, wait_until="domcontentloaded")
+            if response is None:
+                continue
+            body = response.text()
+            if response.status != 200 or "<html" in body[:200].lower():
+                return []
+            return od.parse_robots(body)
+        except Exception:
+            continue
+        finally:
+            context.close()
+    return None
+
+
 def investigate(browser, key: str, members: list[dict], rep: dict, books: list[str],
                 pacer, timeout: float) -> dict:
     """묶음 하나. 예외가 새어 나가면 수백 묶음짜리 조사가 통째로 죽습니다."""
@@ -573,7 +600,15 @@ def investigate(browser, key: str, members: list[dict], rep: dict, books: list[s
         return out
 
     host = urllib.parse.urlparse(home).netloc
-    disallows = od.robots_disallows(f"{urllib.parse.urlparse(home).scheme}://{host}/", pacer)
+    disallows = od.robots_rules(f"{urllib.parse.urlparse(home).scheme}://{host}/", pacer)
+    if disallows is None:
+        # 파이썬이 그 호스트에 붙지 못한 것입니다(인증서 사슬이 끊긴 곳이 흔합니다). 브라우저는
+        # 붙는 일이 많으므로 한 번 더 읽어 봅니다. 그래도 못 읽으면 **모르는 채로 조사하지
+        # 않습니다.** 예전에는 「제한 없음」으로 넘어가 robots.txt 가 Disallow: / 인 곳을 조사했습니다.
+        disallows = robots_via_browser(browser, home, pacer, timeout)
+    if disallows is None:
+        out["note"] = "robots.txt 를 받지 못해 조사하지 않았습니다"
+        return out
     if od.blocked(home, disallows):
         # 프로그램이 도는 조사라 **홈페이지부터** 지킵니다. 예전에는 홈페이지를 열고 검색까지 해
         # 본 뒤에야 결과 주소가 막힌 것을 알았습니다(이천·동작·김해·연수·거제). 그런 곳은 사람이
@@ -585,7 +620,17 @@ def investigate(browser, key: str, members: list[dict], rep: dict, books: list[s
     try:
         page = context.new_page()
         pacer.wait(host)
-        page.goto(home, timeout=timeout * 1000, wait_until="domcontentloaded")
+        try:
+            page.goto(home, timeout=timeout * 1000, wait_until="domcontentloaded")
+        except Exception:
+            # 정보나루에 `http://` 로 등록된 홈페이지 가운데 그 주소로는 답하지 않고 `https://` 로만
+            # 열리는 곳이 있습니다(서울도서관·진주·완주·광주 남구 등). 그대로 두면 「시간 초과」로
+            # 끝나 접속할 수 없는 곳처럼 읽힙니다. 스킴만 바꿔 한 번 더 엽니다.
+            if not home.startswith("http://"):
+                raise
+            home = "https://" + home[len("http://"):]
+            pacer.wait(host)
+            page.goto(home, timeout=timeout * 1000, wait_until="domcontentloaded")
         # 자바스크립트 앱(강서·시흥)은 첫 HTML 에 검색창이 없고 그린 뒤에야 생깁니다. 조용해질
         # 때까지 기다린 뒤에 봅니다. 기다리다 넘겨도 그때까지 그린 것으로 봅니다.
         try:

@@ -84,7 +84,7 @@ public final class OpacTemplates {
         }
 
         /**
-         * 열쇠에 {@code ?칸이름} 이 붙어 있으면 그 이름. <b>검색 주소에 그 칸이 값과 함께 있을 때만</b>
+         * 열쇠에 {@code ?칸이름} 이 붙어 있으면 그 이름. <b>검색 주소에 그 칸이 값 하나로 있을 때만</b>
          * 이 규칙을 씁니다. {@code www.l4d.or.kr?searchLibraryArr} 는 분관 부호가 붙은 검색에만
          * 걸리고, 같은 호스트의 {@code searchLibrary=ALL}(통합 검색)에는 걸리지 않습니다.
          */
@@ -457,9 +457,17 @@ public final class OpacTemplates {
     }
 
     /**
-     * 주소의 질의에 그 칸이 <b>비어 있지 않은 값으로</b> 있는지. 마포 작은도서관의 통합 검색은
-     * {@code searchLibraryArr=&searchKeyword=…} 처럼 칸은 있고 값이 비어 있습니다. 그것은 분관으로
-     * 좁힌 것이 아닙니다.
+     * 주소의 질의에 그 칸이 <b>값 하나로</b> 있는지. 「분관 하나로 좁힌 검색」이라는 뜻입니다.
+     *
+     * <p>셋은 좁힌 것이 아닙니다.
+     * <ul>
+     *   <li>칸은 있고 값이 빈 것. 마포 작은도서관의 통합 검색이 {@code searchLibraryArr=&searchKeyword=…}
+     *       입니다.</li>
+     *   <li>칸이 여러 번 나오는 것. 연천과 광산의 통합 검색은 {@code searchLibraryArr=MA&searchLibraryArr=BR&…}
+     *       처럼 분관을 전부 늘어놓습니다.</li>
+     *   <li>값에 쉼표가 든 것. 사하는 {@code manage_code=BC%2CCE%2CGS…} 로 늘어놓습니다.</li>
+     * </ul>
+     * 셋 다 결과에 여러 분관의 소장본이 섞여 있어, 닻만으로는 누른 분관의 줄을 가를 수 없습니다.
      */
     static boolean hasParam(String url, String name) {
         int q = url.indexOf('?');
@@ -467,11 +475,16 @@ public final class OpacTemplates {
         String query = url.substring(q + 1);
         int hash = query.indexOf('#');
         if (hash >= 0) query = query.substring(0, hash);
+        int seen = 0;
+        boolean single = false;
         for (String pair : query.split("&")) {
             int eq = pair.indexOf('=');
-            if (eq > 0 && pair.substring(0, eq).equals(name) && eq + 1 < pair.length()) return true;
+            if (eq <= 0 || !pair.substring(0, eq).equals(name)) continue;
+            seen++;
+            String value = pair.substring(eq + 1);
+            single = !value.isEmpty() && !value.contains(",") && !value.toLowerCase(Locale.ROOT).contains("%2c");
         }
-        return false;
+        return seen == 1 && single;
     }
 
     /**

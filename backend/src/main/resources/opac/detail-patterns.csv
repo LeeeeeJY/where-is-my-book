@@ -39,12 +39,10 @@
 # 잡히지 않고 검색 결과로 내려갑니다(조사 스크립트가 서버와 같은 방식으로 받아 확인합니다).
 #
 # 예) www.example-lib.kr,href=["'](/bookDetail/[^"']+)["']
-www.unilib.dobong.kr,href=["'](\?manage_code=[^"']*)["']
-www.uilib.go.kr/english,href=["'](detail\.do\?menu_idx=89&isbn=[^"']*)["']
-www.uilib.go.kr/main,href=["'](detail\.do\?menu_idx=9&isbn=[^"']*)["']
-library.suncheon.go.kr,href=["'](/lib/book/search/searchView\.do\?menuCd=L001001001&regNo=[^"']*)["']
-library.gyeongju.go.kr,href=["'](/\?page_id=search_bookdetail&mode=bDetailView&pre_page_id=search_booklist&manageCode=[^"']*)["']
-lib.gwangyang.go.kr,href=["'](/lib/book/search/searchView\.do\?menuCd=L001001001&regNo=[^"']*)["']
+www.unilib.dobong.kr?manage_code,href=["'](\?manage_code=[^"']*)["']
+library.suncheon.go.kr?manageCd,href=["'](/lib/book/search/searchView\.do\?menuCd=L001001001&regNo=[^"']*)["']
+library.gyeongju.go.kr?manage_code,href=["'](/\?page_id=search_bookdetail&mode=bDetailView&pre_page_id=search_booklist&manageCode=[^"']*)["']
+lib.gwangyang.go.kr?manageCd,href=["'](/lib/book/search/searchView\.do\?menuCd=L001001001&regNo=[^"']*)["']
 gjlib.cne.go.kr,href=["'](/api/srch/bookDetail\.do\?regNo=[^"']*)["']
 yglib.cne.go.kr,href=["'](/api/srch/bookDetail\.do\?regNo=[^"']*)["']
 chsl.cne.go.kr,href=["'](/api/srch/bookDetail\.do\?regNo=[^"']*)["']
@@ -57,7 +55,7 @@ sclib.cne.go.kr,href=["'](/api/srch/bookDetail\.do\?regNo=[^"']*)["']
 aslib.cne.go.kr,href=["'](/api/srch/bookDetail\.do\?regNo=[^"']*)["']
 yslib.cne.go.kr,href=["'](/api/srch/bookDetail\.do\?regNo=[^"']*)["']
 shlib.cne.go.kr,href=["'](/api/srch/bookDetail\.do\?regNo=[^"']*)["']
-libsearch.jecheon.go.kr,href=["'](/bookDetail\.do\?bookKey=[^"']*)["']
+libsearch.jecheon.go.kr?manageCode,href=["'](/bookDetail\.do\?bookKey=[^"']*)["']
 lib.gwe.go.kr/gnecc,href=["'](/gnecc/menu/234/book/view/[^"']*)["']
 lib.gwe.go.kr/dhlib,href=["'](/dhlib/menu/3025/book/view/[^"']*)["']
 lib.gwe.go.kr/mjlib,href=["'](/mjlib/menu/2251/book/view/[^"']*)["']
@@ -72,14 +70,14 @@ lib.gwe.go.kr/pclib,href=["'](/pclib/menu/3197/book/view/[^"']*)["']
 lib.gwe.go.kr/hwlib,href=["'](/hwlib/menu/3111/book/view/[^"']*)["']
 lib.gwe.go.kr/hslib,href=["'](/hslib/menu/2939/book/view/[^"']*)["']
 lib.wonju.go.kr,href=["'](/mr/menu/840/book/view/[^"']*)["']
-gjl.gimje.go.kr,@onclick:viewDetail
+gjl.gimje.go.kr?manage_code,@onclick:viewDetail
 lib.gunsan.go.kr,@onclick:fnDetail
-lib.jeonju.go.kr,@onclick:viewDetail
-lib.junggu.ulsan.kr,@onclick:fn_view
+lib.jeonju.go.kr?manage_code,@onclick:viewDetail
+lib.junggu.ulsan.kr?manage_code,@onclick:fn_view
 www.eplib.or.kr,@onclick:fnDetail
 www.goyanglib.or.kr,@onclick:fnDetail
-www.ulsannamgu.go.kr,@onclick:goArticle
-www.sblib.seoul.kr,@onclick:fnSearchDetailView
+www.ulsannamgu.go.kr?searchManageCode,@onclick:goArticle
+www.sblib.seoul.kr?categoryManageCode,@onclick:fnSearchDetailView
 www.hscitylib.or.kr,@onclick:fnDetail
 sejong.nl.go.kr,href=["'](/search/searchDetail\.do\?rec_key=[^"']*)["']
 public.seocholib.or.kr,@json:POST https://public.seocholib.or.kr/api/search/seocho {"searchKeyword":"{isbn13}","page":"1","display":"100","article":"SCORE","order":"DESC","manageCode":["ALL"],"pubFormCode":"ALL","signal":{}} => contents.bookList => /bookDetail/{pubFormCode}/{bookKey}/{speciesKey}/{isbn}
@@ -142,7 +140,7 @@ life.sje.go.kr,@json:POST https://life.sje.go.kr/api/book/booksearch {"manage_co
 # (searchLibrary=ALL)에 걸리면 남의 분관 소장본으로 갑니다. 파주·강남·평택에 실제로 그런 주소가 섞여
 # 있습니다. 칸 조건이 없는 둘은 사람이 결과를 보고 넣은 것입니다. 성동은 사이트 경로(/KH/ 등)가
 # 분관으로 좁혀 주고, 원주는 상세 화면이 서지 단위라 전 분관의 소장본을 함께 보여 줍니다.
-# 부평·사하는 전부 통합 검색이라 넣지 않았습니다.
+# 부평·사하는 처음에 전부 통합 검색이라 넣지 않았다가, 주소를 분관으로 좁힌 뒤에 아래에 넣었습니다.
 www.l4d.or.kr?searchLibraryArr,@anchor:@onclick:fnSearchResultDetail
 library.gangnam.go.kr?searchLibraryArr,@anchor:@onclick:fnSearchResultDetail
 lib.paju.go.kr?searchLibraryArr,@anchor:@onclick:fnSearchResultDetail
@@ -157,5 +155,56 @@ lib.pocheon.go.kr?searchLibraryArr,@anchor:@onclick:fnSearchResultDetail
 www.ydplib.or.kr?searchLibraryArr,@anchor:@onclick:fnSearchResultDetail
 lib.wonju.go.kr/sm,@anchor-after:href=["'](/sm/menu/1094/book/view/[^"']*)["']
 www.hscitylib.or.kr/srlib?searchManageCodeArr,@anchor:@onclick:fnDetail
-lib.sejong.go.kr?manage_code,@anchor:href=["'](\?manage_code=[^"']*)["']
-www.sdlib.or.kr,@anchor:href=["'](\?manage_code=[^"']*)["']
+# 통합 검색을 분관으로 좁힌 주소에만 거는 닻 규칙입니다 (2026-11-10). 좁히지 않은 주소에는 걸리지 않습니다.
+www.yjlib.go.kr?searchLibraryArr,@anchor:@onclick:fnSearchResultDetail
+library.yeoncheon.go.kr?searchLibraryArr,@anchor:@onclick:fnSearchResultDetail
+www.bppl.or.kr?searchLibraryArr,@anchor:@onclick:fnSearchResultDetail
+www.donghaelib.go.kr?searchLibraryArr,@anchor:@onclick:fnSearchResultDetail
+lib.gwangsan.go.kr?libCodeArr,@anchor:href=["'](/main/bookSearch/view/[^"']*)["']
+www.gaplib.go.kr?searchLibraryArr,@anchor:@onclick:fnSearchDetailView
+lib.ddc.go.kr?searchLibraryArr,@anchor:@onclick:fnSearchResultDetail
+www.saha.go.kr?manage_code,@anchor:@onclick:viewaction
+# 제목·ISBN 검색에서 멈추던 계열의 상세 규칙 (2026-11-10 오후). 경북교육청·전북교육청·인천교육청·칠곡은 제목 링크의
+# 속성값(vLoca·vCtrl·regNo·manageCode)을 주소틀에 끼우고, 강북은 화면이 부르는 JSON 검색을 대신 부릅니다.
+# 전북·인천교육청의 열쇠에 분관 칸이 없는 것은 사이트 경로가 분관으로 좁혀 주기 때문이고, 도서관마다 줄의 부호로 확인했습니다.
+www.gbelib.kr,@template:<a href="#" vLoca="(\d+)" vCtrl="(\d+)"[^>]*\bisbn="(\d*)"[^>]*class="name goDetail" => detail.do?vLoca={1}&vCtrl={2}&isbn={3}
+lib.jbe.go.kr,@anchor:@template:<a href="#"[^>]*\bisbn="([^"]*)"[^>]*\bregNo="([^"]*)"\s+manageCode="([^"]*)"[^>]*class="name goDetail => detail.do?regNo={2}&isbn={1}&manageCode={3}&booktype=BOOK
+lib.ice.go.kr,@anchor:@template:<a href="#"[^>]*\bisbn="([^"]*)"[^>]*\bregNo="([^"]*)"\s+manageCode="([^"]*)"[^>]*class="name goDetail => detail.do?regNo={2}&isbn={1}&manageCode={3}&booktype=BOOK
+library.chilgok.go.kr?manage_code,@template:<a href="#" vLoca="\d+" vCtrl="\d*"[^>]*\bisbn="([^"]*)"[^>]*\bregNo="([^"]*)"\s+manageCode="([^"]*)"\s+bookkey="([^"]*)"\s+libName="([^"]*)"\s+libCode="(\d+)" class="name goDetail => detail.do?regNo={2}&isbn={1}&menu_idx=349&manageCode={3}&bookkey={4}&booktype=BOOK&lib_name={5}&lib_code={6}
+usbl.bukgu.ulsan.kr?manage_code,@anchor:href=["'](\?manage_code=[^"']*)["']
+www.gb.go.kr/lib,@anchor:@template:href="javascript:searchDetail\('(\d+)'\);" => /lib/solars/book/searchDetail.tc?mn=2355&pageSeq=1594&biblioId={1}&searchAt=Y
+www.gblib.or.kr/gangbuk,@json:POST https://www.gblib.or.kr/ajaxForKolas.do uri=list&a_lib=MA&a_qf=I&a_q={isbn13} => item => /gangbuk/search/detail.do?uri=list&a_lib=MA&a_key={key}&a_v=f
+www.gblib.or.kr/youth,@json:POST https://www.gblib.or.kr/ajaxForKolas.do uri=list&a_lib=MB&a_qf=I&a_q={isbn13} => item => /youth/search/detail.do?uri=list&a_lib=MB&a_key={key}&a_v=f
+www.gblib.or.kr/mia,@json:POST https://www.gblib.or.kr/ajaxForKolas.do uri=list&a_lib=MG&a_qf=I&a_q={isbn13} => item => /mia/search/detail.do?uri=list&a_lib=MG&a_key={key}&a_v=f
+www.gblib.or.kr/solsem,@json:POST https://www.gblib.or.kr/ajaxForKolas.do uri=list&a_lib=MC&a_qf=I&a_q={isbn13} => item => /solsem/search/detail.do?uri=list&a_lib=MC&a_key={key}&a_v=f
+www.gblib.or.kr/suyu,@json:POST https://www.gblib.or.kr/ajaxForKolas.do uri=list&a_lib=ME&a_qf=I&a_q={isbn13} => item => /suyu/search/detail.do?uri=list&a_lib=ME&a_key={key}&a_v=f
+www.gblib.or.kr/kids,@json:POST https://www.gblib.or.kr/ajaxForKolas.do uri=list&a_lib=MH&a_qf=I&a_q={isbn13} => item => /kids/search/detail.do?uri=list&a_lib=MH&a_key={key}&a_v=f
+# 완주는 부천과 같은 시스템이고 포트가 31824 입니다. 목록의 libCode 가 정보나루 도서관부호라 누른 분관의 소장본으로 갑니다 (2026-11-10).
+lib.wanju.go.kr,@json:POST https://lib.wanju.go.kr:31824/api/search {"searchKeyword":"{isbn13}","pubFormCode":"ALL","page":"1","display":"100","article":"SCORE","order":"DESC","manageCode":"ALL"} => contents.bookList => /singleBook/{bookKey}/{speciesKey}/{isbn}
+www.seocheon.go.kr?searchLibraryArr,@anchor:@onclick:fnSearchResultDetail
+# ISBN 검색에서 멈추던 계열의 상세 규칙 (2026-11-10 오후). 양산은 분관 부호 하나로 좁힌 검색에만 겁니다. 인천 서구는 목록의
+# libCode 가 정보나루 도서관부호입니다. 부산 북구는 화명을 뺀 금곡·만덕에만 겁니다(화명은 첫 줄이 다른 책인 경우를 봤습니다).
+lib.yangsan.go.kr?search_manage_code,@template:onclick="javascript:dataDetail\('([A-Za-z0-9]+)'\);" => /YS/search/bookdetail.do?regNo={1}
+www.issl.go.kr,@json:POST https://www.issl.go.kr/sch/bsch/reSearchList.do searchLibMngCd=ALL&searchKeyword={isbn13}&contTypeCode=ALL&searchReKeyword=&pageNo=1 => bookList => /sch/bkdt/{bookKey}/{speciesKey}/{isbn}.do?mnidx=1597
+www.bsbukgu.go.kr/bglib,@template:action="/\w+/index\.bsbukgu\?menuCd=(\w+)"[\s\S]*?onclick="fn_view\('([A-Z0-9]+)', '(\w+)'\);" => index.bsbukgu?menuCd={1}&mode=view&reg_no={2}&currentLibraryPath={3}&libraryPath={3}
+www.bsbukgu.go.kr/mdlib,@template:action="/\w+/index\.bsbukgu\?menuCd=(\w+)"[\s\S]*?onclick="fn_view\('([A-Z0-9]+)', '(\w+)'\);" => index.bsbukgu?menuCd={1}&mode=view&reg_no={2}&currentLibraryPath={3}&libraryPath={3}
+lib.namhae.go.kr,@template:name="beforequery" value="\s*SIB:(\d{13})"[\s\S]*?href="javascript:detailview\('(\d+)','(\w)',''\)" => detailview_result.do?sort=RK+DESC&beforequery=+SIB%3A{1}&msa={3}&offset={2}&maxoffset=1&jongbook=&historycount=0&book_code=
+library.busan.go.kr/busanlibrary,href="(detail\.do\?menu_idx=71&(?:amp;)?isbn=[^"]*?regNo=[^"]*)"
+lib.wonju.go.kr/ja,href=["'](/ja/menu/234/book/view/[^"']*)["']
+# 안동은 분관으로 좁힌 ISBN 검색의 제목 링크 속성값을 주소틀에 끼웁니다 (2026-11-10 오후).
+lib.andong.go.kr,@template:isbn="(\d{13})" tid="[^"]*" regNo="([^"]+)" manageCode="([A-Z0-9]+)" class="[^"]*goDetail => /andonglibrary/intro/search/detail.do?regNo={2}&isbn={1}&menu_idx=349&manageCode={3}
+# 규칙이 없던 곳에서 얻은 상세 규칙 (2026-11-10 오후). 울산도서관의 열쇠에 ?display 가 붙은 것은 같은 포털 주소를 쓰는
+# 다른 울산 도서관들의 결과에는 상세 링크가 없어서, 울산도서관 주소에만 걸리게 하려는 것입니다.
+www.haeundae.go.kr/library,href="(/library/index\.do\?menuCd=DOM_000001001001002000[^"]*)"
+www.bsdonggu.go.kr,@onclick:fn_go_detail
+library.ulsan.go.kr?display,@onclick:fn_view
+lib.jeongseon.go.kr,@json:GET https://lib.jeongseon.go.kr/api/search/total?manage_code=MA%2CMB&search_txt={isbn13}&book_type=BOOK&pageno=1&display=10&search_type=normal => LIST_DATA => /search/books/detail/{BOOK_KEY}?bookManageCode={MANAGE_CODE}&menuIds=3,4
+lib.jemulpo.go.kr,@template:name="reg_no" value="([^"]+)">\s*<input type="hidden" id="species_key" name="species_key" value="([^"]+)">\s*<input type="hidden" id="lib_code" name="lib_code" value="([^"]+)"> => /libsearch/book/bookSearchDetail.do?species_key={2}&reg_no={1}&lib_code={3}
+
+# robots.txt 가 검색 경로를 별표 규칙으로 막는 세종·양주·성동·의정부의 상세 규칙은 뺐습니다 (2026-11-10). 서버가 받을 수 없는
+# 경로라 두어도 늘 검색 결과로 내려갑니다. 판정이 앞머리만 견주던 때에는 그 규칙을 읽지 못했습니다.
+# 부산도서관 통합 웹서비스. 구립·교육청 도서관의 자료검색이 이 호스트로 나갑니다 (2026-11-10). 앞 줄은 도서관마다 있는
+# <이름>books 사이트, 뒷줄은 도서관포털의 통합 검색이고 둘 다 분관 부호 하나로 좁힌 주소에만 겁니다.
+library.busan.go.kr?manage_code,@template:href="javascript:bookSearch\.goDetail\('([^']+)', '([^']+)', '([^']+)'\);" => collectionOfMaterialsView?reg_no={1}&manage_code={2}&rec_key={3}&book_type=BOOK
+library.busan.go.kr/portal?libraryCodes,href="(detail\.do\?[^"]*?regNo=[^"]*)"
+www.gunpolib.go.kr?branch,@json:GET https://www.gunpolib.go.kr/pyxis-api/1/collections/1/search?all=1%7Ck%7Ca%7C{isbn13}&facet=false&max=10&branch=6 => data.list => /#/search/detail/{id}
