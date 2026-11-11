@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiUnavailable, fetchHoldings, libraryLink, resolveLines } from '../api';
+import { editionLine } from '../domain/editionLabels';
 import type { LineResult, WorkResult } from '../api';
 import { olderAsOf } from '../domain/asOf';
 import { holdingState } from '../domain/holdingState';
@@ -661,6 +662,15 @@ function LineRow({
                       <span className="pick__meta muted">
                         {[candidate.author, candidate.publisher].filter(Boolean).join(' · ')}
                       </span>
+                      {/*
+                        표제·저자·출판사가 똑같은 후보가 둘 나올 수 있습니다. 큰글자책 판이
+                        그렇고, 이 줄이 없으면 어느 쪽을 고르는지 알 길이 없습니다.
+                      */}
+                      {editionLine(candidate.editionLabels) && (
+                        <span className="pick__meta muted">
+                          {editionLine(candidate.editionLabels)}
+                        </span>
+                      )}
                     </span>
                     {i === row.chosen && <span className="pick__tag">✓ 지금 고른 책</span>}
                   </button>
@@ -728,6 +738,10 @@ function ChosenBook({ work, tag, tagTitle }: { work: WorkResult; tag: string; ta
           {[work.author, work.publisher].filter(Boolean).join(' · ')}
           {work.isbn13List.length > 1 && ` · 판본 ${work.isbn13List.length}개`}
         </span>
+        {/* 후보에서 보고 고른 이름표가 고른 뒤에 사라지면 무엇을 골랐는지 다시 모릅니다. */}
+        {editionLine(work.editionLabels) && (
+          <span className="pick__meta muted">{editionLine(work.editionLabels)}</span>
+        )}
       </span>
       <span className="pick__tag" title={tagTitle}>✓ {tag}</span>
       {/*

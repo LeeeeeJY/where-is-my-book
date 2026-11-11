@@ -122,6 +122,88 @@ class SearchDocBuilderTest {
         assertEquals(List.of("특별판 (2010)"), docs.get(0).editionLabels());
     }
 
+    /**
+     * <b>표제·저자·출판사가 똑같은 줄이 둘 나가고 있었습니다.</b> 정보나루가 민음사 「이방인」의
+     * 큰글자책 판을 「이방인 :큰글자책 」으로 주는데(2026-11-10), 그 표기가 부제로 갈려 나가
+     * 표제에는 「이방인」만 남습니다. 저작은 따로 서 있으므로 소장이 섞이지는 않지만, 어느 줄이
+     * 큰글자책인지 화면에서 알 길이 없었습니다.
+     */
+    @Test
+    @DisplayName("부제로 갈려 나간 각색 표기는 이름표로 드러낸다")
+    void labelsAdaptationsHiddenInTheSubtitle() {
+        var docs = buildVia(List.of(
+                book("9788937462665", "이방인 ", "지은이: 알베르 카뮈 ;옮긴이: 김화영"),
+                book("9788937448836", "이방인 :큰글자책 ", "지은이: 알베르 카뮈 ;옮긴이: 김화영")));
+
+        assertEquals(2, docs.size(), "큰글자책은 보통 판과 다른 저작입니다");
+        var plain = docs.stream().filter(d -> d.isbn13List().contains("9788937462665"))
+                .findFirst().orElseThrow();
+        var largePrint = docs.stream().filter(d -> d.isbn13List().contains("9788937448836"))
+                .findFirst().orElseThrow();
+
+        assertEquals(List.of("큰글자책"), largePrint.editionLabels(),
+                "받은 부제 그대로 이름표에 실어야 두 줄이 구별됩니다");
+        assertEquals(List.of(), plain.editionLabels(), "보통 판에는 붙일 것이 없습니다");
+        // **표제에는 붙이지 않습니다.** 화면이 표제를 그대로 도서관의 제목 검색 주소에 끼우므로,
+        // 「이방인 : 큰글자책」이 되면 제목으로만 찾아지는 도서관에서 0건이 나옵니다.
+        assertEquals("이방인", largePrint.titleDisplay());
+    }
+
+    /**
+     * 배포된 서버에서 김영사 「식물학자의 노트」가 저작 하나에 ISBN 둘로 나왔습니다. 하나가
+     * 큰글자책이었습니다. 큰글자책만 가진 도서관이 「있음」으로 나오고 그 반대도 마찬가지입니다.
+     */
+    @Test
+    @DisplayName("대등표제 자리에 큰글자책이 적힌 판은 보통 판과 합치지 않고 이름표로 드러낸다")
+    void largePrintInParallelTitleStaysApartAndIsLabelled() {
+        var docs = buildVia(List.of(
+                book("9788934986942", "식물학자의 노트 =식물이 내게 들려준 이야기 /Notes of a botanist ",
+                        "신혜우 글·그림"),
+                book("9788934904885", "식물학자의 노트 =큰글자책 /Notes of a botanist ",
+                        "신혜우 글·그림")));
+
+        assertEquals(2, docs.size(), "큰글자책은 보통 판과 다른 저작입니다");
+        var largePrint = docs.stream().filter(d -> d.isbn13List().contains("9788934904885"))
+                .findFirst().orElseThrow();
+        var plain = docs.stream().filter(d -> d.isbn13List().contains("9788934986942"))
+                .findFirst().orElseThrow();
+
+        assertEquals(List.of("9788934904885"), largePrint.isbn13List());
+        assertEquals(List.of("큰글자책"), largePrint.editionLabels());
+        assertEquals(List.of(), plain.editionLabels(),
+                "보통 판의 대등표제는 각색 표기가 아니므로 이름표로 내지 않습니다");
+        assertEquals("식물학자의 노트", largePrint.titleDisplay(), "표제는 그대로 둡니다");
+    }
+
+    @Test
+    @DisplayName("각색 표기가 표제에 그대로 보이면 이름표에 다시 싣지 않는다")
+    void doesNotRepeatWhatTheTitleAlreadyShows() {
+        var docs = buildVia(List.of(book("9788970000039", "데미안(청소년판)", "헤르만 헤세")));
+
+        assertEquals("데미안(청소년판)", docs.get(0).titleDisplay());
+        assertEquals(List.of(), docs.get(0).editionLabels());
+    }
+
+    @Test
+    @DisplayName("각색 표기가 긴 부제 안에 있으면 그 부제를 받은 글자 그대로 싣는다")
+    void showsTheSubtitleAsReceived() {
+        // 우리 목록의 낱말(「만화로보는」)은 견주려고 다듬은 표기입니다. 그것을 화면에 내면
+        // 정보나루가 주지 않은 글자를 지어내는 것입니다.
+        var docs = buildVia(List.of(
+                book("9788970000046", "그리스 로마 신화 :만화로 보는 고전 ", "토마스 불핀치")));
+
+        assertEquals(List.of("만화로 보는 고전"), docs.get(0).editionLabels());
+    }
+
+    @Test
+    @DisplayName("각색 이름표가 판본 이름표보다 앞에 온다")
+    void adaptationLabelComesBeforeEditionLabels() {
+        var docs = buildVia(List.of(
+                book("9788970000053", "이방인 (양장) :큰글자책", "알베르 카뮈", "민음사", 2026, 15000)));
+
+        assertEquals(List.of("큰글자책", "양장 (2026)"), docs.get(0).editionLabels());
+    }
+
     @Test
     @DisplayName("저작 번호가 없는 서지는 색인에 넣지 않는다")
     void skipsUnclusteredBooks() {

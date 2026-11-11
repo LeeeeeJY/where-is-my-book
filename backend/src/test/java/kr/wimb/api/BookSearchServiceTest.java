@@ -971,6 +971,28 @@ class BookSearchServiceTest {
     }
 
     /**
+     * <b>같은 줄이 둘인 것처럼 보였습니다.</b> 되찾기를 고친 뒤 「이방인」의 맨 위 두 줄이 둘 다
+     * 「이방인 / 알베르 카뮈 / 민음사」였습니다. 둘째는 큰글자책 판인데(등록 표제 「이방인
+     * :큰글자책 」) 그 표기가 부제로 갈려 나가 화면 어디에도 없었습니다.
+     */
+    @Test
+    @DisplayName("큰글자책 판은 이름표로 보통 판과 구별된다")
+    void largePrintEditionIsTellableFromThePlainOne() {
+        var response = serviceWith(strangerShelf(new java.util.concurrent.CopyOnWriteArrayList<>()))
+                .search("이방인");
+
+        var plain = response.works().stream()
+                .filter(w -> w.isbn13List().contains("9788937462665")).findFirst().orElseThrow();
+        var largePrint = response.works().stream()
+                .filter(w -> w.isbn13List().contains("9788937448836")).findFirst().orElseThrow();
+
+        assertEquals(plain.title(), largePrint.title(),
+                "표제는 그대로 둡니다. 도서관의 제목 검색 주소에 그대로 들어가는 값입니다");
+        assertEquals(List.of("큰글자책"), largePrint.editionLabels());
+        assertFalse(plain.editionLabels().contains("큰글자책"));
+    }
+
+    /**
      * <b>저자까지 넣은 검색에는 되찾기가 없었습니다.</b> 「저자로 이미 찾고 있으면 되찾을 것이
      * 없다」고 보았기 때문인데, 질의에 제목이 남아 있는 한 정보나루의 제목 색인이 빠뜨린 판은
      * 어느 회전에서도 오지 않습니다. 실측으로 {@code title=이방인&author=알베르 카뮈} 는 69건을
