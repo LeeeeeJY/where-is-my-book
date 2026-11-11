@@ -141,73 +141,93 @@
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
 
-    <!-- SEO: 크롤러를 위한 정적 콘텐츠 -->
-    <div style="position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden;">
-      <section>
-        <h1>WIMB - 여러 도서관 책 소장 통합 검색</h1>
-        <p>
-          WIMB는 전국 공공도서관에서 읽고 싶은 책이 어디에 있는지 한 번에 찾아주는 도서관 통합 검색 서비스입니다.
+    <!-- SEO: 서비스 소개 및 FAQ (실제로 보임) -->
+    <div id="seo-content" style="max-width: 1100px; margin: 0 auto; padding: 32px 16px 48px;">
+      <section style="margin-bottom: 24px; padding: 18px; background: #fdfaf3; border: 1px solid #ded4c1; border-radius: 8px; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 1px 2px rgba(36, 29, 20, 0.05);">
+        <p style="margin: 0; font-size: 14px; line-height: 1.65; color: #241d14;">
+          <strong>WIMB</strong>는 전국 공공도서관에서 읽고 싶은 책이 어디에 있는지 한 번에 찾아주는 도서관 통합 검색 서비스입니다.
           자주 가는 도서관을 미리 선택해 두면, 책 제목이나 저자로 검색할 때 어느 도서관에 소장되어 있는지 즉시 확인할 수 있습니다.
-          한 권 검색, 여러 권 검색, 서가 둘러보기 등 다양한 기능으로 편리하게 책을 찾아보세요.
         </p>
       </section>
 
       <section>
-        <h2>자주 묻는 질문 (FAQ)</h2>
+        <h2 style="margin: 0 0 12px; font-family: 'Iowan Old Style', 'Palatino Linotype', Palatino, 'Book Antiqua', Georgia, 'Nanum Myeongjo', 'Apple SD Gothic Neo', 'Pretendard', 'Malgun Gothic', serif; font-size: 17px; letter-spacing: 0.01em; color: #241d14;">자주 묻는 질문</h2>
         
-        <article>
-          <h3>어떤 도서관을 검색할 수 있나요?</h3>
-          <p>
+        <details style="margin-bottom: 8px; padding: 12px 14px; background: #fdfaf3; border: 1px solid #ded4c1; border-radius: 8px;">
+          <summary style="cursor: pointer; font-size: 14px; font-weight: 600; line-height: 1.5; color: #241d14; list-style: none;">
+            <span style="display: inline-block; margin-right: 6px;">▸</span> 어떤 도서관을 검색할 수 있나요?
+          </summary>
+          <p style="margin: 10px 0 0; padding-left: 18px; font-size: 13px; line-height: 1.65; color: #241d14;">
             전국 공공도서관 1,600곳 이상의 소장 정보를 검색할 수 있습니다.
             국립중앙도서관 정보나루 Open API를 통해 실시간으로 도서관 소장 정보를 확인합니다.
             시립도서관, 구립도서관, 교육청 소속 도서관 등 대부분의 공공도서관이 포함되어 있습니다.
           </p>
-        </article>
+        </details>
 
-        <article>
-          <h3>무료로 이용할 수 있나요?</h3>
-          <p>
+        <details style="margin-bottom: 8px; padding: 12px 14px; background: #fdfaf3; border: 1px solid #ded4c1; border-radius: 8px;">
+          <summary style="cursor: pointer; font-size: 14px; font-weight: 600; line-height: 1.5; color: #241d14; list-style: none;">
+            <span style="display: inline-block; margin-right: 6px;">▸</span> 무료로 이용할 수 있나요?
+          </summary>
+          <p style="margin: 10px 0 0; padding-left: 18px; font-size: 13px; line-height: 1.65; color: #241d14;">
             네, WIMB는 완전히 무료입니다. 회원가입이나 로그인 없이 누구나 자유롭게 이용할 수 있으며,
             도서관 선택 정보는 브라우저에 저장되어 다음 방문 시에도 유지됩니다.
           </p>
-        </article>
+        </details>
 
-        <article>
-          <h3>대출 상태는 어떻게 확인하나요?</h3>
-          <p>
+        <details style="margin-bottom: 8px; padding: 12px 14px; background: #fdfaf3; border: 1px solid #ded4c1; border-radius: 8px;">
+          <summary style="cursor: pointer; font-size: 14px; font-weight: 600; line-height: 1.5; color: #241d14; list-style: none;">
+            <span style="display: inline-block; margin-right: 6px;">▸</span> 대출 상태는 어떻게 확인하나요?
+          </summary>
+          <p style="margin: 10px 0 0; padding-left: 18px; font-size: 13px; line-height: 1.65; color: #241d14;">
             검색 결과에서 각 도서관의 '대출 상태 확인' 버튼을 누르면 해당 도서관의 홈페이지로 이동하여
             실시간 대출 가능 여부를 확인할 수 있습니다. WIMB는 소장 여부를 알려주고,
             대출 가능 여부는 각 도서관 시스템에서 직접 확인하시는 구조입니다.
           </p>
-        </article>
+        </details>
 
-        <article>
-          <h3>한 권 검색은 어떻게 사용하나요?</h3>
-          <p>
-            '한 권 검색' 탭에서 책 제목, 저자, 출판사, ISBN 등으로 검색할 수 있습니다.
+        <details style="margin-bottom: 8px; padding: 12px 14px; background: #fdfaf3; border: 1px solid #ded4c1; border-radius: 8px;">
+          <summary style="cursor: pointer; font-size: 14px; font-weight: 600; line-height: 1.5; color: #241d14; list-style: none;">
+            <span style="display: inline-block; margin-right: 6px;">▸</span> 한 권 검색은 어떻게 사용하나요?
+          </summary>
+          <p style="margin: 10px 0 0; padding-left: 18px; font-size: 13px; line-height: 1.65; color: #241d14;">
+            한 권 검색 탭에서 책 제목, 저자, 출판사, ISBN 등으로 검색할 수 있습니다.
             검색 결과에서 원하는 책을 선택하면 선택한 도서관 중 어디에 소장되어 있는지 바로 확인할 수 있습니다.
             여러 판본(큰글자책, 개정판 등)이 있는 경우 모두 표시됩니다.
           </p>
-        </article>
+        </details>
 
-        <article>
-          <h3>여러 권 검색은 무엇인가요?</h3>
-          <p>
-            '여러 권 검색' 탭에서는 여러 책의 목록을 한 번에 붙여넣어 검색할 수 있습니다.
+        <details style="margin-bottom: 8px; padding: 12px 14px; background: #fdfaf3; border: 1px solid #ded4c1; border-radius: 8px;">
+          <summary style="cursor: pointer; font-size: 14px; font-weight: 600; line-height: 1.5; color: #241d14; list-style: none;">
+            <span style="display: inline-block; margin-right: 6px;">▸</span> 여러 권 검색은 무엇인가요?
+          </summary>
+          <p style="margin: 10px 0 0; padding-left: 18px; font-size: 13px; line-height: 1.65; color: #241d14;">
+            여러 권 검색 탭에서는 여러 책의 목록을 한 번에 붙여넣어 검색할 수 있습니다.
             책 제목을 줄바꿈으로 구분하여 입력하면, 선택한 도서관에서 각 책의 소장 여부를 일괄 확인하고,
             한 곳에서 여러 권을 함께 빌릴 수 있는 도서관을 추천해 드립니다.
           </p>
-        </article>
+        </details>
 
-        <article>
-          <h3>서가 기능은 무엇인가요?</h3>
-          <p>
-            '서가' 탭에서는 도서관의 특정 분야 서가를 둘러볼 수 있습니다.
+        <details style="margin-bottom: 8px; padding: 12px 14px; background: #fdfaf3; border: 1px solid #ded4c1; border-radius: 8px;">
+          <summary style="cursor: pointer; font-size: 14px; font-weight: 600; line-height: 1.5; color: #241d14; list-style: none;">
+            <span style="display: inline-block; margin-right: 6px;">▸</span> 서가 기능은 무엇인가요?
+          </summary>
+          <p style="margin: 10px 0 0; padding-left: 18px; font-size: 13px; line-height: 1.65; color: #241d14;">
+            서가 탭에서는 도서관의 특정 분야 서가를 둘러볼 수 있습니다.
             문학, 역사, 과학 등 주제별로 실제 서가에 꽂힌 순서대로 책을 탐색할 수 있어,
             읽을 책을 정하지 않았을 때 둘러보기에 좋습니다.
           </p>
-        </article>
+        </details>
       </section>
     </div>
+
+    <style>
+      /* FAQ details 열렸을 때 화살표 회전 */
+      details[open] > summary > span { transform: rotate(90deg); display: inline-block; }
+      details > summary > span { transition: transform 0.12s ease; }
+      /* 모바일에서도 읽기 편하게 */
+      @media (max-width: 600px) {
+        #seo-content { padding: 24px 12px 32px; }
+      }
+    </style>
   </body>
 </html>
