@@ -66,6 +66,7 @@ import html
 import json
 import os
 import re
+import ssl
 import sys
 import threading
 import time
@@ -76,6 +77,27 @@ from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 
 UA = "wimb-opac-check/1.0 (+https://github.com/LeeeeeJY/where-is-my-book)"
+
+# RSA 키 교환(TLS_RSA_*)만 내놓는 호스트입니다. 서버의 kr.wimb.opac.LegacyTls.HOSTS 와 같아야 합니다.
+# 파이썬도 자바도 그 계열을 기본으로 내놓지 않아, 브라우저로는 열리는 곳이 「핸드셰이크 실패」로만
+# 남았습니다. 운영자가 2026-11-11 에 이 두 호스트에 한해 허용했습니다. **목록을 늘릴 때는 서버 쪽
+# 목록도 함께 늘리세요.** 한쪽만 늘리면 도구가 확인한 규칙을 서버가 받지 못합니다.
+LEGACY_TLS_HOSTS = frozenset({"library.daegu.go.kr", "lib.anyang.go.kr"})
+_LEGACY_TLS_CONTEXT = None
+
+
+def tls_context(url: str):
+    """그 호스트로 가는 요청에만 RSA 키 교환을 더한 설정을 돌려줍니다. 나머지는 기본값(None)입니다."""
+    global _LEGACY_TLS_CONTEXT
+    host = (urllib.parse.urlparse(url).hostname or "").lower()
+    if host not in LEGACY_TLS_HOSTS:
+        return None
+    if _LEGACY_TLS_CONTEXT is None:
+        ctx = ssl.create_default_context()
+        ctx.set_ciphers("ECDH+AESGCM:ECDH+CHACHA20:ECDH+AES:DHE+AES:kRSA+AESGCM:kRSA+AES:"
+                        "!aNULL:!eNULL:!aDSS:!AESCCM")
+        _LEGACY_TLS_CONTEXT = ctx
+    return _LEGACY_TLS_CONTEXT
 API = os.environ.get("WIMB_API", "https://where-is-my-book.duckdns.org")
 
 # 검증에 쓰는 책. 널리 소장된 것으로 골랐고, 제목이 흔한 낱말이 아니어야 합니다.
@@ -173,7 +195,7 @@ def fetch(url: str, pacer: Pacer, timeout: float = 20.0) -> tuple[int, str, str]
                 "Accept": "text/html,application/xhtml+xml",
                 "Accept-Language": "ko",
             })
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with urllib.request.urlopen(req, timeout=timeout, context=tls_context(url)) as resp:
                 raw = resp.read(1_500_000)
                 return resp.status, decode(raw, resp.headers.get("Content-Type", "")), resp.url
         except urllib.error.HTTPError as e:

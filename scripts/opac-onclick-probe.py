@@ -51,7 +51,7 @@ LIKELY_SCRIPT = re.compile(r"search|book|detail|view|opac|alpas", re.I)
 
 def get(url: str, timeout: float) -> tuple[bytes, str]:
     req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept-Language": "ko"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
+    with urllib.request.urlopen(req, timeout=timeout, context=od.tls_context(url)) as r:
         return r.read(), r.geturl()
 
 

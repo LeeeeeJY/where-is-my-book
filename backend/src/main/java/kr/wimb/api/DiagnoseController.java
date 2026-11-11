@@ -193,7 +193,8 @@ public class DiagnoseController {
 
     /** 실패해도 진단 자체는 계속되어야 합니다. 못 알아낸 것과 오류를 구분해 적습니다. */
     private String egressIp() {
-        try (HttpClient http = HttpClient.newBuilder().connectTimeout(TIMEOUT).build()) {
+        try (HttpClient http = HttpClient.newBuilder().connectTimeout(TIMEOUT)
+                .sslParameters(kr.wimb.opac.LegacyTls.strictParameters()).build()) {
             HttpResponse<String> response = http.send(
                     HttpRequest.newBuilder(ECHO).timeout(TIMEOUT).GET().build(),
                     HttpResponse.BodyHandlers.ofString());

@@ -323,6 +323,7 @@ public class WimbConfiguration implements WebMvcConfigurer {
         private final HttpClient http = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(5))
                 .followRedirects(HttpClient.Redirect.NORMAL)
+                .sslParameters(kr.wimb.opac.LegacyTls.strictParameters())
                 .build();
         private final long minIntervalMs;
         private long lastCallMs;
