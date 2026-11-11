@@ -207,3 +207,4 @@ lib.jemulpo.go.kr,@template:name="reg_no" value="([^"]+)">\s*<input type="hidden
 # <이름>books 사이트, 뒷줄은 도서관포털의 통합 검색이고 둘 다 분관 부호 하나로 좁힌 주소에만 겁니다.
 library.busan.go.kr?manage_code,@template:href="javascript:bookSearch\.goDetail\('([^']+)', '([^']+)', '([^']+)'\);" => collectionOfMaterialsView?reg_no={1}&manage_code={2}&rec_key={3}&book_type=BOOK
 library.busan.go.kr/portal?libraryCodes,href="(detail\.do\?[^"]*?regNo=[^"]*)"
+www.gunpolib.go.kr?branch,@json:GET https://www.gunpolib.go.kr/pyxis-api/1/collections/1/search?all=1%7Ck%7Ca%7C{isbn13}&facet=false&max=10&branch=6 => data.list => /#/search/detail/{id}
