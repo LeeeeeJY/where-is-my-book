@@ -506,6 +506,9 @@ public class WimbController {
         // 켜 둔 호스트 목록. 비어 있으면 전부입니다. 켰는데 어떤 도서관만 홈페이지로 가면
         // 여기에 그 호스트가 없는 것이고, 규칙 파일이나 코드를 뒤질 일이 아닙니다.
         out.put("opacEnabledHosts", List.copyOf(opacTemplates.enabledHosts()));
+        // RSA 키 교환만 내놓는 호스트(대구·안양)에 붙을 수 있는 상태인지. 거짓이면 그 호스트의
+        // 상세 규칙은 전부 FETCH_FAILED 로 검색 결과에 내려갑니다(WIMB_OPAC_LEGACY_TLS=false).
+        out.put("opacLegacyTls", kr.wimb.opac.LegacyTls.enabled());
         out.put("opacRuleLibraries", opacTemplates.size());
         out.put("opacDetailPatterns", opacTemplates.patternCount());
         out.putAll(detailResolver.stats());

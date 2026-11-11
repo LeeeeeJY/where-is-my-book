@@ -825,9 +825,16 @@ public final class DetailResolver {
 
     /** 운영에서 쓰는 Fetcher. 리다이렉트를 따라가고, 본문은 선언된 인코딩으로 읽습니다. */
     public static Fetcher httpFetcher() {
-        HttpClient http = HttpClient.newBuilder()
+        HttpClient strict = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(3))
                 .followRedirects(HttpClient.Redirect.NORMAL)
+                .sslParameters(LegacyTls.strictParameters())
+                .build();
+        // RSA 키 교환만 내놓는 호스트(LegacyTls.HOSTS)로 가는 요청만 이 클라이언트로 나갑니다.
+        HttpClient legacy = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(3))
+                .followRedirects(HttpClient.Redirect.NORMAL)
+                .sslParameters(LegacyTls.legacyParameters())
                 .build();
         return new Fetcher() {
             @Override public Page fetch(URI url) throws IOException, InterruptedException {
@@ -851,6 +858,7 @@ public final class DetailResolver {
                 } else {
                     builder.GET();
                 }
+                HttpClient http = LegacyTls.isLegacyHost(url.getHost()) ? legacy : strict;
                 HttpResponse<byte[]> response = http.send(builder.build(), HttpResponse.BodyHandlers.ofByteArray());
                 byte[] raw = response.body();
                 if (raw.length > MAX_BODY_BYTES) raw = java.util.Arrays.copyOf(raw, MAX_BODY_BYTES);
