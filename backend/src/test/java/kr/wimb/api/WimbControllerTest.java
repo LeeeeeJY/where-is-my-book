@@ -196,6 +196,11 @@ class WimbControllerTest {
 
     private static WimbController linkController(FakeOpac opac, List<String> patterns,
                                                  boolean linksEnabled) {
+        return linkController(opac, EXAMPLE_RULE, patterns, linksEnabled);
+    }
+
+    private static WimbController linkController(FakeOpac opac, List<String> rules, List<String> patterns,
+                                                 boolean linksEnabled) {
         var transport = new RegionAware();
         var budget = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 100_000),
                 Clock.fixed(Instant.parse("2026-09-06T00:00:00Z"), ZoneId.of("UTC")));
@@ -203,7 +208,7 @@ class WimbControllerTest {
         var search = new BookSearchService(client, new HoldingsLookup(
                 (isbn, region) -> List.of(), HoldingsLookup.RegionModeStore.documented()));
         var controller = new WimbController(client, search, new MultiCheckService(search), budget,
-                kr.wimb.opac.OpacTemplates.of(EXAMPLE_RULE, patterns, linksEnabled),
+                kr.wimb.opac.OpacTemplates.of(rules, patterns, linksEnabled),
                 new kr.wimb.opac.DetailResolver(opac, Clock.systemUTC()),
                 new CachingHoldingsClient((isbn, region) -> List.of(), Duration.ofHours(6), 100,
                         Clock.systemUTC()),
@@ -284,6 +289,80 @@ class WimbControllerTest {
                 sentTo(linkController(opac, EXAMPLE_PATTERN, false), "9788983711892"));
         assertTrue(opac.asked.isEmpty(),
                 "규칙을 쓰지 않기로 했으면 남의 서버를 두드릴 이유도 없습니다: " + opac.asked);
+    }
+
+    // ── 제목 검색 규칙: 권차를 뗀 표제 ─────────────────────────────────────
+
+    private static final List<String> TITLE_RULE = List.of(
+            "110001,TITLE_SEARCH,UTF-8,https://lib.example.kr/search?lib=A&t={title}");
+    private static final List<String> TITLE_ANCHOR = List.of(
+            "lib.example.kr?lib,@anchor:href=\"(/book/[^\"]+)\"");
+
+    private static String titleUrl(String title) {
+        return "https://lib.example.kr/search?lib=A&t="
+                + java.net.URLEncoder.encode(title, java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    private static String sentWithTitle(WimbController controller, String title, String... isbns) {
+        return controller.go("110001", List.of(isbns), title).getHeaders().getLocation().toString();
+    }
+
+    @Test
+    @DisplayName("제목 검색으로 보낼 때는 표제에서 권차를 뗀다")
+    void goSearchesByTitleWithoutTheVolume() {
+        // 「해리 포터와 마법사의 돌 1」을 그대로 넣으면 0건인 OPAC 이 있습니다(2026-11-11, 경산·강진·동대문).
+        var opac = new FakeOpac();
+
+        assertEquals(titleUrl("해리 포터와 마법사의 돌"),
+                sentWithTitle(linkController(opac, TITLE_RULE, List.of(), true), "해리 포터와 마법사의 돌 1", "9788983920683"));
+        assertTrue(opac.asked.isEmpty(), "닻 규칙이 없으면 남의 서버를 두드리지 않습니다: " + opac.asked);
+    }
+
+    @Test
+    @DisplayName("닻 규칙이 있으면 권차를 붙인 표제로 먼저 찾고, 그 판이 없을 때만 뗀 표제로 한 번 더 찾는다")
+    void goTriesTheVolumeTitleFirstThenTheBroadOne() {
+        var opac = new FakeOpac();
+        // 권차를 붙인 검색에는 그 판이 없고, 뗀 검색의 목록에 그 ISBN 이 적힌 줄이 있습니다.
+        opac.pages.put(titleUrl("해리 포터와 마법사의 돌 1"), "<li><a href=\"/book/9\">다른 판</a> 9788900000009</li>");
+        opac.pages.put(titleUrl("해리 포터와 마법사의 돌"),
+                "<li><a href=\"/book/9\">다른 판</a> 9788900000009</li>"
+                        + "<li><a href=\"/book/7\">해리포터와 마법사의 돌 . 1(상)</a> 9788983920683</li>");
+
+        assertEquals("https://lib.example.kr/book/7",
+                sentWithTitle(linkController(opac, TITLE_RULE, TITLE_ANCHOR, true), "해리 포터와 마법사의 돌 1", "9788983920683"));
+        assertEquals(List.of(titleUrl("해리 포터와 마법사의 돌 1"), titleUrl("해리 포터와 마법사의 돌")),
+                opac.asked.stream().filter(u -> u.contains("/search")).toList());
+    }
+
+    @Test
+    @DisplayName("권차를 붙인 표제로 찾았으면 한 번만 받는다")
+    void goStopsAtTheVolumeTitleWhenItResolves() {
+        var opac = new FakeOpac();
+        opac.pages.put(titleUrl("토지 1"), "<li><a href=\"/book/3\">토지. 1</a> 9788900000001</li>");
+
+        assertEquals("https://lib.example.kr/book/3",
+                sentWithTitle(linkController(opac, TITLE_RULE, TITLE_ANCHOR, true), "토지 1", "9788900000001"));
+        assertEquals(1, opac.asked.stream().filter(u -> u.contains("/search")).count(), opac.asked.toString());
+    }
+
+    @Test
+    @DisplayName("어느 쪽에도 그 판이 없으면 권차를 뗀 검색 결과로 보낸다")
+    void goFallsBackToTheBroadTitleSearch() {
+        var opac = new FakeOpac();
+
+        assertEquals(titleUrl("토지"),
+                sentWithTitle(linkController(opac, TITLE_RULE, TITLE_ANCHOR, true), "토지 1", "9788900000001"));
+    }
+
+    @Test
+    @DisplayName("제목 검색 화면을 못 받았으면 뗀 표제로 또 두드리지 않는다")
+    void goDoesNotRetryTheTitleSearchOnAnUnreachableHost() {
+        var opac = new FakeOpac();
+        opac.down = true;
+
+        assertEquals(titleUrl("토지"),
+                sentWithTitle(linkController(opac, TITLE_RULE, TITLE_ANCHOR, true), "토지 1", "9788900000001"));
+        assertEquals(1, opac.asked.stream().filter(u -> u.contains("/search")).count(), opac.asked.toString());
     }
 
     @Test

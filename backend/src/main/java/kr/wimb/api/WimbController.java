@@ -370,8 +370,10 @@ public class WimbController {
         // 정보나루가 준 홈페이지 주소를 그대로 실으면 안 됩니다. 「없음」을 뜻하는 `-` 나
         // 스킴이 빠진 주소가 섞여 있는데, 그것을 Location 에 실으면 브라우저가 상대 주소로
         // 읽어 우리 서버 안의 없는 경로로 갑니다. 자세한 것은 Homepage 에 있습니다.
+        // 제목 검색에 넣을 표제는 권차를 뗀 것입니다(SearchTitle). 화면의 표제를 그대로 넣으면 0건인 OPAC 이 있습니다.
+        String core = kr.wimb.opac.SearchTitle.withoutVolume(title);
         String url = opacTemplates.bestFor(libCode, first, title)
-                .map(link -> detailOrSame(libCode, link, isbns))
+                .map(link -> detailOrSame(libCode, link, isbns, first, core))
                 .or(() -> Homepage.usable(library.homepage()))
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND,
@@ -385,18 +387,32 @@ public class WimbController {
      * <p><b>제목 검색 링크는 {@code @anchor:} 규칙이 붙어 있고 그 검색이 분관으로 좁혀져 있을 때만
      * 찾아 봅니다</b>({@code OpacTemplates.titleDetailPatternFor}). 제목으로 찾은 결과에는 같은 제목의
      * 다른 판이 섞여 있어서, 목록에 적힌 ISBN 으로 그 도서관이 가진 판의 줄을 골라야 합니다. 결과는
-     * 한 번만 받고 앞의 ISBN 부터 차례로 찾습니다.
+     * 앞의 ISBN 부터 차례로 찾습니다.
+     *
+     * <p><b>제목 검색으로 내려갈 때는 권차를 뗀 표제의 주소로 보냅니다</b>({@code coreTitle}). 권차를 붙인
+     * 표제는 0건인 OPAC 이 있습니다. 닻 규칙이 있으면 권차를 붙인 표제로 먼저 찾습니다. 전집은 그쪽이
+     * 찾는 권을 첫 쪽에 올려 주기 때문입니다. 그 판이 목록에 없을 때만 뗀 표제로 한 번 더 찾고,
+     * <b>페이지를 아예 못 받았으면 다시 두드리지 않습니다.</b>
      */
-    private String detailOrSame(String libCode, OpacLink link, List<String> isbns) {
+    private String detailOrSame(String libCode, OpacLink link, List<String> isbns, String firstIsbn,
+                                String coreTitle) {
         if (link.kind() == OpacLink.Kind.TITLE_SEARCH) {
+            String broad = opacTemplates.bestFor(libCode, firstIsbn, coreTitle)
+                    .filter(l -> l.kind() == OpacLink.Kind.TITLE_SEARCH)
+                    .map(OpacLink::url).orElse(link.url());
             // 닻 규칙인지, 그 검색 주소를 이 도서관만 쓰는지는 OpacTemplates 가 함께 봅니다. 화면에
             // 미리 밝힌 단계(kindFor)와 여기서 실제로 하는 일이 같은 조건이어야 합니다.
             var anchored = opacTemplates.titleDetailPatternFor(libCode);
-            if (anchored.isEmpty() || isbns.isEmpty()) return link.url();
+            if (anchored.isEmpty() || isbns.isEmpty()) return broad;
             List<String> anchors = isbns.subList(0, Math.min(MAX_DETAIL_ATTEMPTS, isbns.size()));
-            var outcome = detailResolver.resolve(link.url(), anchored.get().rule(),
-                    new DetailResolver.Context(anchors.get(0), libCode, anchors));
-            return outcome.status() == DetailResolver.Status.RESOLVED ? outcome.detailUrl() : link.url();
+            var context = new DetailResolver.Context(anchors.get(0), libCode, anchors);
+            var outcome = detailResolver.resolve(link.url(), anchored.get().rule(), context);
+            if (outcome.status() == DetailResolver.Status.RESOLVED) return outcome.detailUrl();
+            if (outcome.status() == DetailResolver.Status.NO_MATCH && !broad.equals(link.url())) {
+                var again = detailResolver.resolve(broad, anchored.get().rule(), context);
+                if (again.status() == DetailResolver.Status.RESOLVED) return again.detailUrl();
+            }
+            return broad;
         }
         if (link.kind() != OpacLink.Kind.ISBN_SEARCH) return link.url();
         var pattern = opacTemplates.detailPatternFor(link.url());
