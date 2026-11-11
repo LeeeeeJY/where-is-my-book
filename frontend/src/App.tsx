@@ -221,7 +221,7 @@ export default function App() {
           그냥 넘깁니다. 주소 규칙은 `vercel.json` 에 있습니다.
         */}
         <div>
-          <a href="/privacy">개인정보처리방침</a>
+          <a href="/faq">자주 묻는 질문</a> · <a href="/privacy">개인정보처리방침</a>
         </div>
       </footer>
     </div>

@@ -1,0 +1,224 @@
+<!doctype html>
+<!--
+  **이 페이지는 React 앱 밖에 있습니다.** 자바스크립트가 돌지 않아도, API 서버가 죽어
+  있어도 열려야 하기 때문입니다. FAQ는 서비스 이용에 필요한 기본 정보라 언제나 접근
+  가능해야 합니다.
+
+  **내용은 실제 기능과 맞아야 합니다.** 여기 적힌 것은 전부 실제 동작을 확인하고 쓴
+  것입니다. 아래를 고칠 때는 코드도 함께 보세요. 어느 한쪽만 바뀌면 이 문서는
+  거짓말이 됩니다.
+-->
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="theme-color" content="#2f6f4f" />
+    <title>자주 묻는 질문 | WIMB · 도서관 책 통합 검색</title>
+    <meta
+      name="description"
+      content="WIMB 도서관 통합 검색 서비스 이용 방법과 자주 묻는 질문에 대한 답변입니다. 검색 가능한 도서관, 이용 요금, 대출 상태 확인 방법 등을 안내합니다."
+    />
+    <link rel="canonical" href="https://where-is-my-book.vercel.app/faq" />
+    
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="WIMB" />
+    <meta property="og:locale" content="ko_KR" />
+    <meta property="og:url" content="https://where-is-my-book.vercel.app/faq" />
+    <meta property="og:title" content="자주 묻는 질문 | WIMB · 도서관 책 통합 검색" />
+    <meta
+      property="og:description"
+      content="WIMB 도서관 통합 검색 서비스 이용 방법과 자주 묻는 질문에 대한 답변입니다."
+    />
+    <meta property="og:image" content="https://where-is-my-book.vercel.app/og.png" />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="자주 묻는 질문 | WIMB · 도서관 책 통합 검색" />
+    <meta
+      name="twitter:description"
+      content="WIMB 도서관 통합 검색 서비스 이용 방법과 자주 묻는 질문에 대한 답변입니다."
+    />
+    <meta name="twitter:image" content="https://where-is-my-book.vercel.app/og.png" />
+
+    <!-- JSON-LD 구조화 데이터 -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "어떤 도서관을 검색할 수 있나요?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "전국 공공도서관 1,600곳 이상의 소장 정보를 검색할 수 있습니다. 국립중앙도서관 정보나루 Open API를 통해 실시간으로 도서관 소장 정보를 확인합니다. 시립도서관, 구립도서관, 교육청 소속 도서관 등 대부분의 공공도서관이 포함되어 있습니다."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "무료로 이용할 수 있나요?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "네, WIMB는 완전히 무료입니다. 회원가입이나 로그인 없이 누구나 자유롭게 이용할 수 있으며, 도서관 선택 정보는 브라우저에 저장되어 다음 방문 시에도 유지됩니다."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "대출 상태는 어떻게 확인하나요?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "검색 결과에서 각 도서관의 '대출 상태 확인' 버튼을 누르면 해당 도서관의 홈페이지로 이동하여 실시간 대출 가능 여부를 확인할 수 있습니다. WIMB는 소장 여부를 알려주고, 대출 가능 여부는 각 도서관 시스템에서 직접 확인하시는 구조입니다."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "한 권 검색은 어떻게 사용하나요?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "한 권 검색 탭에서 책 제목, 저자, 출판사, ISBN 등으로 검색할 수 있습니다. 검색 결과에서 원하는 책을 선택하면 선택한 도서관 중 어디에 소장되어 있는지 바로 확인할 수 있습니다. 여러 판본(큰글자책, 개정판 등)이 있는 경우 모두 표시됩니다."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "여러 권 검색은 무엇인가요?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "여러 권 검색 탭에서는 여러 책의 목록을 한 번에 붙여넣어 검색할 수 있습니다. 책 제목을 줄바꿈으로 구분하여 입력하면, 선택한 도서관에서 각 책의 소장 여부를 일괄 확인하고, 한 곳에서 여러 권을 함께 빌릴 수 있는 도서관을 추천해 드립니다."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "서가 기능은 무엇인가요?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "서가 탭에서는 도서관의 특정 분야 서가를 둘러볼 수 있습니다. 문학, 역사, 과학 등 주제별로 실제 서가에 꽂힌 순서대로 책을 탐색할 수 있어, 읽을 책을 정하지 않았을 때 둘러보기에 좋습니다."
+          }
+        }
+      ]
+    }
+    </script>
+
+    <style>
+      :root {
+        --bg: #fbfaf8;
+        --surface: #ffffff;
+        --line: #e3e0da;
+        --text: #23201c;
+        --muted: #77716a;
+        --accent: #2f6f4f;
+        color-scheme: light;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 15px/1.7 -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Pretendard',
+          'Malgun Gothic', sans-serif;
+      }
+      .page { max-width: 680px; margin: 0 auto; padding: 24px 16px 56px; }
+      a { color: var(--accent); }
+      h1 { font-size: 24px; margin: 0 0 4px; }
+      h2 { font-size: 17px; margin: 24px 0 10px; font-weight: 600; }
+      p, li { margin: 6px 0; }
+      .muted { color: var(--muted); }
+      .lede {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 14px 16px;
+        margin: 18px 0 24px;
+        line-height: 1.65;
+      }
+      .lede p:first-child { margin-top: 0; }
+      .lede p:last-child { margin-bottom: 0; }
+      .back { display: inline-block; margin-bottom: 18px; font-size: 14px; }
+      .qa {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 16px 18px;
+        margin-bottom: 12px;
+      }
+      .qa h2 { margin-top: 0; }
+      .qa p:last-child { margin-bottom: 0; }
+      footer { margin-top: 32px; padding-top: 14px; border-top: 1px solid var(--line); font-size: 13px; }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <a class="back" href="/">← WIMB 로 돌아가기</a>
+
+      <h1>자주 묻는 질문</h1>
+      <p class="muted">WIMB 도서관 통합 검색 서비스 이용 방법</p>
+
+      <div class="lede">
+        <p>
+          <strong>WIMB</strong>는 전국 공공도서관에서 읽고 싶은 책이 어디에 있는지 한 번에 찾아주는 도서관 통합 검색 서비스입니다.
+          자주 가는 도서관을 미리 선택해 두면, 책 제목이나 저자로 검색할 때 어느 도서관에 소장되어 있는지 즉시 확인할 수 있습니다.
+        </p>
+      </div>
+
+      <article class="qa">
+        <h2>어떤 도서관을 검색할 수 있나요?</h2>
+        <p>
+          전국 공공도서관 1,600곳 이상의 소장 정보를 검색할 수 있습니다.
+          국립중앙도서관 정보나루 Open API를 통해 실시간으로 도서관 소장 정보를 확인합니다.
+          시립도서관, 구립도서관, 교육청 소속 도서관 등 대부분의 공공도서관이 포함되어 있습니다.
+        </p>
+      </article>
+
+      <article class="qa">
+        <h2>무료로 이용할 수 있나요?</h2>
+        <p>
+          네, WIMB는 완전히 무료입니다. 회원가입이나 로그인 없이 누구나 자유롭게 이용할 수 있으며,
+          도서관 선택 정보는 브라우저에 저장되어 다음 방문 시에도 유지됩니다.
+        </p>
+      </article>
+
+      <article class="qa">
+        <h2>대출 상태는 어떻게 확인하나요?</h2>
+        <p>
+          검색 결과에서 각 도서관의 '대출 상태 확인' 버튼을 누르면 해당 도서관의 홈페이지로 이동하여
+          실시간 대출 가능 여부를 확인할 수 있습니다. WIMB는 소장 여부를 알려주고,
+          대출 가능 여부는 각 도서관 시스템에서 직접 확인하시는 구조입니다.
+        </p>
+      </article>
+
+      <article class="qa">
+        <h2>한 권 검색은 어떻게 사용하나요?</h2>
+        <p>
+          한 권 검색 탭에서 책 제목, 저자, 출판사, ISBN 등으로 검색할 수 있습니다.
+          검색 결과에서 원하는 책을 선택하면 선택한 도서관 중 어디에 소장되어 있는지 바로 확인할 수 있습니다.
+          여러 판본(큰글자책, 개정판 등)이 있는 경우 모두 표시됩니다.
+        </p>
+      </article>
+
+      <article class="qa">
+        <h2>여러 권 검색은 무엇인가요?</h2>
+        <p>
+          여러 권 검색 탭에서는 여러 책의 목록을 한 번에 붙여넣어 검색할 수 있습니다.
+          책 제목을 줄바꿈으로 구분하여 입력하면, 선택한 도서관에서 각 책의 소장 여부를 일괄 확인하고,
+          한 곳에서 여러 권을 함께 빌릴 수 있는 도서관을 추천해 드립니다.
+        </p>
+      </article>
+
+      <article class="qa">
+        <h2>서가 기능은 무엇인가요?</h2>
+        <p>
+          서가 탭에서는 도서관의 특정 분야 서가를 둘러볼 수 있습니다.
+          문학, 역사, 과학 등 주제별로 실제 서가에 꽂힌 순서대로 책을 탐색할 수 있어,
+          읽을 책을 정하지 않았을 때 둘러보기에 좋습니다.
+        </p>
+      </article>
+
+      <footer class="muted">
+        출처:
+        <a href="https://www.data4library.kr" target="_blank" rel="noreferrer noopener">도서관 정보나루</a>
+        (국립중앙도서관)
+      </footer>
+    </div>
+  </body>
+</html>
