@@ -32,6 +32,8 @@ COPY --from=build /src/build/libs/*.jar /app/app.jar
 RUN mkdir -p /data && chown wimb /data
 VOLUME /data
 ENV WIMB_HOLDINGS_CACHE_PATH=/data/holding-cache.tsv.gz
+# 그날 정보나루를 부른 건수. 같은 볼륨에 두어야 서버가 다시 떠도 이어서 셉니다.
+ENV WIMB_DATA4LIBRARY_LEDGER_PATH=/data/call-ledger.tsv
 # **도서관 목록도 같은 볼륨입니다.** 메모리에만 두면, 컨테이너가 다시 뜨는 순간 정보나루의
 # 목록 조회가 답하지 않을 때 그 배포 내내 도서관이 일부만 보입니다(2026-11-12 에 실제로
 # 1,600곳 가운데 275곳). 뜰 때 여기서 되살리고 정보나루가 답하는 시도부터 새로 받습니다.

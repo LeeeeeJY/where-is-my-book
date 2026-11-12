@@ -4,7 +4,7 @@ import kr.wimb.data4library.Data4LibraryClient;
 import kr.wimb.holdings.CachingHoldingsClient;
 import kr.wimb.data4library.LibraryInfo;
 import kr.wimb.data4library.RegionCode;
-import kr.wimb.ingest.ApiBudget;
+import kr.wimb.ingest.CallLedger;
 import kr.wimb.opac.Homepage;
 import kr.wimb.opac.DetailResolver;
 import kr.wimb.opac.OpacLink;
@@ -43,7 +43,7 @@ public class WimbController {
     private final Data4LibraryClient client;
     private final BookSearchService searchService;
     private final MultiCheckService multiCheckService;
-    private final ApiBudget budget;
+    private final CallLedger ledger;
 
     /** 소장 캐시. {@code /api/status} 가 항목 수를 내보냅니다. */
     private final CachingHoldingsClient holdingsCache;
@@ -86,18 +86,18 @@ public class WimbController {
      */
     @Autowired
     public WimbController(Data4LibraryClient client, BookSearchService searchService,
-                          MultiCheckService multiCheckService, ApiBudget budget,
+                          MultiCheckService multiCheckService, CallLedger ledger,
                           OpacTemplates opacTemplates, DetailResolver detailResolver,
                           CachingHoldingsClient holdingsCache,
                           RateLimit rateLimit, ShelfStore shelfStore, LibraryCatalog catalog,
                           @Value("${wimb.catalog.warm-on-startup:true}") boolean warmOnStartup) {
-        this(client, searchService, multiCheckService, budget, opacTemplates, detailResolver,
+        this(client, searchService, multiCheckService, ledger, opacTemplates, detailResolver,
                 holdingsCache, rateLimit, shelfStore, catalog, warmOnStartup, Clock.systemUTC());
     }
 
     /** 재시도 시각을 시험할 수 있도록 시계를 받는 생성자입니다. */
     WimbController(Data4LibraryClient client, BookSearchService searchService,
-                   MultiCheckService multiCheckService, ApiBudget budget,
+                   MultiCheckService multiCheckService, CallLedger ledger,
                    OpacTemplates opacTemplates, DetailResolver detailResolver,
                    CachingHoldingsClient holdingsCache,
                    RateLimit rateLimit, ShelfStore shelfStore, LibraryCatalog catalog,
@@ -112,7 +112,7 @@ public class WimbController {
         this.client = client;
         this.searchService = searchService;
         this.multiCheckService = multiCheckService;
-        this.budget = budget;
+        this.ledger = ledger;
         this.clock = clock;
     }
 
@@ -207,8 +207,7 @@ public class WimbController {
         try {
             return searchService.search(new Data4LibraryClient.BookQuery(
                     title, byAuthor, byPublisher, byIsbn, byKeyword, false));
-        } catch (ResponseStatusException | Data4LibraryClient.ApiErrorException
-                 | Data4LibraryClient.BudgetExhaustedException e) {
+        } catch (ResponseStatusException | Data4LibraryClient.ApiErrorException e) {
             // **감싸지 않고 그대로 올립니다.** 감싸면 정보나루가 준 errCode 가 사라져서,
             // 화면이 「인증키 문제인지 IP 등록 문제인지 오늘 몫을 다 쓴 것인지」를 갈라
             // 말할 수 없게 됩니다. ApiErrorAdvice 가 코드까지 실어 내보냅니다.
@@ -294,6 +293,10 @@ public class WimbController {
      *
      * <p>화면은 이 응답만으로 목록을 즉시 그리고, 소장은 {@link #holdings} 로 한 권씩
      * 채워 넣습니다. 그래야 캐시가 빈 상태에서도 빈 화면으로 기다리는 구간이 없습니다.
+     *
+     * <p>줄 하나의 조회 실패는 그 줄의 상태({@code LOOKUP_FAILED})로 나갑니다. <b>정보나루가
+     * 하루 한도를 넘겼다고 답한 경우만 요청 전체가 503 과 {@code outOflimit} 으로
+     * 끝납니다.</b> 화면이 그 코드를 받아 한도 안내 페이지로 넘어갑니다.
      */
     @PostMapping("/check/resolve")
     public MultiCheckService.ResolveResponse resolve(@RequestBody CheckRequest request) {
@@ -365,7 +368,7 @@ public class WimbController {
         // 제목 검색에 넣을 표제는 권차를 뗀 것입니다(SearchTitle). 화면의 표제를 그대로 넣으면 0건인 OPAC 이 있습니다.
         String core = kr.wimb.opac.SearchTitle.withoutVolume(title);
         String url = opacTemplates.bestFor(libCode, first, title)
-                .map(link -> detailOrSame(libCode, link, isbns, first, core))
+                .map(link -> detailOrSame(libCode, link, isbns, first, title, core))
                 .or(() -> Homepage.usable(library.homepage()))
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND,
@@ -387,7 +390,7 @@ public class WimbController {
      * <b>페이지를 아예 못 받았으면 다시 두드리지 않습니다.</b>
      */
     private String detailOrSame(String libCode, OpacLink link, List<String> isbns, String firstIsbn,
-                                String coreTitle) {
+                                String title, String coreTitle) {
         if (link.kind() == OpacLink.Kind.TITLE_SEARCH) {
             String broad = opacTemplates.bestFor(libCode, firstIsbn, coreTitle)
                     .filter(l -> l.kind() == OpacLink.Kind.TITLE_SEARCH)
@@ -397,11 +400,13 @@ public class WimbController {
             var anchored = opacTemplates.titleDetailPatternFor(libCode);
             if (anchored.isEmpty() || isbns.isEmpty()) return broad;
             List<String> anchors = isbns.subList(0, Math.min(MAX_DETAIL_ATTEMPTS, isbns.size()));
-            var context = new DetailResolver.Context(anchors.get(0), libCode, anchors);
+            // 검색 주소를 만든 표제를 함께 넘깁니다. 결과를 프레임으로 보여 주는 OPAC(@frame:)은 서버가
+            // 검색 화면이 아니라 프레임을 받는데, 그 프레임 주소에 같은 표제가 들어가야 합니다.
+            var context = new DetailResolver.Context(anchors.get(0), libCode, anchors).withTitle(title);
             var outcome = detailResolver.resolve(link.url(), anchored.get().rule(), context);
             if (outcome.status() == DetailResolver.Status.RESOLVED) return outcome.detailUrl();
             if (outcome.status() == DetailResolver.Status.NO_MATCH && !broad.equals(link.url())) {
-                var again = detailResolver.resolve(broad, anchored.get().rule(), context);
+                var again = detailResolver.resolve(broad, anchored.get().rule(), context.withTitle(coreTitle));
                 if (again.status() == DetailResolver.Status.RESOLVED) return again.detailUrl();
             }
             return broad;
@@ -451,7 +456,7 @@ public class WimbController {
         boolean anyFailed = truncated;
         for (String isbn13 : asked) {
             try {
-                var status = client.loanStatus(lib, isbn13, ApiBudget.Priority.USER);
+                var status = client.loanStatus(lib, isbn13);
                 // 하나라도 가지고 있으면 그것이 답입니다. 나머지는 물어볼 필요가 없습니다.
                 if (status.hasBook()) {
                     return new LoanDto(true, status.loanAvailable(), yesterday());
@@ -480,7 +485,12 @@ public class WimbController {
      */
     public record LoanDto(boolean hasBook, boolean loanAvailable, String asOf) {}
 
-    /** 호출 예산이 얼마나 남았는지. 한도가 예상과 다른지 여기서 드러납니다. */
+    /**
+     * 오늘 정보나루를 몇 번 불렀고 한도까지 얼마나 남았는지.
+     *
+     * <p><b>{@code callsRemaining} 은 우리가 센 숫자입니다.</b> 0 이 되어도 호출을 막지 않고,
+     * 정보나루가 실제로 답하는지는 {@code /api/diagnose} 가 불러 보고 말합니다.
+     */
     @GetMapping("/status")
     public Map<String, Object> status() {
         Map<String, Object> out = new java.util.LinkedHashMap<>();
@@ -494,8 +504,8 @@ public class WimbController {
         out.put("libraryRegionsRestored", catalog.restoredRegions());
         out.put("libraryCatalogOldest", catalog.oldestFetchedAt()
                 .map(at -> LocalDate.ofInstant(at, SEOUL).toString()).orElse(null));
-        out.put("callsUsedToday", budget.used(Data4LibraryClient.SOURCE_CODE));
-        out.put("callsRemaining", budget.remaining(Data4LibraryClient.SOURCE_CODE));
+        out.put("callsUsedToday", ledger.used(Data4LibraryClient.SOURCE_CODE));
+        out.put("callsRemaining", ledger.remaining(Data4LibraryClient.SOURCE_CODE));
         // **한도가 실제로 도는지 알 방법이 있어야 합니다.** 호출이 갑자기 줄었을 때
         // 이 숫자가 없으면 사람이 안 오는 것인지 우리가 막고 있는 것인지 구별할 수
         // 없어 추측하게 됩니다. 주소 자체는 내보내지 않습니다. 개인정보이고,
@@ -617,8 +627,7 @@ public class WimbController {
             // 되살린 시도는 여기서 건너뛰지 않습니다. 새로 받은 것만 건너뜁니다.
             if (catalog.isFresh(region)) continue;
             try {
-                List<LibraryInfo> received =
-                        client.libraries(region.code(), ApiBudget.Priority.BACKGROUND);
+                List<LibraryInfo> received = client.libraries(region.code());
                 // 빈 목록이 되살린 시도를 지우려 하면 받아들이지 않습니다. 못 받은 것으로 칩니다.
                 if (!catalog.accept(region, received, clock.instant())) failures++;
             } catch (RuntimeException e) {

@@ -1,7 +1,7 @@
 package kr.wimb.data4library;
 
-import kr.wimb.ingest.ApiBudget;
-import kr.wimb.ingest.InMemoryApiBudget;
+import kr.wimb.ingest.CallLedger;
+import kr.wimb.ingest.DailyCallLedger;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -106,8 +106,8 @@ class Data4LibraryClientTest {
         return xml.append("</libs></response>").toString();
     }
 
-    private static ApiBudget budget() {
-        return new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 1000),
+    private static CallLedger budget() {
+        return new DailyCallLedger(Map.of(Data4LibraryClient.SOURCE_CODE, 1000),
                 Clock.fixed(Instant.parse("2026-09-05T00:00:00Z"), ZoneId.of("UTC")));
     }
 
@@ -122,7 +122,7 @@ class Data4LibraryClientTest {
         var transport = new RecordingTransport();
         transport.response = LIB_XML;
 
-        var libraries = client(transport).libraries(null, ApiBudget.Priority.BACKGROUND);
+        var libraries = client(transport).libraries(null);
 
         assertEquals(2, libraries.size());
         var gangnam = libraries.get(0);
@@ -140,7 +140,7 @@ class Data4LibraryClientTest {
         var transport = new RecordingTransport();
         transport.response = LIB_XML;
 
-        var libraries = client(transport).libraries(null, ApiBudget.Priority.BACKGROUND);
+        var libraries = client(transport).libraries(null);
 
         assertEquals(RegionCode.SEOUL, libraries.get(0).region().orElseThrow());
         assertEquals(RegionCode.GYEONGGI, libraries.get(1).region().orElseThrow());
@@ -152,7 +152,7 @@ class Data4LibraryClientTest {
         var transport = new RecordingTransport();
         transport.response = LIB_XML;
 
-        var seongnam = client(transport).libraries(null, ApiBudget.Priority.BACKGROUND).get(1);
+        var seongnam = client(transport).libraries(null).get(1);
 
         assertEquals("성남시중원도서관", seongnam.libName());
         assertNull(seongnam.tel());
@@ -166,7 +166,7 @@ class Data4LibraryClientTest {
         transport.response = BOOK_XML;
 
         var books = client(transport).searchBooks(
-                Data4LibraryClient.BookQuery.byTitle("코스모스"), 1, ApiBudget.Priority.USER);
+                Data4LibraryClient.BookQuery.byTitle("코스모스"), 1);
 
         assertEquals(1, books.size());
         var cosmos = books.get(0);
@@ -185,7 +185,7 @@ class Data4LibraryClientTest {
         var transport = new RecordingTransport();
         transport.response = different;
 
-        assertEquals(2, client(transport).libraries(null, ApiBudget.Priority.BACKGROUND).size());
+        assertEquals(2, client(transport).libraries(null).size());
     }
 
     @Test
@@ -197,7 +197,7 @@ class Data4LibraryClientTest {
         var client = client(transport);
 
         assertThrows(IllegalArgumentException.class,
-                () -> client.librariesHolding("9788983711892", null, ApiBudget.Priority.USER));
+                () -> client.librariesHolding("9788983711892", null));
         assertTrue(transport.requests.isEmpty(), "막혔으면 호출하지 않아야 합니다");
     }
 
@@ -207,7 +207,7 @@ class Data4LibraryClientTest {
         var transport = new RecordingTransport();
         transport.response = LIB_XML;
 
-        client(transport).librariesHolding("9788983711892", "11", ApiBudget.Priority.USER);
+        client(transport).librariesHolding("9788983711892", "11");
 
         String url = transport.requests.get(0).toString();
         assertTrue(url.startsWith("https://data4library.kr/api/libSrchByBook?authKey="), url);
@@ -225,8 +225,7 @@ class Data4LibraryClientTest {
         transport.pages.add(holdingPage(3, "111001", "111002"));
         transport.pages.add(holdingPage(3, "111003"));
 
-        var libs = client(transport).librariesHolding("9788983711892", "11",
-                ApiBudget.Priority.USER);
+        var libs = client(transport).librariesHolding("9788983711892", "11");
 
         assertEquals(List.of("111001", "111002", "111003"),
                 libs.stream().map(LibraryInfo::libCode).toList());
@@ -245,8 +244,7 @@ class Data4LibraryClientTest {
         transport.byPage.put(2, holdingPage(7, "111004", "111005", "111006"));
         transport.byPage.put(3, holdingPage(7, "111007"));
 
-        var libs = client(transport).librariesHolding("9788983711892", "11",
-                ApiBudget.Priority.USER);
+        var libs = client(transport).librariesHolding("9788983711892", "11");
 
         assertEquals(List.of("111001", "111002", "111003", "111004", "111005", "111006", "111007"),
                 libs.stream().map(LibraryInfo::libCode).toList());
@@ -261,8 +259,7 @@ class Data4LibraryClientTest {
         var transport = new RecordingTransport();
         transport.pages.add(holdingPage(2, "111001", "111002"));
 
-        var libs = client(transport).librariesHolding("9788983711892", "11",
-                ApiBudget.Priority.USER);
+        var libs = client(transport).librariesHolding("9788983711892", "11");
 
         assertEquals(2, libs.size());
         assertEquals(1, transport.requests.size(), "한 번만 불러야 합니다");
@@ -280,7 +277,7 @@ class Data4LibraryClientTest {
         transport.response = BOOK_XML;
 
         client(transport).searchBooks(
-                Data4LibraryClient.BookQuery.byTitle("마의 산"), 1, ApiBudget.Priority.USER);
+                Data4LibraryClient.BookQuery.byTitle("마의 산"), 1);
 
         String url = transport.requests.get(0).toString();
         assertTrue(url.contains("title=%EB%A7%88%EC%9D%98%20%EC%82%B0"), url);
@@ -296,17 +293,23 @@ class Data4LibraryClientTest {
     }
 
     @Test
-    @DisplayName("예산이 없으면 호출하지 않는다")
-    void respectsBudget() {
+    @DisplayName("우리가 센 건수가 하루 한도를 넘겨도 호출을 막지 않는다")
+    void ledgerNeverBlocksCalls() {
+        // 예전에는 하루 예산에 닿으면 부르지 않았고, 도서관 목록 같은 배경 호출은 그 80% 에서
+        // 먼저 멈췄습니다. 그래서 그 선을 넘긴 날 서버가 새로 뜨면 목록을 받지 못했습니다.
+        // 지금은 세기만 합니다. 한도를 넘겼는지는 정보나루가 outOflimit 으로 알려 줍니다.
         var transport = new RecordingTransport();
-        var exhausted = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 1),
+        transport.response = LIB_XML;
+        var ledger = new DailyCallLedger(Map.of(Data4LibraryClient.SOURCE_CODE, 2),
                 Clock.fixed(Instant.parse("2026-09-05T00:00:00Z"), ZoneId.of("UTC")));
-        var client = new Data4LibraryClient(transport, "테스트키", exhausted);
+        var client = new Data4LibraryClient(transport, "테스트키", ledger);
 
-        // 배경 작업 상한은 1의 80% 이므로 0회입니다.
-        assertThrows(Data4LibraryClient.BudgetExhaustedException.class,
-                () -> client.libraries(null, ApiBudget.Priority.BACKGROUND));
-        assertTrue(transport.requests.isEmpty());
+        for (int i = 0; i < 5; i++) {
+            assertEquals(2, client.libraries(null).size());
+        }
+        assertEquals(5, transport.requests.size(), "한도 숫자를 넘긴 뒤에도 불러야 합니다");
+        assertEquals(5, ledger.used(Data4LibraryClient.SOURCE_CODE));
+        assertEquals(0, ledger.remaining(Data4LibraryClient.SOURCE_CODE));
     }
 
     @Test
@@ -316,7 +319,7 @@ class Data4LibraryClientTest {
         transport.response = LIB_XML;
 
         var codes = client(transport)
-                .asHoldingsClient(ApiBudget.Priority.USER)
+                .asHoldingsClient()
                 .libCodesFor("9788983711892", "11");
 
         assertEquals(List.of("111001", "141053"), codes);
@@ -349,7 +352,7 @@ class Data4LibraryClientTest {
         var client = client(transport);
 
         var thrown = assertThrows(Data4LibraryClient.ApiErrorException.class,
-                () -> client.libraries("11", ApiBudget.Priority.USER));
+                () -> client.libraries("11"));
         assertTrue(thrown.isNotActivated(), thrown.getMessage());
         assertFalse(thrown.isAuthFailure());
     }
@@ -365,7 +368,7 @@ class Data4LibraryClientTest {
 
         assertThrows(Data4LibraryClient.ApiErrorException.class,
                 () -> client.searchBooks(
-                        Data4LibraryClient.BookQuery.byTitle("코스모스"), 1, ApiBudget.Priority.USER));
+                        Data4LibraryClient.BookQuery.byTitle("코스모스"), 1));
     }
 
     @Test
@@ -377,7 +380,7 @@ class Data4LibraryClientTest {
         var client = client(transport);
 
         var thrown = assertThrows(Data4LibraryClient.ApiErrorException.class,
-                () -> client.libraries("11", ApiBudget.Priority.USER));
+                () -> client.libraries("11"));
         assertTrue(thrown.isAuthFailure());
         assertFalse(thrown.isNotActivated());
     }
@@ -387,7 +390,7 @@ class Data4LibraryClientTest {
     void normalResponseIsNotMistakenForAnError() {
         var transport = new RecordingTransport();
         transport.response = LIB_XML;
-        assertEquals(2, client(transport).libraries("11", ApiBudget.Priority.USER).size());
+        assertEquals(2, client(transport).libraries("11").size());
     }
 
     @Test
@@ -402,14 +405,14 @@ class Data4LibraryClientTest {
 
         for (int i = 0; i < 10; i++) {
             assertThrows(Data4LibraryClient.ApiErrorException.class,
-                    () -> client.libraries("11", ApiBudget.Priority.USER));
+                    () -> client.libraries("11"));
         }
         assertEquals(1, transport.requests.size(),
                 "첫 한 번만 부르고 나머지는 막아야 합니다: " + transport.requests.size() + "회");
     }
 
     @Test
-    @DisplayName("막힌 동안에는 호출 예산도 쓰지 않는다")
+    @DisplayName("막힌 동안에는 원장에 적지 않는다")
     void blockedCallsDoNotSpendBudget() {
         var transport = new RecordingTransport();
         transport.response = REAL_AUTH_ERROR_XML;
@@ -418,9 +421,9 @@ class Data4LibraryClientTest {
 
         for (int i = 0; i < 5; i++) {
             assertThrows(Data4LibraryClient.ApiErrorException.class,
-                    () -> client.libraries("11", ApiBudget.Priority.USER));
+                    () -> client.libraries("11"));
         }
-        // 실제로 나간 요청 한 번만 예산에서 빠져야 합니다.
+        // 실제로 나간 요청 한 번만 적혀야 합니다.
         assertEquals(1, budget.used(Data4LibraryClient.SOURCE_CODE));
     }
 
@@ -440,20 +443,116 @@ class Data4LibraryClientTest {
         });
 
         assertThrows(Data4LibraryClient.ApiErrorException.class,
-                () -> client.libraries("11", ApiBudget.Priority.USER));
+                () -> client.libraries("11"));
         assertThrows(Data4LibraryClient.ApiErrorException.class,
-                () -> client.libraries("11", ApiBudget.Priority.USER));
+                () -> client.libraries("11"));
         assertEquals(1, transport.requests.size(), "막혀 있어야 합니다");
 
         // 승인이 나고 시간이 지난 뒤입니다.
         now.set(Instant.parse("2026-09-06T00:06:00Z"));
         transport.response = LIB_XML;
-        assertEquals(2, client.libraries("11", ApiBudget.Priority.USER).size());
+        assertEquals(2, client.libraries("11").size());
         assertEquals(2, transport.requests.size(), "다시 불러야 합니다");
 
         // 한 번 성공했으면 이후로는 막지 않습니다.
-        assertEquals(2, client.libraries("11", ApiBudget.Priority.USER).size());
+        assertEquals(2, client.libraries("11").size());
         assertEquals(3, transport.requests.size());
+    }
+
+    /**
+     * 하루 한도를 넘겼을 때의 본문. <b>오류 문장은 2026-09-08 에 실제로 받은 그대로이고</b>
+     * (docs/가정과-검증상태.md 2-2), 바깥 모양은 같은 날 받은 다른 오류 본문의 모양을
+     * 따랐습니다. 30,000건을 실제로 넘겼을 때의 문장은 받아 본 적이 없습니다. 판별은
+     * 문장이 아니라 {@code errCode} 로 합니다.
+     */
+    private static final String OUT_OF_LIMIT_JSON =
+            """
+            {"response":{"errCode":"outOflimit","error":"1일 500건 이상 요청 시 IP 등록이 필요합니다. 등록 된 IP를 확인하시기 바랍니다."}}""";
+
+    private static final String OUT_OF_LIMIT_XML =
+            """
+            <?xml version="1.0" encoding="UTF-8" standalone="no"?><response><errCode>            outOflimit</errCode><error>1일 500건 이상 요청 시 IP 등록이 필요합니다. 등록 된 IP를 확인하시기 바랍니다.</error></response>""";
+
+    @Test
+    @DisplayName("정보나루가 outOflimit 을 주면 5분간 부르지 않고, 5분이 지나면 다시 부른다")
+    void outOfLimitIsLatchedForFiveMinutes() {
+        // **우리 쪽에서 먼저 멈추는 선을 없앤 뒤로, 한도를 넘긴 날 믿는 것은 이 빗장
+        // 하나입니다.** 이것이 없으면 한도에 걸린 채로 검색 한 번마다 여러 번, 화면을 열 때마다
+        // 열일곱 번을 실패할 것이 뻔한 요청으로 두드립니다.
+        var transport = new RecordingTransport();
+        transport.response = OUT_OF_LIMIT_JSON;
+        var now = new java.util.concurrent.atomic.AtomicReference<>(
+                Instant.parse("2026-11-12T03:00:00Z"));
+        var ledger = budget();
+        var client = new Data4LibraryClient(transport, "테스트키", ledger, new Clock() {
+            public ZoneId getZone() { return ZoneId.of("UTC"); }
+            public Clock withZone(ZoneId zone) { return this; }
+            public Instant instant() { return now.get(); }
+        });
+
+        var first = assertThrows(Data4LibraryClient.ApiErrorException.class,
+                () -> client.searchBooks(Data4LibraryClient.BookQuery.byTitle("코스모스"), 1));
+        assertTrue(first.isDailyLimit(), first.getMessage());
+        assertEquals("outOflimit", first.error().code());
+
+        // 어느 엔드포인트든 막힙니다. 소장 조회도 도서관 목록도 대출 상태도 나가지 않습니다.
+        for (int i = 0; i < 4; i++) {
+            assertTrue(assertThrows(Data4LibraryClient.ApiErrorException.class,
+                    () -> client.librariesHolding("9788983711892", "11")).isDailyLimit());
+            assertThrows(Data4LibraryClient.ApiErrorException.class, () -> client.libraries("11"));
+            assertThrows(Data4LibraryClient.ApiErrorException.class,
+                    () -> client.loanStatus("111001", "9788983711892"));
+        }
+        assertEquals(1, transport.requests.size(), "첫 한 번만 나가야 합니다");
+        assertEquals(1, ledger.used(Data4LibraryClient.SOURCE_CODE),
+                "막힌 호출은 원장에 적지 않습니다. 나가지 않았기 때문입니다");
+
+        // 4분 59초: 아직 막혀 있습니다.
+        now.set(Instant.parse("2026-11-12T03:04:59Z"));
+        assertThrows(Data4LibraryClient.ApiErrorException.class, () -> client.libraries("11"));
+        assertEquals(1, transport.requests.size(), "5분이 지나기 전에는 부르지 않습니다");
+
+        // 5분이 지나면 한 번 불러 봅니다. 여전히 한도 초과면 다시 5분을 기다립니다.
+        now.set(Instant.parse("2026-11-12T03:05:00Z"));
+        assertThrows(Data4LibraryClient.ApiErrorException.class, () -> client.libraries("11"));
+        assertEquals(2, transport.requests.size(), "5분이 지나면 다시 불러 봐야 합니다");
+        assertThrows(Data4LibraryClient.ApiErrorException.class, () -> client.libraries("11"));
+        assertEquals(2, transport.requests.size(), "다시 걸렸으면 다시 5분입니다");
+
+        // 날이 바뀌어 정보나루가 답하기 시작하면 그 뒤로는 막지 않습니다.
+        now.set(Instant.parse("2026-11-12T15:00:01Z"));   // 한국 시각 11-13 00:00:01
+        transport.response = LIB_XML;
+        assertEquals(2, client.libraries("11").size());
+        assertEquals(2, client.libraries("11").size());
+        assertEquals(4, transport.requests.size());
+    }
+
+    @Test
+    @DisplayName("outOflimit 이 XML 로 와도 같은 빗장이 걸린다")
+    void outOfLimitInXmlIsLatchedToo() {
+        // 오류 형식이 엔드포인트마다 다릅니다(libSrch 는 XML, srchBooks 는 JSON).
+        var transport = new RecordingTransport();
+        transport.response = OUT_OF_LIMIT_XML;
+        var client = client(transport);
+
+        for (int i = 0; i < 3; i++) {
+            assertTrue(assertThrows(Data4LibraryClient.ApiErrorException.class,
+                    () -> client.libraries("11")).isDailyLimit());
+        }
+        assertEquals(1, transport.requests.size());
+    }
+
+    @Test
+    @DisplayName("한도 오류를 받은 소장 조회는 빈 목록이 아니라 예외다")
+    void outOfLimitHoldingsIsNotAnEmptyList() {
+        // 빈 목록으로 넘기면 그 도서관들이 「없음」으로, 그것도 「빠짐없이 확인했다」는
+        // 표시를 달고 나갑니다.
+        var transport = new RecordingTransport();
+        transport.response = OUT_OF_LIMIT_XML;
+        var holdings = client(transport).asHoldingsClient();
+
+        assertThrows(Data4LibraryClient.ApiErrorException.class,
+                () -> holdings.libCodesFor("9788983711892", "11"));
     }
 
     @Test
@@ -467,7 +566,7 @@ class Data4LibraryClientTest {
 
         for (int i = 0; i < 3; i++) {
             assertThrows(Data4LibraryClient.ApiErrorException.class,
-                    () -> client.libraries("11", ApiBudget.Priority.USER));
+                    () -> client.libraries("11"));
         }
         assertEquals(3, transport.requests.size(), "매번 시도해야 합니다");
     }

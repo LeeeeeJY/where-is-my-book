@@ -1,7 +1,7 @@
 package kr.wimb.shelf;
 
 import kr.wimb.data4library.Data4LibraryClient;
-import kr.wimb.ingest.ApiBudget;
+import kr.wimb.ingest.CallLedger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -20,7 +20,7 @@ import java.util.concurrent.Semaphore;
  *
  * <h2>미리 세워 두지 않습니다</h2>
  *
- * <p>전국 1,619곳을 미리 받으면 48만 회에 스무 날, 디스크 65GB 입니다. 무료 등급 VM
+ * <p>전국 1,619곳을 미리 받으면 48만 회에 열엿새, 디스크 65GB 입니다. 무료 등급 VM
  * 에 들어가지 않습니다. 그래서 <b>사람이 여는 서가만</b> 세웁니다. 아무도 열지 않는
  * 도서관에는 호출도 디스크도 한 건 쓰지 않습니다.
  *
@@ -51,7 +51,7 @@ public class ShelfService {
 
     private final ShelfStore store;
     private final ShelfHarvester harvester;
-    private final ApiBudget budget;
+    private final CallLedger ledger;
     private final Clock clock;
 
     /** 다시 세울 때가 되었는지 보는 기한(일). */
@@ -85,11 +85,11 @@ public class ShelfService {
      */
     private final ExecutorService workers = Executors.newVirtualThreadPerTaskExecutor();
 
-    public ShelfService(ShelfStore store, ShelfHarvester harvester, ApiBudget budget,
+    public ShelfService(ShelfStore store, ShelfHarvester harvester, CallLedger ledger,
                         int refreshDays, int maxConcurrentBuilds, int reserve, Clock clock) {
         this.store = store;
         this.harvester = harvester;
-        this.budget = budget;
+        this.ledger = ledger;
         this.refreshDays = refreshDays;
         this.reserve = reserve;
         this.slots = new Semaphore(Math.max(1, maxConcurrentBuilds));
@@ -148,7 +148,7 @@ public class ShelfService {
         // 되지만 검색은 그 사람이 지금 기다리고 있습니다.
         if (!hasRoomToBuild()) {
             log.info("오늘 몫이 얼마 남지 않아 서가를 세우지 않습니다(남은 {}건): 도서관 {}, {}",
-                    budget.remaining(Data4LibraryClient.SOURCE_CODE), libCode, kdc.label());
+                    ledger.remaining(Data4LibraryClient.SOURCE_CODE), libCode, kdc.label());
             return new Status(State.ABSENT, false, 0, 0);
         }
 
@@ -232,11 +232,11 @@ public class ShelfService {
     }
 
     /**
-     * 오늘 몫이 서가를 세울 만큼 남았는지. <b>예산을 깎지 않고 보기만 합니다.</b>
-     * 실제로 깎는 것은 호출마다 전송 계층이 합니다.
+     * 오늘 몫이 서가를 세울 만큼 남았는지. <b>원장을 보기만 합니다.</b>
+     * 건수를 적는 것은 호출마다 {@code Data4LibraryClient} 가 합니다.
      */
     private boolean hasRoomToBuild() {
-        return budget.remaining(Data4LibraryClient.SOURCE_CODE) > reserve;
+        return ledger.remaining(Data4LibraryClient.SOURCE_CODE) > reserve;
     }
 
     // ── 거들기 ───────────────────────────────────────────────────────────

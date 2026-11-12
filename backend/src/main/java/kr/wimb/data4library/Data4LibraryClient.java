@@ -1,7 +1,7 @@
 package kr.wimb.data4library;
 
 import kr.wimb.holdings.HoldingsLookup;
-import kr.wimb.ingest.ApiBudget;
+import kr.wimb.ingest.CallLedger;
 
 import java.net.URI;
 import java.net.URLEncoder;
@@ -40,6 +40,12 @@ import java.util.concurrent.Future;
 public final class Data4LibraryClient {
 
     public static final String SOURCE_CODE = "DATA4LIBRARY_API";
+
+    /**
+     * 정보나루가 하루 한도를 넘겼을 때 주는 오류 코드. 철자는 정보나루가 주는 그대로입니다
+     * ({@code Of} 의 O 가 대문자, {@code limit} 의 l 이 소문자).
+     */
+    public static final String DAILY_LIMIT_CODE = "outOflimit";
     private static final String BASE = "https://data4library.kr/api";
 
     /**
@@ -58,7 +64,7 @@ public final class Data4LibraryClient {
 
     private final Transport transport;
     private final String authKey;
-    private final ApiBudget budget;
+    private final CallLedger ledger;
     private final Clock clock;
 
     /**
@@ -75,14 +81,14 @@ public final class Data4LibraryClient {
 
     private record AuthFailure(Data4LibraryResponse.ApiError error, Instant until) {}
 
-    public Data4LibraryClient(Transport transport, String authKey, ApiBudget budget) {
-        this(transport, authKey, budget, Clock.systemUTC());
+    public Data4LibraryClient(Transport transport, String authKey, CallLedger ledger) {
+        this(transport, authKey, ledger, Clock.systemUTC());
     }
 
-    public Data4LibraryClient(Transport transport, String authKey, ApiBudget budget, Clock clock) {
+    public Data4LibraryClient(Transport transport, String authKey, CallLedger ledger, Clock clock) {
         this.transport = transport;
         this.authKey = authKey;
-        this.budget = budget;
+        this.ledger = ledger;
         this.clock = clock;
     }
 
@@ -96,7 +102,7 @@ public final class Data4LibraryClient {
      * @param regionCode 특정 시도만 받으려면 지정하고, 전국이면 null 을 줍니다.
      *                   {@code libSrch} 에서는 {@code region} 이 선택 항목입니다.
      */
-    public List<LibraryInfo> libraries(String regionCode, ApiBudget.Priority priority) {
+    public List<LibraryInfo> libraries(String regionCode) {
         List<LibraryInfo> out = new ArrayList<>();
         int page = 1;
         while (true) {
@@ -105,7 +111,7 @@ public final class Data4LibraryClient {
             params.put("pageNo", String.valueOf(page));
             params.put("pageSize", String.valueOf(PAGE_SIZE));
 
-            String xml = call("libSrch", params, priority);
+            String xml = call("libSrch", params);
             List<Map<String, String>> items = Data4LibraryResponse.items(xml, "lib");
             items.stream().map(LibraryInfo::from).forEach(out::add);
 
@@ -126,12 +132,12 @@ public final class Data4LibraryClient {
      * 실시간이 아니므로 화면에 그 사실을 반드시 함께 적어야 합니다. 이 값을 실시간으로
      * 믿고 갔다가 허탕치는 것이 이 도구를 못 쓰게 만드는 가장 큰 요인입니다.
      */
-    public LoanStatus loanStatus(String libCode, String isbn13, ApiBudget.Priority priority) {
+    public LoanStatus loanStatus(String libCode, String isbn13) {
         Map<String, String> params = new LinkedHashMap<>();
         params.put("libCode", libCode);
         params.put("isbn13", isbn13);
 
-        String xml = call("bookExist", params, priority);
+        String xml = call("bookExist", params);
         return new LoanStatus(
                 "Y".equalsIgnoreCase(Data4LibraryResponse.scalar(xml, "hasBook")),
                 "Y".equalsIgnoreCase(Data4LibraryResponse.scalar(xml, "loanAvailable")));
@@ -152,12 +158,12 @@ public final class Data4LibraryClient {
      *
      * @param exactMatch 일치 검색 여부. 기본은 부분 일치입니다.
      */
-    public List<BookInfo> searchBooks(BookQuery query, int page, ApiBudget.Priority priority) {
+    public List<BookInfo> searchBooks(BookQuery query, int page) {
         Map<String, String> params = new LinkedHashMap<>(query.toParams());
         params.put("pageNo", String.valueOf(page));
         params.put("pageSize", String.valueOf(PAGE_SIZE));
 
-        String xml = call("srchBooks", params, priority);
+        String xml = call("srchBooks", params);
         return Data4LibraryResponse.items(xml, "doc").stream().map(BookInfo::from).toList();
     }
 
@@ -268,15 +274,14 @@ public final class Data4LibraryClient {
      * 책은 두세 쪽이라, 차례로 받으면 그 책 하나에 15초입니다. 첫 쪽이 전체 건수를 알려 주므로
      * 남은 쪽 수를 알고 한꺼번에 부를 수 있습니다.
      */
-    public List<LibraryInfo> librariesHolding(String isbn13, String regionCode,
-                                              ApiBudget.Priority priority) {
+    public List<LibraryInfo> librariesHolding(String isbn13, String regionCode) {
         if (regionCode == null || regionCode.isBlank()) {
             throw new IllegalArgumentException(
                     "libSrchByBook 은 region 이 필수입니다. 매뉴얼 13절을 보세요.");
         }
         List<LibraryInfo> out = new ArrayList<>();
 
-        String first = holdingPage(isbn13, regionCode, 1, priority);
+        String first = holdingPage(isbn13, regionCode, 1);
         var firstItems = Data4LibraryResponse.items(first, "lib");
         firstItems.stream().map(LibraryInfo::from).forEach(out::add);
         if (firstItems.isEmpty()) return out;
@@ -290,7 +295,7 @@ public final class Data4LibraryClient {
             // 전체 건수를 모르면 짧은 쪽이 나올 때까지 차례로 받습니다.
             for (int page = 2; page <= MAX_HOLDING_PAGES; page++) {
                 var items = Data4LibraryResponse.items(
-                        holdingPage(isbn13, regionCode, page, priority), "lib");
+                        holdingPage(isbn13, regionCode, page), "lib");
                 items.stream().map(LibraryInfo::from).forEach(out::add);
                 if (items.isEmpty() || items.size() < perPage) return out;
             }
@@ -301,20 +306,19 @@ public final class Data4LibraryClient {
         // 남은 쪽 수를 알 수 있으므로 한꺼번에 받습니다. 쪽 순서대로 이어 붙입니다.
         int remaining = numFound - out.size();
         int lastPage = Math.min(MAX_HOLDING_PAGES, 1 + (remaining + perPage - 1) / perPage);
-        for (String xml : holdingPages(isbn13, regionCode, 2, lastPage, priority)) {
+        for (String xml : holdingPages(isbn13, regionCode, 2, lastPage)) {
             Data4LibraryResponse.items(xml, "lib").stream().map(LibraryInfo::from).forEach(out::add);
         }
         return out;
     }
 
-    private String holdingPage(String isbn13, String regionCode, int page,
-                               ApiBudget.Priority priority) {
+    private String holdingPage(String isbn13, String regionCode, int page) {
         Map<String, String> params = new LinkedHashMap<>();
         params.put("isbn", isbn13);
         params.put("region", regionCode);
         params.put("pageNo", String.valueOf(page));
         params.put("pageSize", String.valueOf(PAGE_SIZE));
-        return call("libSrchByBook", params, priority);
+        return call("libSrchByBook", params);
     }
 
     /**
@@ -322,8 +326,7 @@ public final class Data4LibraryClient {
      * 한 쪽이라도 실패하면 그 예외를 그대로 올립니다. 빠진 쪽이 있는 답은 빠짐없이 확인한
      * 것이 아니므로, 부르는 쪽이 그것을 실패로 세어야 합니다.
      */
-    private List<String> holdingPages(String isbn13, String regionCode, int from, int to,
-                                      ApiBudget.Priority priority) {
+    private List<String> holdingPages(String isbn13, String regionCode, int from, int to) {
         List<String> pages = new ArrayList<>();
         try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
             List<Future<String>> futures = new ArrayList<>();
@@ -333,7 +336,7 @@ public final class Data4LibraryClient {
                 futures.add(executor.submit(() -> {
                     permits.acquire();
                     try {
-                        return holdingPage(isbn13, regionCode, pageNo, priority);
+                        return holdingPage(isbn13, regionCode, pageNo);
                     } finally {
                         permits.release();
                     }
@@ -366,7 +369,7 @@ public final class Data4LibraryClient {
      * 책이고, 그래서 여기서 뽑은 책은 물어보지 않아도 그 도서관 목록에 있습니다.
      * 건수만 필요하므로 {@code pageSize=1} 로 부릅니다.
      */
-    public int catalogCount(String libCode, String kdc, ApiBudget.Priority priority) {
+    public int catalogCount(String libCode, String kdc) {
         Map<String, String> params = new LinkedHashMap<>();
         params.put("libCode", libCode);
         params.put("type", "ALL");
@@ -374,7 +377,7 @@ public final class Data4LibraryClient {
         params.put("pageNo", "1");
         params.put("pageSize", "1");
 
-        return intOrMinusOne(Data4LibraryResponse.scalar(call("itemSrch", params, priority), "numFound"));
+        return intOrMinusOne(Data4LibraryResponse.scalar(call("itemSrch", params), "numFound"));
     }
 
     /**
@@ -386,8 +389,7 @@ public final class Data4LibraryClient {
      * 그 뒤가 전부 밀리면 엉뚱한 책의 청구기호가 붙는데, 그건 서가에서 헛걸음하게
      * 만드는 값입니다.
      */
-    public List<BookInfo> catalogPage(String libCode, String kdc, int pageNo, int pageSize,
-                                      ApiBudget.Priority priority) {
+    public List<BookInfo> catalogPage(String libCode, String kdc, int pageNo, int pageSize) {
         Map<String, String> params = new LinkedHashMap<>();
         params.put("libCode", libCode);
         params.put("type", "ALL");
@@ -395,7 +397,7 @@ public final class Data4LibraryClient {
         params.put("pageNo", String.valueOf(pageNo));
         params.put("pageSize", String.valueOf(pageSize));
 
-        String xml = call("itemSrch", params, priority);
+        String xml = call("itemSrch", params);
         List<BookInfo> books = Data4LibraryResponse.items(xml, "doc").stream()
                 .map(BookInfo::from)
                 .toList();
@@ -412,25 +414,25 @@ public final class Data4LibraryClient {
     }
 
     /** {@link HoldingsLookup} 이 쓰는 형태로 감쌉니다. */
-    public HoldingsLookup.HoldingsClient asHoldingsClient(ApiBudget.Priority priority) {
+    public HoldingsLookup.HoldingsClient asHoldingsClient() {
         return (isbn13, regionCode) ->
-                librariesHolding(isbn13, regionCode, priority).stream()
+                librariesHolding(isbn13, regionCode).stream()
                         .map(LibraryInfo::libCode).toList();
     }
 
     // ---------------------------------------------------------------
 
-    private String call(String endpoint, Map<String, String> params, ApiBudget.Priority priority) {
-        // 실패할 것이 뻔한 요청은 보내지 않습니다. 예산도 쓰지 않습니다.
+    private String call(String endpoint, Map<String, String> params) {
+        // 실패할 것이 뻔한 요청은 보내지 않습니다. 원장에도 적지 않습니다.
         AuthFailure known = authFailure;
         if (known != null && clock.instant().isBefore(known.until())) {
             throw new ApiErrorException(endpoint, known.error());
         }
 
-        if (!budget.tryAcquire(SOURCE_CODE, priority)) {
-            throw new BudgetExhaustedException(
-                    "정보나루의 오늘 호출 예산을 다 썼습니다. 남은 항목은 캐시로만 답해야 합니다.");
-        }
+        // **세기만 하고 막지 않습니다.** 하루 한도를 넘겼는지는 정보나루가 outOflimit 으로
+        // 알려 주고, 그 오류를 받으면 아래에서 5분간 부르지 않습니다. 우리 쪽에서 먼저
+        // 멈추는 선은 두지 않습니다(CallLedger 의 설명을 보세요).
+        ledger.record(SOURCE_CODE);
         StringBuilder url = new StringBuilder(BASE).append('/').append(endpoint)
                 .append("?authKey=").append(encode(authKey));
         params.forEach((key, value) ->
@@ -468,7 +470,7 @@ public final class Data4LibraryClient {
     private static boolean isAuthClass(Data4LibraryResponse.ApiError error) {
         return "authErr".equals(error.code())
                 || "vitalizationErr".equals(error.code())
-                || "outOflimit".equals(error.code());
+                || DAILY_LIMIT_CODE.equals(error.code());
     }
 
     /**
@@ -489,14 +491,6 @@ public final class Data4LibraryClient {
      */
     private static String encode(String value) {
         return URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20");
-    }
-
-    /**
-     * 예산 소진은 오류가 아니라 정상 상태입니다. 부르는 쪽은 이것을 잡아 캐시 응답으로
-     * 돌아가야 하고, <b>절대 미소장으로 바꿔 표시하면 안 됩니다.</b>
-     */
-    public static class BudgetExhaustedException extends RuntimeException {
-        public BudgetExhaustedException(String message) { super(message); }
     }
 
     /**
@@ -522,5 +516,13 @@ public final class Data4LibraryClient {
 
         /** 인증키가 틀렸습니다. */
         public boolean isAuthFailure() { return "authErr".equals(error.code()); }
+
+        /**
+         * 정보나루가 오늘 몫을 다 썼다고 답했습니다({@code outOflimit}).
+         *
+         * <p>이 오류를 받은 뒤에는 5분간 부르지 않으므로 그동안의 검색은 전부 같은 오류로
+         * 끝납니다. 화면은 검색을 시작할 때 이 오류를 받으면 한도 안내 페이지로 넘어갑니다.
+         */
+        public boolean isDailyLimit() { return DAILY_LIMIT_CODE.equals(error.code()); }
     }
 }

@@ -52,6 +52,11 @@ import java.lang.annotation.Target;
 @TestPropertySource(properties = {
         "wimb.data4library.auth-key=test-key-not-used-for-calls",
         "wimb.catalog.warm-on-startup=false",
+        // 호출 원장 파일은 컨텍스트마다 새 이름입니다. 이름이 하나면 앞선 실행이 남긴 그날의
+        // 건수를 이어받아(개발 기계의 backend/data 에 있는 진짜 원장도 마찬가지입니다), 아래의
+        // 「한 건도 부르지 않았다」 검사가 부르지도 않은 호출로 실패합니다. 원장은 적힌 것이
+        // 있을 때만 파일을 쓰므로, 테스트가 통과하는 동안에는 파일이 생기지 않습니다.
+        "wimb.data4library.ledger-path=build/tmp/test-call-ledger-${random.uuid}.tsv",
         // **도서관 목록 스냅샷을 개발자의 backend/data/ 에서 되살리지 않게 합니다.** 로컬에서
         // 서버를 띄운 적이 있으면 거기에 파일이 남아 있고, 그대로 두면 컨텍스트 테스트가 그
         // 기계에 무엇이 남아 있느냐에 따라 달라집니다. 스냅샷을 일부러 쥐여 주려는 테스트는

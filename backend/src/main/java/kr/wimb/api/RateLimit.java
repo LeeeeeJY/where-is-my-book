@@ -20,17 +20,18 @@ import java.util.concurrent.locks.ReentrantLock;
  *
  * <p>막아야 하는 것은 두 가지인데 서로 다릅니다. <b>분당 한도</b>는 짧은 시간에 몰아치는
  * 것을 막고, <b>하루 한도</b>는 한 주소가 천천히 하루치를 다 가져가는 것을 막습니다.
- * 분당 한도만 두면 후자를 못 막습니다. 분당 400 을 하루 내내 쓰면 57만 건이라, 하루 예산
- * 25,000 건은 한 시간이면 사라집니다.
+ * 분당 한도만 두면 후자를 못 막습니다. 분당 400 을 하루 내내 쓰면 57만 건이라, 정보나루의
+ * 하루 한도 30,000 건은 한 시간 남짓이면 사라집니다.
  *
  * <p><b>요청마다 무게가 다릅니다.</b> 요청 수를 그냥 세면 안 됩니다. {@code /api/status} 한
  * 번은 정보나루를 부르지 않지만 {@code /api/check/resolve} 한 번은 줄마다 두세 번씩 불러
  * 백 번을 넘길 수 있습니다. 같은 한 번으로 세면 가장 비싼 요청이 가장 싸게 통과합니다.
  * 무게표는 {@link RateLimitInterceptor} 에 있습니다.
  *
- * <p><b>이 한도는 정보나루 예산 원장을 대신하지 않습니다.</b> 원장({@code api_budget})은
+ * <p><b>이 한도는 정보나루 호출 원장과 다른 것을 셉니다.</b> 원장({@code CallLedger})은
  * 우리가 정보나루에 실제로 몇 번 나갔는지를 세고, 이것은 어느 주소가 얼마나 요청했는지를
- * 셉니다. 앞엣것은 전체 상한이고 뒤엣것은 한 사람 몫입니다. 둘 다 있어야 합니다.
+ * 셉니다. <b>원장은 세기만 하고 막지 않으므로</b>(2026-11-12), 한 주소가 하루치를 가져가지
+ * 못하게 막는 장치는 이것 하나입니다.
  *
  * <p>토큰은 시간에 비례해 조금씩 다시 찹니다. 창을 잘라 세면 창이 바뀌는 순간에 두 창
  * 몫이 한꺼번에 나가는데, 화면이 소장 조회를 여덟 개씩 겹쳐 보내므로 그 순간이 실제로
@@ -38,8 +39,8 @@ import java.util.concurrent.locks.ReentrantLock;
  */
 public final class RateLimit {
 
-    /** 하루의 경계는 한국 시각입니다. 정보나루 예산 원장과 같은 기준이어야 합니다. */
-    public static final ZoneId ZONE = kr.wimb.ingest.InMemoryApiBudget.BUDGET_ZONE;
+    /** 하루의 경계는 한국 시각입니다. 정보나루 호출 원장과 같은 기준이어야 합니다. */
+    public static final ZoneId ZONE = kr.wimb.ingest.DailyCallLedger.LEDGER_ZONE;
 
     /** 어느 한도에 걸렸는지. <b>사람이 할 일이 다르므로 갈라 놓습니다.</b> */
     public enum Scope {

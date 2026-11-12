@@ -1,7 +1,6 @@
 package kr.wimb.data4library;
 
-import kr.wimb.ingest.ApiBudget;
-import kr.wimb.ingest.InMemoryApiBudget;
+import kr.wimb.ingest.DailyCallLedger;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -190,10 +189,10 @@ class CatalogPageTest {
 
     private static List<BookInfo> catalogPage(String xml) {
         var transport = new FixedTransport(xml);
-        var budget = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 1000),
+        var budget = new DailyCallLedger(Map.of(Data4LibraryClient.SOURCE_CODE, 1000),
                 Clock.fixed(Instant.parse("2026-09-20T00:00:00Z"), ZoneId.of("UTC")));
         return new Data4LibraryClient(transport, "테스트키", budget)
-                .catalogPage("141321", null, 1, 100, ApiBudget.Priority.USER);
+                .catalogPage("141321", null, 1, 100);
     }
 
     private record FixedTransport(String body) implements Data4LibraryClient.Transport {

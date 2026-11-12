@@ -3,8 +3,8 @@ package kr.wimb.api;
 import kr.wimb.data4library.Data4LibraryClient;
 import kr.wimb.holdings.CachingHoldingsClient;
 import kr.wimb.holdings.HoldingsLookup;
-import kr.wimb.ingest.ApiBudget;
-import kr.wimb.ingest.InMemoryApiBudget;
+import kr.wimb.ingest.CallLedger;
+import kr.wimb.ingest.DailyCallLedger;
 import kr.wimb.shelf.ShelfHarvester;
 import kr.wimb.shelf.ShelfService;
 import kr.wimb.shelf.ShelfStore;
@@ -24,14 +24,14 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Clock;
-import java.time.ZoneId;
 import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.locks.ReentrantLock;
 
 @Configuration
-// 소장 캐시 스냅샷을 주기적으로 저장하는 일정이 필요합니다. HoldingCacheStore 를 보세요.
+// 소장 캐시 스냅샷과 호출 원장을 주기적으로 저장하는 일정이 필요합니다.
+// HoldingCacheStore 와 CallLedgerStore 를 보세요.
 @EnableScheduling
 public class WimbConfiguration implements WebMvcConfigurer {
 
@@ -41,7 +41,7 @@ public class WimbConfiguration implements WebMvcConfigurer {
      * <p>HTTP 헤더 값에 ASCII 가 아닌 문자가 들어가면 자바가 요청을 만들다가
      * {@link IllegalArgumentException} 을 던집니다. 그러면 요청이 나가지도 않은 채
      * 실패하는데, 화면에는 그냥 "확인 불가"로 보여서 원인을 찾기 어렵습니다.
-     * 호출 예산은 요청을 만들기 전에 깎이므로 예산만 줄어듭니다.
+     * 호출 건수는 요청을 만들기 전에 적으므로 건수만 늘어납니다.
      */
     static final String USER_AGENT =
             "where-is-my-books/0.1 (personal project; +https://github.com/LeeeeeJY/where-is-my-book)";
@@ -49,8 +49,16 @@ public class WimbConfiguration implements WebMvcConfigurer {
     @Value("${wimb.data4library.auth-key:}")
     private String authKey;
 
-    @Value("${wimb.data4library.daily-call-budget:25000}")
-    private int dailyCallBudget;
+    /**
+     * 정보나루가 등록한 IP 에 주는 하루 한도. <b>호출을 막는 데 쓰지 않습니다.</b>
+     *
+     * <p>{@code /api/status} 의 {@code callsRemaining} 과, 서가를 세울 때 남겨 두는 몫
+     * ({@code wimb.shelf.reserve-calls})을 계산하는 데에만 씁니다. 예전 이름은
+     * {@code daily-call-budget}(기본 25,000)이었고 그 값에 닿으면 부르지 않았습니다.
+     * 한도까지 전부 쓰기로 하면서 이름과 뜻을 함께 바꿨습니다(2026-11-12).
+     */
+    @Value("${wimb.data4library.daily-call-limit:30000}")
+    private int dailyCallLimit;
 
     @Value("${wimb.data4library.min-request-interval-ms:120}")
     private long minIntervalMs;
@@ -110,15 +118,17 @@ public class WimbConfiguration implements WebMvcConfigurer {
     @Value("${wimb.rate-limit.max-tracked-clients:20000}")
     private int rateLimitMaxClients;
 
+    /**
+     * 그날 정보나루를 몇 번 불렀는지 적는 원장. <b>세기만 하고 막지 않습니다.</b>
+     *
+     * <p>구현 타입으로 꺼내 두는 것은 파일 저장 때문입니다. {@link CallLedgerStore} 가 이것을
+     * 주기적으로 저장하고 시작할 때 이어받습니다. 날짜 경계는 원장이 스스로 한국 시각으로
+     * 봅니다.
+     */
     @Bean
-    public ApiBudget apiBudget() {
-        // 재시작하면 잔량이 초기화됩니다. 운영에서는 api_budget 테이블을 쓰는 구현으로
-        // 갈아 끼워야 그날 한도를 두 번 쓰는 일이 없습니다.
-        // 날짜 경계는 한국 시각입니다. UTC 로 두면 한도가 09:00 KST 에 초기화되어
-        // 정보나루의 하루와 어긋나고, 그 어긋난 구간에서 한도를 두 번 쓰게 됩니다.
-        return new InMemoryApiBudget(
-                Map.of(Data4LibraryClient.SOURCE_CODE, dailyCallBudget),
-                Clock.system(ZoneId.of("Asia/Seoul")));
+    public DailyCallLedger callLedger() {
+        return new DailyCallLedger(
+                Map.of(Data4LibraryClient.SOURCE_CODE, dailyCallLimit), Clock.systemUTC());
     }
 
     /**
@@ -139,7 +149,7 @@ public class WimbConfiguration implements WebMvcConfigurer {
     }
 
     @Bean
-    public Data4LibraryClient data4LibraryClient(ApiBudget budget,
+    public Data4LibraryClient data4LibraryClient(CallLedger ledger,
                                                  Data4LibraryClient.Transport transport) {
         if (authKey == null || authKey.isBlank()) {
             throw new IllegalStateException("""
@@ -147,7 +157,7 @@ public class WimbConfiguration implements WebMvcConfigurer {
                       cp .env.example .env  후 D4L_AUTH_KEY 를 채우고
                       set -a; . ./.env; set +a  로 환경 변수에 올린 뒤 실행하세요.""");
         }
-        return new Data4LibraryClient(transport, authKey, budget);
+        return new Data4LibraryClient(transport, authKey, ledger);
     }
 
     /**
@@ -215,7 +225,7 @@ public class WimbConfiguration implements WebMvcConfigurer {
     @Bean
     public CachingHoldingsClient holdingsCache(Data4LibraryClient client) {
         return new CachingHoldingsClient(
-                client.asHoldingsClient(ApiBudget.Priority.USER),
+                client.asHoldingsClient(),
                 HOLDINGS_CACHE_TTL, HOLDINGS_CACHE_MAX_ENTRIES, Clock.systemUTC());
     }
 
@@ -250,11 +260,11 @@ public class WimbConfiguration implements WebMvcConfigurer {
      */
     @Bean
     public ShelfService shelfService(
-            ShelfStore store, ShelfHarvester harvester, ApiBudget budget,
+            ShelfStore store, ShelfHarvester harvester, CallLedger ledger,
             @Value("${wimb.shelf.refresh-days:14}") int refreshDays,
             @Value("${wimb.shelf.max-concurrent-builds:2}") int maxConcurrentBuilds,
             @Value("${wimb.shelf.reserve-calls:5000}") int reserveCalls) {
-        return new ShelfService(store, harvester, budget, refreshDays, maxConcurrentBuilds,
+        return new ShelfService(store, harvester, ledger, refreshDays, maxConcurrentBuilds,
                 reserveCalls, Clock.systemUTC());
     }
 

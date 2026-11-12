@@ -2,7 +2,6 @@ package kr.wimb.shelf;
 
 import kr.wimb.data4library.BookInfo;
 import kr.wimb.data4library.Data4LibraryClient;
-import kr.wimb.ingest.ApiBudget;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -40,7 +39,7 @@ import java.util.concurrent.Future;
  * <h2>대주제 하나씩 세웁니다</h2>
  *
  * <p>도서관 전체는 15만~40만 권이라 한 번에 300회를 부르고, 전국 1,619곳이면 48만
- * 회입니다. 하루 한도가 25,000이라 스무 날이 걸리고 디스크도 65GB 라 들어가지
+ * 회입니다. 하루 한도가 30,000이라 열엿새가 걸리고 디스크도 65GB 라 들어가지
  * 않습니다. <b>대주제로 자르고 사람이 여는 것만 세우면</b> 그 둘이 함께 풀립니다.
  * 자세한 것은 {@link Kdc} 에 적어 두었습니다.
  *
@@ -50,11 +49,13 @@ import java.util.concurrent.Future;
  * 수집은 수천 번을 부르므로 <b>반드시 배포된 서버에서</b> 돌려야 합니다. GitHub
  * Actions 는 러너 IP 가 고정되지 않아 조용히 500건으로 떨어집니다.
  *
- * <h2>배경 작업입니다</h2>
+ * <h2>검색보다 뒤에 둡니다</h2>
  *
- * <p>{@link ApiBudget.Priority#BACKGROUND} 로 부릅니다. 사람이 기다리는 검색이 있으면
- * 그쪽이 먼저이고, 하루 한도의 80% 에 닿으면 수집이 먼저 멈춥니다. 수집은 내일 다시
- * 돌리면 되지만 검색은 그 사람이 지금 기다리고 있습니다.
+ * <p>수집은 내일 다시 돌리면 되지만 검색은 그 사람이 지금 기다리고 있습니다. 그 차례를
+ * 지키는 것은 이 클래스가 아니라 {@link ShelfService} 입니다. 하루 몫이
+ * {@code reserve-calls} 아래로 내려가면 서가를 세우기 시작하지 않습니다. 호출마다 등급을
+ * 매겨 한도의 80% 에서 멈추던 장치는 없앴습니다(2026-11-12). 일단 시작한 수집은 끝까지
+ * 받고, 도중에 정보나루가 한도 오류를 주면 그 서가는 통째로 실패합니다.
  */
 public class ShelfHarvester {
 
@@ -153,7 +154,7 @@ public class ShelfHarvester {
      * 기한이 다 차면 어차피 다시 세웁니다.
      */
     public int countOf(String libCode, Kdc kdc) {
-        return client.catalogCount(libCode, kdc.code(), ApiBudget.Priority.BACKGROUND);
+        return client.catalogCount(libCode, kdc.code());
     }
 
     /**
@@ -197,8 +198,7 @@ public class ShelfHarvester {
      * 첫 쪽을 크게 물어보고 몇 건이 왔는지 셉니다.
      */
     private int probePageSize(String libCode, Kdc kdc) {
-        List<BookInfo> first = client.catalogPage(libCode, kdc.code(), 1, WANTED_PAGE_SIZE,
-                ApiBudget.Priority.BACKGROUND);
+        List<BookInfo> first = client.catalogPage(libCode, kdc.code(), 1, WANTED_PAGE_SIZE);
         int got = first.size();
         if (got >= WANTED_PAGE_SIZE) return WANTED_PAGE_SIZE;
         if (got <= 0) return WANTED_PAGE_SIZE;   // 빈 쪽이면 건수로 다시 판단합니다.
@@ -216,7 +216,7 @@ public class ShelfHarvester {
                 for (int page = from; page < from + PAGES_IN_FLIGHT && page <= pages; page++) {
                     int at = page;
                     batch.add(pool.submit(() -> client.catalogPage(libCode, kdc.code(), at,
-                            pageSize, ApiBudget.Priority.BACKGROUND)));
+                            pageSize)));
                 }
                 for (Future<List<BookInfo>> future : batch) {
                     for (BookInfo book : get(future)) {

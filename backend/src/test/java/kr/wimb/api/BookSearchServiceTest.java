@@ -3,7 +3,7 @@ package kr.wimb.api;
 import kr.wimb.data4library.BookInfo;
 import kr.wimb.data4library.Data4LibraryClient;
 import kr.wimb.holdings.HoldingsLookup;
-import kr.wimb.ingest.InMemoryApiBudget;
+import kr.wimb.ingest.DailyCallLedger;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -80,7 +80,7 @@ class BookSearchServiceTest {
         """;
 
     private static Data4LibraryClient client(String payload) {
-        var budget = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 1000),
+        var budget = new DailyCallLedger(Map.of(Data4LibraryClient.SOURCE_CODE, 1000),
                 Clock.fixed(Instant.parse("2026-09-05T00:00:00Z"), ZoneId.of("UTC")));
         return new Data4LibraryClient(uri -> payload, "테스트키", budget);
     }
@@ -394,23 +394,38 @@ class BookSearchServiceTest {
     }
 
     @Test
-    @DisplayName("호출 예산이 소진되어도 오류 대신 확인 불가로 답한다")
-    void budgetExhaustionDegradesInsteadOfFailing() {
-        var exhausted = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 1),
+    @DisplayName("소장 조회가 하루 한도에 걸리면 미소장이 아니라 확인 불가로 답한다")
+    void dailyLimitOnHoldingsDegradesToUnreadable() {
+        // 검색은 받았는데 그 뒤에 한도를 넘긴 경우입니다. 실제 클라이언트를 그대로 통과시켜,
+        // 정보나루의 오류 본문이 소장 결과까지 어떻게 전해지는지를 봅니다.
+        var ledger = new DailyCallLedger(Map.of(Data4LibraryClient.SOURCE_CODE, 1000),
                 Clock.fixed(Instant.parse("2026-09-05T00:00:00Z"), ZoneId.of("UTC")));
-        var searchClient = new Data4LibraryClient(uri -> TWO_BOOKS, "테스트키", exhausted);
-        var service = new BookSearchService(searchClient, new HoldingsLookup(
-                (isbn, region) -> {
-                    throw new Data4LibraryClient.BudgetExhaustedException("예산 소진");
-                },
-                HoldingsLookup.RegionModeStore.documented()));
+        var asked = new java.util.concurrent.atomic.AtomicInteger();
+        var client = new Data4LibraryClient(uri -> {
+            if (!uri.toString().contains("libSrchByBook")) return TWO_BOOKS;
+            asked.incrementAndGet();
+            return """
+                <response><errCode>outOflimit</errCode><error>1일 500건 이상 요청 시 IP 등록이 필요합니다. 등록 된 IP를 확인하시기 바랍니다.</error></response>""";
+        }, "테스트키", ledger);
+        var service = new BookSearchService(client, new HoldingsLookup(
+                client.asHoldingsClient(), HoldingsLookup.RegionModeStore.documented()));
 
         var response = service.search("코스모스");
         assertFalse(response.works().isEmpty(), "책 정보까지 없애 버리면 안 됩니다");
 
         var holdings = service.holdingsOf(response.works().get(0).isbn13List(),
                 List.of("11"), List.of("111001"));
-        assertTrue(holdings.unreadable());
+        assertTrue(holdings.unreadable(), "물어보지 못한 것은 확인 불가입니다");
+        assertFalse(holdings.complete(), "빠짐없이 확인했다고 말하면 화면이 미소장으로 그립니다");
+        assertTrue(holdings.libCodes().isEmpty());
+
+        // 판본들은 동시에 나가므로 첫 조회에서는 빗장이 걸리기 전에 여럿이 나갈 수 있습니다.
+        // 한 번 걸린 뒤에는 다시 물어도 정보나루로 나가지 않아야 합니다.
+        int sent = asked.get();
+        var again = service.holdingsOf(response.works().get(0).isbn13List(),
+                List.of("11"), List.of("111001"));
+        assertTrue(again.unreadable());
+        assertEquals(sent, asked.get(), "한도 오류를 받은 뒤 5분 동안은 부르지 않습니다");
     }
 
     /** 「레미제라블」로 찾으면 붙여 쓴 세트 하나만 걸립니다. 실제 응답을 줄인 것입니다. */
@@ -509,7 +524,7 @@ class BookSearchServiceTest {
 
     /** 제목으로 찾을 때와 저자로 찾을 때 서로 다른 응답을 주는 정보나루를 흉내 냅니다. */
     private static BookSearchService recoveringService() {
-        var budget = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 1000),
+        var budget = new DailyCallLedger(Map.of(Data4LibraryClient.SOURCE_CODE, 1000),
                 Clock.fixed(Instant.parse("2026-09-05T00:00:00Z"), ZoneId.of("UTC")));
         var client = new Data4LibraryClient(
                 uri -> uri.toString().contains("author=") ? LESMIS_BY_AUTHOR : LESMIS_SET_ONLY,
@@ -546,7 +561,7 @@ class BookSearchServiceTest {
     @DisplayName("띄어 쓴 질의에서도 붙여 쓴 판을 되찾는다")
     void recoversForSpacedQueryToo() {
         String spacedOnly = SPACED_ONLY;
-        var budget = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 1000),
+        var budget = new DailyCallLedger(Map.of(Data4LibraryClient.SOURCE_CODE, 1000),
                 Clock.fixed(Instant.parse("2026-09-05T00:00:00Z"), ZoneId.of("UTC")));
         var client = new Data4LibraryClient(
                 uri -> uri.toString().contains("author=") ? LESMIS_SAME_TITLE : spacedOnly,
@@ -722,7 +737,7 @@ class BookSearchServiceTest {
     @Test
     @DisplayName("여러 권 확인 경로도 저자로 되찾는다")
     void worksForAlsoRecovers() {
-        var budget = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 1000),
+        var budget = new DailyCallLedger(Map.of(Data4LibraryClient.SOURCE_CODE, 1000),
                 Clock.fixed(Instant.parse("2026-09-05T00:00:00Z"), ZoneId.of("UTC")));
         var client = new Data4LibraryClient(
                 uri -> uri.toString().contains("author=") ? LESMIS_BY_AUTHOR : LESMIS_SAME_TITLE,
@@ -755,7 +770,7 @@ class BookSearchServiceTest {
     void doesNotRecoverWithoutAnyResult() {
         String empty = EMPTY_RESPONSE;
         var queries = java.util.Collections.synchronizedList(new java.util.ArrayList<String>());
-        var budget = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 1000),
+        var budget = new DailyCallLedger(Map.of(Data4LibraryClient.SOURCE_CODE, 1000),
                 Clock.fixed(Instant.parse("2026-09-05T00:00:00Z"), ZoneId.of("UTC")));
         var client = new Data4LibraryClient(uri -> {
             queries.add(java.net.URLDecoder.decode(uri.toString(),
@@ -785,7 +800,7 @@ class BookSearchServiceTest {
     @Test
     @DisplayName("같은 제목의 다른 책이 이미 있어도 띄어 쓴 판을 되찾는다")
     void recoversEvenWhenSameTitleExists() {
-        var budget = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 1000),
+        var budget = new DailyCallLedger(Map.of(Data4LibraryClient.SOURCE_CODE, 1000),
                 Clock.fixed(Instant.parse("2026-09-05T00:00:00Z"), ZoneId.of("UTC")));
         var client = new Data4LibraryClient(
                 uri -> uri.toString().contains("author=") ? LESMIS_BY_AUTHOR : LESMIS_SAME_TITLE,
@@ -1055,7 +1070,7 @@ class BookSearchServiceTest {
     }
 
     private static BookSearchService serviceWith(Data4LibraryClient.Transport transport) {
-        var budget = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 1000),
+        var budget = new DailyCallLedger(Map.of(Data4LibraryClient.SOURCE_CODE, 1000),
                 Clock.fixed(Instant.parse("2026-09-05T00:00:00Z"), ZoneId.of("UTC")));
         var client = new Data4LibraryClient(transport, "테스트키", budget);
         return new BookSearchService(client, new HoldingsLookup(

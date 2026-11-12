@@ -4,7 +4,7 @@ import kr.wimb.data4library.Data4LibraryClient;
 import kr.wimb.data4library.RegionCode;
 import kr.wimb.holdings.CachingHoldingsClient;
 import kr.wimb.holdings.HoldingsLookup;
-import kr.wimb.ingest.InMemoryApiBudget;
+import kr.wimb.ingest.DailyCallLedger;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.server.ResponseStatusException;
@@ -113,7 +113,7 @@ class WimbControllerTest {
     }
 
     private static WimbController controllerWith(Data4LibraryClient.Transport transport) {
-        var budget = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 100_000),
+        var budget = new DailyCallLedger(Map.of(Data4LibraryClient.SOURCE_CODE, 100_000),
                 Clock.fixed(Instant.parse("2026-09-06T00:00:00Z"), ZoneId.of("UTC")));
         var client = new Data4LibraryClient(transport, "테스트키", budget);
         var search = new BookSearchService(client, new HoldingsLookup(
@@ -137,7 +137,7 @@ class WimbControllerTest {
 
     /** 서버가 뜰 때의 미리 받기를 켜거나 끈 컨트롤러. 나머지는 위와 같습니다. */
     private static WimbController controllerWarming(RegionAware transport, boolean warmOnStartup) {
-        var budget = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 100_000),
+        var budget = new DailyCallLedger(Map.of(Data4LibraryClient.SOURCE_CODE, 100_000),
                 Clock.fixed(Instant.parse("2026-09-06T00:00:00Z"), ZoneId.of("UTC")));
         var client = new Data4LibraryClient(transport, "테스트키", budget);
         var search = new BookSearchService(client, new HoldingsLookup(
@@ -190,7 +190,7 @@ class WimbControllerTest {
     /** 소장 조회가 어느 지역을 물었는지 보려면 가짜 소장 클라이언트를 끼워야 합니다. */
     private static WimbController controller(RegionAware transport,
                                              HoldingsLookup.HoldingsClient holdings) {
-        var budget = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 100_000),
+        var budget = new DailyCallLedger(Map.of(Data4LibraryClient.SOURCE_CODE, 100_000),
                 Clock.fixed(Instant.parse("2026-09-06T00:00:00Z"), ZoneId.of("UTC")));
         var client = new Data4LibraryClient(transport, "테스트키", budget);
         var search = new BookSearchService(client, new HoldingsLookup(
@@ -210,7 +210,7 @@ class WimbControllerTest {
     private static WimbController controllerOn(LibraryCatalog catalog, RegionAware transport,
                                                HoldingsLookup.HoldingsClient holdings,
                                                AtomicReference<Instant> now) {
-        var budget = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 100_000),
+        var budget = new DailyCallLedger(Map.of(Data4LibraryClient.SOURCE_CODE, 100_000),
                 Clock.fixed(Instant.parse("2026-09-06T00:00:00Z"), ZoneId.of("UTC")));
         var client = new Data4LibraryClient(transport, "테스트키", budget);
         var search = new BookSearchService(client, new HoldingsLookup(
@@ -337,7 +337,7 @@ class WimbControllerTest {
 
     /** 재시도 시각을 넘겨 보려면 시계를 움직일 수 있어야 합니다. */
     private static WimbController controller(RegionAware transport, AtomicReference<Instant> now) {
-        var budget = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 100_000),
+        var budget = new DailyCallLedger(Map.of(Data4LibraryClient.SOURCE_CODE, 100_000),
                 Clock.fixed(Instant.parse("2026-09-06T00:00:00Z"), ZoneId.of("UTC")));
         var client = new Data4LibraryClient(transport, "테스트키", budget);
         var search = new BookSearchService(client, new HoldingsLookup(
@@ -386,7 +386,7 @@ class WimbControllerTest {
     private static WimbController linkController(FakeOpac opac, List<String> rules, List<String> patterns,
                                                  boolean linksEnabled) {
         var transport = new RegionAware();
-        var budget = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 100_000),
+        var budget = new DailyCallLedger(Map.of(Data4LibraryClient.SOURCE_CODE, 100_000),
                 Clock.fixed(Instant.parse("2026-09-06T00:00:00Z"), ZoneId.of("UTC")));
         var client = new Data4LibraryClient(transport, "테스트키", budget);
         var search = new BookSearchService(client, new HoldingsLookup(
@@ -536,6 +536,64 @@ class WimbControllerTest {
 
         assertEquals(titleUrl("토지"),
                 sentWithTitle(linkController(opac, TITLE_RULE, TITLE_ANCHOR, true), "토지 1", "9788900000001"));
+    }
+
+    // ── 결과를 프레임으로 보여 주는 OPAC (@frame:) ─────────────────────────
+
+    private static final List<String> FRAMED_RULE = List.of(
+            "110001,TITLE_SEARCH,UTF-8,https://lib.example.kr/srch/smart2.do?menuId=M1&searchKeyword={title}");
+    private static final List<String> FRAMED_PATTERN = List.of(
+            "lib.example.kr,@frame:https://lib.example.kr:7443/dls/index.php?act=list&word={title}&manageCode=MA"
+                    + " => @anchor:href=\"(index\\.php\\?act=view[^\"]*)\"");
+
+    private static String outerUrl(String title) {
+        return "https://lib.example.kr/srch/smart2.do?menuId=M1&searchKeyword="
+                + java.net.URLEncoder.encode(title, java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    private static String frameUrl(String title) {
+        return "https://lib.example.kr:7443/dls/index.php?act=list&word="
+                + java.net.URLEncoder.encode(title, java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20")
+                + "&manageCode=MA";
+    }
+
+    @Test
+    @DisplayName("결과가 프레임에 있는 OPAC 은 서버가 프레임을 받아 그 ISBN 의 상세로 보낸다")
+    void goResolvesThroughTheResultFrame() {
+        var opac = new FakeOpac();
+        // 지어낸 프레임 본문입니다. 같은 제목의 판 둘이 줄마다 ISBN 과 함께 있습니다.
+        opac.pages.put(frameUrl("이방인"),
+                "<li><a href=\"index.php?act=view&amp;key=1\">이방인 (큰글자책)</a> 9788937437021</li>"
+                        + "<li><a href=\"index.php?act=view&amp;key=2\">이방인</a> 9788937462665</li>");
+
+        assertEquals("https://lib.example.kr:7443/dls/index.php?act=view&key=2",
+                sentWithTitle(linkController(opac, FRAMED_RULE, FRAMED_PATTERN, true), "이방인", "9788937462665"));
+        // 검색 화면은 받지 않습니다. 그 HTML 에는 결과가 없습니다.
+        assertTrue(opac.asked.stream().noneMatch(u -> u.contains("/srch/")), opac.asked.toString());
+    }
+
+    @Test
+    @DisplayName("프레임에서도 권차를 붙인 표제로 먼저 찾고, 그 판이 없을 때만 뗀 표제로 한 번 더 찾는다")
+    void goTriesBothTitlesThroughTheFrame() {
+        var opac = new FakeOpac();
+        opac.pages.put(frameUrl("토지 1"), "<li><a href=\"index.php?act=view&amp;key=9\">다른 판</a> 9788900000009</li>");
+        opac.pages.put(frameUrl("토지"), "<li><a href=\"index.php?act=view&amp;key=9\">다른 판</a> 9788900000009</li>"
+                + "<li><a href=\"index.php?act=view&amp;key=7\">토지. 1</a> 9788900000001</li>");
+
+        assertEquals("https://lib.example.kr:7443/dls/index.php?act=view&key=7",
+                sentWithTitle(linkController(opac, FRAMED_RULE, FRAMED_PATTERN, true), "토지 1", "9788900000001"));
+        assertEquals(List.of(frameUrl("토지 1"), frameUrl("토지")),
+                opac.asked.stream().filter(u -> u.contains("/dls/")).toList());
+    }
+
+    @Test
+    @DisplayName("프레임에 그 판이 없으면 프레임이 아니라 검색 화면으로 보낸다")
+    void goFallsBackToTheSearchPageNotTheFrame() {
+        // 사람이 도착할 곳은 그 도서관의 검색 화면입니다. 프레임만 따로 열면 머리와 메뉴가 없는 조각입니다.
+        var opac = new FakeOpac();
+
+        assertEquals(outerUrl("토지"),
+                sentWithTitle(linkController(opac, FRAMED_RULE, FRAMED_PATTERN, true), "토지 1", "9788900000001"));
     }
 
     @Test
