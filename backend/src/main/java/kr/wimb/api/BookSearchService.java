@@ -9,7 +9,6 @@ import kr.wimb.data4library.Data4LibraryClient;
 import kr.wimb.holdings.HoldingsLookup;
 import kr.wimb.index.SearchDoc;
 import kr.wimb.index.SearchDocBuilder;
-import kr.wimb.ingest.ApiBudget;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -204,7 +203,7 @@ public class BookSearchService {
             // 1회전: 입력 그대로의 첫 쪽, 띄어쓰기를 뺀 제목과 저자, 제목만으로 되찾기,
             //        저자만으로 되찾기, 저자의 띄어쓰기 자리 바꾸기.
             Future<List<BookInfo>> firstPage = executor.submit(
-                    () -> client.searchBooks(query, 1, ApiBudget.Priority.USER));
+                    () -> client.searchBooks(query, 1));
             Future<Optional<List<BookInfo>>> compactBooks = compact == null ? null
                     : executor.submit(() -> searchQuietly(query.withTitle(compact)));
             Future<Optional<List<BookInfo>>> compactAuthorBooks = compactAuthor == null ? null
@@ -378,7 +377,7 @@ public class BookSearchService {
 
     private Optional<List<BookInfo>> searchQuietly(Data4LibraryClient.BookQuery query, int page) {
         try {
-            return Optional.of(client.searchBooks(query, page, ApiBudget.Priority.USER));
+            return Optional.of(client.searchBooks(query, page));
         } catch (RuntimeException e) {
             return Optional.empty();
         }

@@ -11,7 +11,7 @@ import java.util.Random;
  * HTTP API 소스의 공통 뼈대.
  *
  * <p>하위 클래스는 <b>주소를 만드는 일과 응답을 읽는 일만</b> 합니다.
- * 예산 확인, 호출 간격, 재시도는 여기서 한 번만 구현해 모든 소스가 같이 씁니다.
+ * 호출 건수 세기, 호출 간격, 재시도는 여기서 한 번만 구현해 모든 소스가 같이 씁니다.
  * 소스마다 다시 짜면 어느 하나는 반드시 간격을 지키지 않게 됩니다.
  */
 public abstract class HttpApiSourceAdapter implements SourceAdapter {
@@ -41,19 +41,19 @@ public abstract class HttpApiSourceAdapter implements SourceAdapter {
     private static final int MAX_PAGES = 10_000;
 
     private final Transport transport;
-    private final ApiBudget budget;
+    private final CallLedger ledger;
     private final Sleeper sleeper;
     private final Random jitter;
     private final Map<String, Long> lastCallNanos = new HashMap<>();
 
-    protected HttpApiSourceAdapter(Transport transport, ApiBudget budget) {
-        this(transport, budget, Sleeper.REAL, new Random());
+    protected HttpApiSourceAdapter(Transport transport, CallLedger ledger) {
+        this(transport, ledger, Sleeper.REAL, new Random());
     }
 
-    protected HttpApiSourceAdapter(Transport transport, ApiBudget budget,
+    protected HttpApiSourceAdapter(Transport transport, CallLedger ledger,
                                    Sleeper sleeper, Random jitter) {
         this.transport = transport;
-        this.budget = budget;
+        this.ledger = ledger;
         this.sleeper = sleeper;
         this.jitter = jitter;
     }
@@ -63,11 +63,6 @@ public abstract class HttpApiSourceAdapter implements SourceAdapter {
 
     /** 응답을 읽어 sink 로 흘려보내고, 다음 쪽이 있는지 알려 줍니다. */
     protected abstract PageResult parse(String body, IngestUnit unit, RecordSink sink);
-
-    /** 사람이 기다리는 호출인지 배경 작업인지. 기본은 배경입니다. */
-    protected ApiBudget.Priority priority() {
-        return ApiBudget.Priority.BACKGROUND;
-    }
 
     @Override
     public void fetch(IngestUnit unit, RecordSink sink) {
@@ -84,18 +79,16 @@ public abstract class HttpApiSourceAdapter implements SourceAdapter {
     }
 
     /**
-     * 한 번의 조회. 예산, 간격, 재시도를 모두 거칩니다.
+     * 한 번의 조회. 원장, 간격, 재시도를 모두 거칩니다.
      *
-     * <p>재시도도 실제 호출이므로 시도마다 예산을 씁니다. 재시도를 공짜로 세면
-     * 원장이 실제 잔량과 어긋납니다.
+     * <p>재시도도 실제 호출이므로 시도마다 원장에 적습니다. 재시도를 세지 않으면
+     * 원장이 실제로 쓴 건수와 어긋납니다. <b>원장은 세기만 하고 막지 않습니다.</b>
+     * 한도를 넘겼는지는 상대 서버가 오류로 알려 줍니다.
      */
     protected String get(URI uri) {
         IOException lastFailure = null;
         for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-            if (!budget.tryAcquire(code(), priority())) {
-                throw new BudgetExhaustedException(
-                        code() + " 의 오늘 호출 예산을 다 썼습니다. 남은 항목은 캐시로만 답해야 합니다.");
-            }
+            ledger.record(code());
             pace();
             try {
                 Transport.Response response = transport.send(uri);
@@ -142,14 +135,5 @@ public abstract class HttpApiSourceAdapter implements SourceAdapter {
             Thread.currentThread().interrupt();
             throw new SourceException("대기 중 중단되었습니다.", e);
         }
-    }
-
-    /**
-     * 예산 소진은 오류가 아니라 정상적인 상태입니다.
-     * 부르는 쪽은 이것을 잡아서 캐시 응답으로 돌아가야 하고,
-     * 절대 "미소장"으로 바꿔 표시하면 안 됩니다.
-     */
-    public static class BudgetExhaustedException extends SourceException {
-        public BudgetExhaustedException(String message) { super(message); }
     }
 }

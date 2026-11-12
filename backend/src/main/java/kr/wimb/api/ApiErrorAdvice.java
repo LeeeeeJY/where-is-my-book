@@ -37,8 +37,8 @@ import java.util.Map;
  *       있게 남겨 둡니다.</li>
  * </ul>
  *
- * <p>운영자가 실제로 쓰는 통로는 {@code GET /api/diagnose} 입니다. 나가는 IP 와 남은
- * 예산을 말하고 정보나루를 한 번 불러 봅니다. 여기 있던 안내가 그쪽에 이미 다 있으므로,
+ * <p>운영자가 실제로 쓰는 통로는 {@code GET /api/diagnose} 입니다. 나가는 IP 와 오늘 쓴
+ * 건수를 말하고 정보나루를 한 번 불러 봅니다. 여기 있던 안내가 그쪽에 이미 다 있으므로,
  * 방문자 화면에서 빼도 잃는 것이 없습니다.
  *
  * <p><b>인증키는 절대 싣지 마세요.</b> 정보나루의 오류 메시지에는 키가 들어 있지 않지만,
@@ -53,6 +53,12 @@ public class ApiErrorAdvice {
      * <p>그래서 500 이 아니라 503 입니다. 500 은 「우리가 고장」이라는 뜻이고, 실제로는
      * 물어보지 못한 것입니다. 화면은 이것을 「결과 없음」이 아니라 「확인 불가」로 그려야
      * 합니다. 없다고 답하면 실제로 있는 책을 놓치게 됩니다.
+     *
+     * <p><b>하루 한도를 넘긴 것도 이 길로 나갑니다</b>({@code code} 가 {@code outOflimit}).
+     * 우리 쪽에서 먼저 멈추는 선은 없앴으므로(2026-11-12), 한도에 닿았다는 것을 아는 통로는
+     * 정보나루의 이 오류 하나입니다. 화면은 검색을 시작할 때 이 코드를 받으면 한도 안내
+     * 페이지({@code /limit})로 넘어갑니다. <b>이 코드를 바꾸거나 빼면 그 화면이 조용히
+     * 예전의 오류 문구로 돌아갑니다.</b>
      */
     @ExceptionHandler(Data4LibraryClient.ApiErrorException.class)
     public ResponseEntity<Map<String, String>> data4Library(
@@ -60,14 +66,6 @@ public class ApiErrorAdvice {
         String code = e.error().code();
         return body(HttpStatus.SERVICE_UNAVAILABLE, code,
                 visitorMessage(code), operatorDetail(code, e.error().message()));
-    }
-
-    /** 오늘 몫을 다 쓴 것은 오류가 아니라 정상 상태입니다. 다만 화면은 그 사실을 알아야 합니다. */
-    @ExceptionHandler(Data4LibraryClient.BudgetExhaustedException.class)
-    public ResponseEntity<Map<String, String>> budget(
-            Data4LibraryClient.BudgetExhaustedException e) {
-        return body(HttpStatus.SERVICE_UNAVAILABLE, "budgetExhausted",
-                visitorMessage("budgetExhausted"), e.getMessage());
     }
 
     /**
@@ -123,7 +121,7 @@ public class ApiErrorAdvice {
      */
     static String visitorMessage(String code) {
         return switch (code == null ? "" : code) {
-            case "outOflimit", "budgetExhausted" -> "오늘 확인할 수 있는 횟수를 다 썼습니다. "
+            case Data4LibraryClient.DAILY_LIMIT_CODE -> "오늘 확인할 수 있는 횟수를 다 썼습니다. "
                     + "책이 없다는 뜻이 아니니 내일 다시 시도해 주세요.";
             case "authErr", "vitalizationErr" -> "도서관 정보를 받아 오는 곳에 연결하지 못하고 "
                     + "있습니다. 책이 없다는 뜻이 아니고, 고쳐야 하는 것은 이 서비스 쪽입니다.";
@@ -142,7 +140,7 @@ public class ApiErrorAdvice {
      */
     static String operatorDetail(String code, String message) {
         return switch (code == null ? "" : code) {
-            case "outOflimit" -> message + " — 서버의 나가는 IP 가 정보나루에 등록한 것과 "
+            case Data4LibraryClient.DAILY_LIMIT_CODE -> message + " — 서버의 나가는 IP 가 정보나루에 등록한 것과 "
                     + "같은지 확인해 주세요(GET /api/diagnose). 등록되지 않은 IP 는 하루 "
                     + "500건까지만 됩니다.";
             case "authErr" -> message + " — 인증키를 확인해 주세요.";

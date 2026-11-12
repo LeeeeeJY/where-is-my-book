@@ -3,7 +3,7 @@ package kr.wimb.shelf;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import kr.wimb.data4library.Data4LibraryClient;
-import kr.wimb.ingest.InMemoryApiBudget;
+import kr.wimb.ingest.DailyCallLedger;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -435,7 +435,7 @@ class ShelfHarvesterTest {
     }
 
     private static ShelfMeta harvestXml(Path dir, String xml) throws IOException {
-        var budget = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 10_000), NOON);
+        var budget = new DailyCallLedger(Map.of(Data4LibraryClient.SOURCE_CODE, 10_000), NOON);
         var client = new Data4LibraryClient(new OnePageTransport(xml), "테스트키", budget);
         return new ShelfHarvester(client, dir, NOON).harvest("141321", Kdc.LITERATURE);
     }

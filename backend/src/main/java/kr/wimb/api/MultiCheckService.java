@@ -133,7 +133,8 @@ public class MultiCheckService {
 
     /**
      * 결과를 기다립니다. 줄 하나의 조회 실패는 {@link #lookUp} 안에서 이미 그 줄의
-     * 상태로 바뀌므로, 여기까지 올라오는 예외는 코드의 결함입니다. 감추지 않고 올립니다.
+     * 상태로 바뀌므로, 여기까지 올라오는 예외는 둘뿐입니다. 정보나루가 하루 한도를 넘겼다고
+     * 답한 경우({@link #lookUp} 이 일부러 올립니다)와 코드의 결함입니다. 감추지 않고 올립니다.
      */
     private static <T> T await(Future<T> future) {
         try {
@@ -287,6 +288,13 @@ public class MultiCheckService {
     private Outcome lookUp(LineParser.Attempt attempt) {
         try {
             return new Outcome(searchService.worksFor(toQuery(attempt)), false);
+        } catch (Data4LibraryClient.ApiErrorException e) {
+            // **하루 한도를 넘긴 것은 줄 하나의 실패가 아닙니다.** 정보나루가 outOflimit 을
+            // 준 뒤에는 5분간 부르지 않으므로 남은 줄이 전부 같은 오류로 끝납니다. 줄마다
+            // 「확인하지 못한 줄」로 내려보내면 사용자는 서른 줄을 하나씩 다시 해 보게 되는데,
+            // 내일이 되기 전에는 낫지 않습니다. 그대로 올려 화면이 한도 안내로 넘어가게 합니다.
+            if (e.isDailyLimit()) throw e;
+            return new Outcome(List.of(), true);
         } catch (RuntimeException e) {
             // 한 줄의 조회가 실패해도 나머지 줄은 답을 만들어야 합니다.
             // 다만 그 줄을 결과 없음으로 내려보내면 안 됩니다.

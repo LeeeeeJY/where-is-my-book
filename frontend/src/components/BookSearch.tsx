@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiUnavailable, fetchHoldings, hasCriteria, libraryLink, searchBooks } from '../api';
+import { leaveIfDailyLimit } from '../domain/dailyLimit';
 import { editionLine } from '../domain/editionLabels';
 import { anyHomepageOnly, isbnsForLink, linkBadge, linkLabel } from '../domain/opacLink';
 import { olderAsOf } from '../domain/asOf';
@@ -197,6 +198,9 @@ export function BookSearch({
       // **펼쳐 보이는 만큼만 물어봅니다.** 나머지는 「더 보기」를 눌러야 나갑니다.
       void check(response.works.slice(0, PAGE), selectedKey, 'reset');
     } catch (error) {
+      // 정보나루의 오늘 몫을 다 쓴 날입니다. 오류 문구 한 줄로 두면 잠깐의 고장으로 읽혀
+      // 계속 다시 누르게 되므로 안내 페이지로 보냅니다(domain/dailyLimit.ts).
+      if (leaveIfDailyLimit(error)) return;
       if (error instanceof ApiUnavailable) setState({ kind: 'offline' });
       else setState({ kind: 'error', message: (error as Error).message });
     }

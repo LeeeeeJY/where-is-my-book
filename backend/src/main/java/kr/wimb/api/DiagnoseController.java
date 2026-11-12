@@ -1,7 +1,7 @@
 package kr.wimb.api;
 
 import kr.wimb.data4library.Data4LibraryClient;
-import kr.wimb.ingest.ApiBudget;
+import kr.wimb.ingest.CallLedger;
 import kr.wimb.opac.DetailResolver;
 import kr.wimb.opac.OpacLink;
 import kr.wimb.opac.OpacTemplates;
@@ -46,14 +46,14 @@ public class DiagnoseController {
     private static final Duration TIMEOUT = Duration.ofSeconds(5);
 
     private final Data4LibraryClient client;
-    private final ApiBudget budget;
+    private final CallLedger ledger;
     private final OpacTemplates opacTemplates;
     private final DetailResolver detailResolver;
 
-    public DiagnoseController(Data4LibraryClient client, ApiBudget budget,
+    public DiagnoseController(Data4LibraryClient client, CallLedger ledger,
                               OpacTemplates opacTemplates, DetailResolver detailResolver) {
         this.client = client;
-        this.budget = budget;
+        this.ledger = ledger;
         this.opacTemplates = opacTemplates;
         this.detailResolver = detailResolver;
     }
@@ -68,8 +68,8 @@ public class DiagnoseController {
     public Map<String, Object> diagnose() {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("egressIp", egressIp());
-        out.put("callsUsedToday", budget.used(Data4LibraryClient.SOURCE_CODE));
-        out.put("callsRemaining", budget.remaining(Data4LibraryClient.SOURCE_CODE));
+        out.put("callsUsedToday", ledger.used(Data4LibraryClient.SOURCE_CODE));
+        out.put("callsRemaining", ledger.remaining(Data4LibraryClient.SOURCE_CODE));
         out.putAll(probe());
         return out;
     }
@@ -84,7 +84,7 @@ public class DiagnoseController {
     private Map<String, Object> probe() {
         Map<String, Object> out = new LinkedHashMap<>();
         try {
-            int count = client.libraries("11", ApiBudget.Priority.BACKGROUND).size();
+            int count = client.libraries("11").size();
             out.put("data4library", "ok");
             out.put("sampleCount", count);
         } catch (Data4LibraryClient.ApiErrorException e) {
@@ -160,7 +160,7 @@ public class DiagnoseController {
             return out;
         }
         if (link.get().kind() == OpacLink.Kind.TITLE_SEARCH) {
-            if (!(pattern.get().rule() instanceof kr.wimb.opac.DetailRule.Anchored)) {
+            if (!pattern.get().rule().anchored()) {
                 // 닻 없는 규칙을 제목 검색 결과에 쓰면 첫 줄, 곧 같은 제목의 아무 판으로나 갑니다.
                 out.put("status", "NO_PATTERN");
                 out.put("rule", pattern.get().rule().describe());
@@ -184,7 +184,14 @@ public class DiagnoseController {
         // 어느 종류의 규칙으로 갔는지. @onclick 이 「함수 본문을 못 찾았다」로 끝나면 스크립트
         // 쪽 문제이고, 정규식이 NO_MATCH 면 패턴 쪽 문제라 고칠 자리가 다릅니다.
         out.put("rule", pattern.get().rule().describe());
-        var outcome = detailResolver.probe(link.get().url(), pattern.get().rule(), new DetailResolver.Context(isbn, lib));
+        // 검색 주소를 만들 때 쓴 표제를 함께 넘깁니다. @frame: 규칙이 프레임 주소에 그 표제를 끼웁니다.
+        var context = new DetailResolver.Context(isbn, lib).withTitle(title);
+        if (pattern.get().rule() instanceof kr.wimb.opac.DetailRule.Frame frame) {
+            // 서버가 실제로 받는 것은 위의 searchUrl 이 아니라 이 주소입니다. 닿지 않을 때 어느 출처를
+            // 봐야 하는지가 여기서 갈립니다(검색 화면과 프레임은 포트가 다른 출처일 수 있습니다).
+            out.put("fetchedUrl", DetailResolver.frameUrlFor(frame, context));
+        }
+        var outcome = detailResolver.probe(link.get().url(), pattern.get().rule(), context);
         out.put("status", outcome.status().name());
         out.put("detailUrl", outcome.detailUrl());
         out.put("note", outcome.note());

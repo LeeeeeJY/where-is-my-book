@@ -120,7 +120,7 @@ public final class DetailResolver {
      * 판을 앞에 세워 넘깁니다. 제목 검색 결과는 한 번만 받고 그 안에서 차례로 찾으므로, 여럿을 넘겨도
      * 그 도서관으로 가는 요청은 늘지 않습니다.
      */
-    public record Context(String isbn13, String libCode, List<String> anchors) {
+    public record Context(String isbn13, String libCode, List<String> anchors, String title) {
         public static final Context NONE = new Context(null, null);
 
         public Context {
@@ -129,6 +129,19 @@ public final class DetailResolver {
 
         public Context(String isbn13, String libCode) {
             this(isbn13, libCode, isbn13 == null ? List.of() : List.of(isbn13));
+        }
+
+        public Context(String isbn13, String libCode, List<String> anchors) {
+            this(isbn13, libCode, anchors, null);
+        }
+
+        /**
+         * 검색 주소에 넣은 표제를 함께 든 사본. {@code @frame:} 규칙이 프레임 주소의 {@code {title}} 에
+         * 끼웁니다. <b>검색 주소를 만들 때 쓴 바로 그 표제여야 합니다.</b> 권차를 붙인 표제로 만든
+         * 검색 주소와 뗀 표제로 만든 검색 주소는 서로 다른 검색이고, 프레임도 그 둘을 따로 받습니다.
+         */
+        public Context withTitle(String searchedTitle) {
+            return new Context(isbn13, libCode, anchors, searchedTitle);
         }
     }
 
@@ -209,7 +222,8 @@ public final class DetailResolver {
         if (rule instanceof DetailRule.Json && context.libCode() != null) return searchUrl + "|" + context.libCode();
         // 제목 검색은 같은 주소의 결과에서 책마다 다른 항목을 고릅니다. 주소만 열쇠로 삼으면 「데미안」
         // 민음사 판을 누른 사람의 답이 문학동네 판을 누른 사람에게 그대로 나갑니다.
-        if (rule instanceof DetailRule.Anchored) return searchUrl + "|" + String.join(",", context.anchors());
+        // @frame: 은 받는 주소가 검색 주소가 아니지만, 검색 주소가 표제까지 담고 있어 열쇠로는 그대로 씁니다.
+        if (rule.anchored()) return searchUrl + "|" + String.join(",", context.anchors());
         return searchUrl;
     }
 
@@ -226,7 +240,9 @@ public final class DetailResolver {
         return fetchAndRemember(searchUrl, rule, context, false);
     }
 
-    private Outcome fetchAndRemember(String searchUrl, DetailRule rule, Context context, boolean honourBreaker) {
+    private Outcome fetchAndRemember(String searchUrl, DetailRule stated, Context context, boolean honourBreaker) {
+        // @frame: 은 「어느 주소를 받는가」만 바꿉니다. 받은 HTML 에 적용하는 것은 안쪽 규칙입니다.
+        DetailRule rule = stated instanceof DetailRule.Frame frame ? frame.inner() : stated;
         URI search;
         try {
             search = URI.create(searchUrl);
@@ -253,6 +269,25 @@ public final class DetailResolver {
             // 받아 보기 전에 끝냅니다. 닻이 없으면 고를 수 없는데 남의 서버만 두드리게 됩니다.
             missed.incrementAndGet();
             return Outcome.of(Status.NO_MATCH, "@anchor: 규칙은 어느 책인지(ISBN) 알아야 합니다");
+        }
+        if (stated instanceof DetailRule.Frame frame) {
+            // 검색 화면이 아니라 결과가 든 프레임을 받습니다. 검색 화면의 HTML 에는 책이 없습니다.
+            // 채울 것이 없으면 받아 보지 않습니다. 빈 검색어로 남의 서버를 두드리게 됩니다.
+            if (frame.urlTemplate().contains("{title}") && (context.title() == null || context.title().isBlank())) {
+                missed.incrementAndGet();
+                return Outcome.of(Status.NO_MATCH, "@frame: 규칙은 검색에 넣은 표제를 알아야 합니다");
+            }
+            if (frame.urlTemplate().contains("{isbn13}") && context.isbn13() == null) {
+                missed.incrementAndGet();
+                return Outcome.of(Status.NO_MATCH, "@frame: 규칙은 어느 책인지(ISBN) 알아야 합니다");
+            }
+            String frameUrl = fillFrame(frame, context);
+            try {
+                search = URI.create(frameUrl);
+            } catch (IllegalArgumentException e) {
+                failed.incrementAndGet();
+                return Outcome.of(Status.FETCH_FAILED, "주소가 아닙니다: " + frameUrl);
+            }
         }
         String host = search.getHost();
         if (host == null) {
@@ -298,7 +333,7 @@ public final class DetailResolver {
             Outcome outcome = rule instanceof DetailRule.Json json
                     ? extractFromJson(page, json, search, context)
                     : extract(page, rule, search, context);
-            remember(cacheKey(searchUrl, rule, context), outcome);
+            remember(cacheKey(searchUrl, stated, context), outcome);
             return outcome;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -564,6 +599,27 @@ public final class DetailResolver {
      * 받습니다. 누른 도서관을 모르면(진단에서 도서관 없이 부를 때) 비워 보냅니다. 수원은 비우면
      * 전체 분관으로 답합니다.
      */
+    /**
+     * {@code @frame:} 의 주소틀을 채웁니다. 표제는 규칙이 적은 글자 집합으로 퍼센트 부호를 씁니다.
+     *
+     * <p><b>공백은 {@code %20} 입니다.</b> {@code URLEncoder} 는 공백을 {@code +} 로 바꾸는데 그것은
+     * 폼 본문의 규칙이고, 질의 문자열에서 {@code +} 를 공백으로 되돌려 주는 것은 서버 마음입니다.
+     * {@code %20} 은 어느 서버에서나 공백입니다. 조사 도구({@code opac-title-probe.py} 의
+     * {@code fill_frame})도 같은 글자를 보냅니다. <b>한쪽을 고치면 다른 쪽도 고치세요.</b> 확인한
+     * 주소와 내보내는 주소가 달라집니다.
+     */
+    public static String frameUrlFor(DetailRule.Frame frame, Context context) {
+        return fillFrame(frame, context);
+    }
+
+    static String fillFrame(DetailRule.Frame frame, Context context) {
+        String title = context.title() == null ? "" : context.title().strip();
+        return frame.urlTemplate()
+                .replace("{title}", java.net.URLEncoder.encode(title, frame.encoding()).replace("+", "%20"))
+                .replace("{isbn13}", context.isbn13() == null ? "" : context.isbn13())
+                .replace("{libCode}", context.libCode() == null ? "" : context.libCode());
+    }
+
     static String fillRequest(String text, Context context) {
         return text.replace("{isbn13}", context.isbn13())
                    .replace("{libCode}", context.libCode() == null ? "" : context.libCode());

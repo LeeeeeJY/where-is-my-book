@@ -1,8 +1,7 @@
 package kr.wimb.shelf;
 
 import kr.wimb.data4library.Data4LibraryClient;
-import kr.wimb.ingest.ApiBudget;
-import kr.wimb.ingest.InMemoryApiBudget;
+import kr.wimb.ingest.DailyCallLedger;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -254,7 +253,7 @@ class ShelfServiceTest {
 
         Fixture(Path dir, int reserve) {
             this.dir = dir;
-            var budget = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 1_000), NOON);
+            var budget = new DailyCallLedger(Map.of(Data4LibraryClient.SOURCE_CODE, 1_000), NOON);
             var client = new Data4LibraryClient(this::respond, "테스트키", budget);
             this.store = new ShelfStore(dir);
             this.service = new ShelfService(store, new ShelfHarvester(client, dir, NOON),
@@ -391,12 +390,13 @@ class ShelfServiceTest {
         }
     }
 
-    /** 예산이 넉넉한지 확인해 두는 자리. 시험이 예산 때문에 실패하면 헷갈립니다. */
+    /** 남은 건수가 넉넉한지 확인해 두는 자리. 시험이 그것 때문에 실패하면 헷갈립니다. */
     @Test
-    @DisplayName("시험용 예산은 서가를 세울 만큼 남아 있다")
-    void fixtureBudgetIsEnough(@TempDir Path dir) {
-        var budget = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 1_000), NOON);
-        assertTrue(budget.remaining(Data4LibraryClient.SOURCE_CODE) > 0);
-        assertTrue(budget.tryAcquire(Data4LibraryClient.SOURCE_CODE, ApiBudget.Priority.BACKGROUND));
+    @DisplayName("시험용 원장은 서가를 세울 만큼 남아 있다")
+    void fixtureLedgerHasRoom(@TempDir Path dir) {
+        var ledger = new DailyCallLedger(Map.of(Data4LibraryClient.SOURCE_CODE, 1_000), NOON);
+        assertTrue(ledger.remaining(Data4LibraryClient.SOURCE_CODE) > 0);
+        ledger.record(Data4LibraryClient.SOURCE_CODE);
+        assertEquals(999, ledger.remaining(Data4LibraryClient.SOURCE_CODE));
     }
 }

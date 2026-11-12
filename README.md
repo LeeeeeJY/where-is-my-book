@@ -152,7 +152,7 @@ cd frontend && node tools/make-og-image.mjs
 | `backend/src/main/java/kr/wimb/index` | 색인 문서 생성과 전환 전 검증 |
 | `backend/src/main/java/kr/wimb/holdings` | 소장 조회. 미소장과 확인 불가를 타입에서부터 구분합니다 |
 | `backend/src/main/java/kr/wimb/data4library` | **외부 API 형식을 아는 유일한 곳입니다** |
-| `backend/src/main/java/kr/wimb/ingest` | 어댑터 계약, 호출 예산 원장, HTTP 재시도와 간격 제어 |
+| `backend/src/main/java/kr/wimb/ingest` | 어댑터 계약, 호출 원장(그날 부른 건수 세기), HTTP 재시도와 간격 제어 |
 | `backend/src/main/java/kr/wimb/api` | Spring Boot 컨트롤러와 검색 서비스 |
 | `backend/src/main/resources/db/migration` | PostgreSQL 스키마 |
 | `backend/src/main/java/kr/wimb/query` | 붙여넣은 목록의 줄 해석. 외부 호출이 없습니다 |
@@ -431,9 +431,6 @@ Spotless 는 턴이 끝난 뒤에 도므로, 이미 커밋한 다음이면 포�
    분관으로 갑니다. 2026-11-10 에 그런 규칙 94곳을 찾아 분관 부호로 좁혔습니다.
 2. 서지 적재 배치를 붙이고 `BookSearchService.fetchBooks` 를 색인 조회로 바꿉니다.
 3. `golden-pairs.tsv` 를 실제 데이터에서 만난 사례로 200쌍까지 채웁니다.
-4. **호출 예산 원장을 재배포에도 살아남게 합니다.** 지금은 `InMemoryApiBudget` 이라
-   컨테이너가 새로 뜨면 그날 쓴 건수가 0으로 돌아갑니다. 남은 건수를 근거로 삼을 수 없고,
-   한도의 80% 에서 배경 갱신을 멈추는 보호도 걸리지 않습니다.
 
 ---
 

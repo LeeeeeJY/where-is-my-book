@@ -43,7 +43,7 @@ class HttpApiSourceAdapterTest {
 
     /** 한 줄에 한 레코드가 있고, 마지막 쪽이면 END 로 끝나는 아주 단순한 형식. */
     private static final class TestAdapter extends HttpApiSourceAdapter {
-        TestAdapter(Transport transport, ApiBudget budget) {
+        TestAdapter(Transport transport, CallLedger budget) {
             // 대기는 실제로 하지 않고, 지터도 고정해 테스트가 빠르고 결정적이게 합니다.
             super(transport, budget, d -> {}, new Random(0));
         }
@@ -83,8 +83,8 @@ class HttpApiSourceAdapterTest {
         public void progress(long rowsRead) { lastProgress = rowsRead; }
     }
 
-    private static ApiBudget budget(int limit) {
-        return new InMemoryApiBudget(Map.of(CODE, limit),
+    private static CallLedger budget(int limit) {
+        return new DailyCallLedger(Map.of(CODE, limit),
                 Clock.fixed(Instant.parse("2026-09-05T00:00:00Z"), ZoneId.of("UTC")));
     }
 
@@ -156,39 +156,38 @@ class HttpApiSourceAdapterTest {
     }
 
     @Test
-    @DisplayName("예산이 떨어지면 호출하지 않고 멈춘다")
-    void stopsWhenBudgetExhausted() {
-        var budget = budget(1);   // 배경 작업 상한은 1의 80% 이므로 0회입니다
-        var transport = new FakeTransport().ok("a\nEND");
-        var adapter = new TestAdapter(transport, budget);
+    @DisplayName("원장은 세기만 한다. 하루 한도 숫자를 넘겨도 호출을 막지 않는다")
+    void ledgerCountsButNeverBlocks() {
+        // 예전에는 한도에 닿으면 부르지 않았고, 배경 작업은 그 80% 에서 먼저 멈췄습니다.
+        // 둘 다 없앴습니다. 한도를 넘겼는지는 상대 서버가 오류로 알려 줍니다.
+        var ledger = budget(1);
+        var transport = new FakeTransport().ok("a").ok("b").ok("c\nEND");
+        var sink = new CollectingSink();
 
-        assertThrows(HttpApiSourceAdapter.BudgetExhaustedException.class,
-                () -> adapter.fetch(unit(), new CollectingSink()));
-        assertEquals(0, transport.calls.get(), "예산이 없으면 아예 부르지 않아야 합니다");
+        new TestAdapter(transport, ledger).fetch(unit(), sink);
+
+        assertEquals(3, transport.calls.get(), "한도 숫자는 호출을 막지 않습니다");
+        assertEquals(3, ledger.used(CODE), "넘긴 뒤에도 계속 셉니다");
+        assertEquals(0, ledger.remaining(CODE), "남은 건수는 음수가 되지 않습니다");
     }
 
     @Test
-    @DisplayName("배경 작업은 예산의 80%까지만 쓰고 사용자 요청 몫을 남긴다")
-    void backgroundYieldsToUser() {
-        var budget = budget(10);
-
-        for (int i = 0; i < 8; i++) {
-            assertTrue(budget.tryAcquire(CODE, ApiBudget.Priority.BACKGROUND), "8회까지는 배경도 허용");
-        }
-        assertFalse(budget.tryAcquire(CODE, ApiBudget.Priority.BACKGROUND),
-                "80% 를 넘으면 배경 작업은 멈춰야 합니다");
-        assertTrue(budget.tryAcquire(CODE, ApiBudget.Priority.USER),
-                "사람이 기다리는 요청은 남은 예산으로 계속됩니다");
-        assertEquals(9, budget.used(CODE));
+    @DisplayName("한도를 모르는 소스는 남은 건수를 끝없이 넉넉하게 본다")
+    void unknownLimitMeansPlentyRemaining() {
+        var ledger = new DailyCallLedger(Map.of(),
+                Clock.fixed(Instant.parse("2026-09-05T00:00:00Z"), ZoneId.of("UTC")));
+        ledger.record(CODE);
+        assertEquals(1, ledger.used(CODE));
+        assertEquals(Integer.MAX_VALUE, ledger.remaining(CODE));
     }
 
     @Test
-    @DisplayName("한국 시각으로 날이 바뀌면 예산이 초기화된다")
+    @DisplayName("한국 시각으로 날이 바뀌면 건수가 0 으로 돌아간다")
     void resetsOnKoreanMidnight() {
         var clock = new MutableClock(Instant.parse("2026-09-05T14:30:00Z")); // KST 05-05 23:30
-        var budget = new InMemoryApiBudget(Map.of(CODE, 10), clock);
+        var budget = new DailyCallLedger(Map.of(CODE, 10), clock);
 
-        budget.tryAcquire(CODE, ApiBudget.Priority.USER);
+        budget.record(CODE);
         assertEquals(1, budget.used(CODE));
 
         clock.advance(Duration.ofHours(1));   // KST 로 자정을 넘깁니다

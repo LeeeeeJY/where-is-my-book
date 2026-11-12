@@ -3,7 +3,7 @@ package kr.wimb.api;
 import kr.wimb.data4library.Data4LibraryClient;
 import kr.wimb.holdings.HoldingsLookup;
 import kr.wimb.query.LineParser;
-import kr.wimb.ingest.InMemoryApiBudget;
+import kr.wimb.ingest.DailyCallLedger;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -72,7 +72,7 @@ class MultiCheckServiceTest {
     }
 
     private static MultiCheckService service(FakeD4L transport) {
-        var budget = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 1000),
+        var budget = new DailyCallLedger(Map.of(Data4LibraryClient.SOURCE_CODE, 1000),
                 Clock.fixed(Instant.parse("2026-09-05T00:00:00Z"), ZoneId.of("UTC")));
         var client = new Data4LibraryClient(transport, "테스트키", budget);
         var search = new BookSearchService(client, new HoldingsLookup(
@@ -399,7 +399,7 @@ class MultiCheckServiceTest {
     @Test
     @DisplayName("줄 전체로 찾은 것이 시원찮으면 제목과 저자로 나눠 본다")
     void triesSplitWhenWholeLineMatchesPoorly() {
-        var budget = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 1000),
+        var budget = new DailyCallLedger(Map.of(Data4LibraryClient.SOURCE_CODE, 1000),
                 Clock.fixed(Instant.parse("2026-09-05T00:00:00Z"), ZoneId.of("UTC")));
         var client = new Data4LibraryClient(uri -> {
             String decoded = URLDecoder.decode(uri.toString(), StandardCharsets.UTF_8);
