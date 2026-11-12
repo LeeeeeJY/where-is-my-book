@@ -122,7 +122,7 @@ class WimbControllerTest {
                 kr.wimb.opac.OpacTemplates.load(), noResolver(),
                 new CachingHoldingsClient((isbn, region) -> List.of(), Duration.ofHours(6), 100,
                         Clock.systemUTC()),
-                unlimited(), noShelf(), true,
+                unlimited(), noShelf(), new LibraryCatalog(), true,
                 Clock.fixed(Instant.parse("2026-09-06T00:00:00Z"), ZoneId.of("UTC")));
     }
 
@@ -146,7 +146,7 @@ class WimbControllerTest {
                 kr.wimb.opac.OpacTemplates.load(), noResolver(),
                 new CachingHoldingsClient((isbn, region) -> List.of(), Duration.ofHours(6), 100,
                         Clock.systemUTC()),
-                unlimited(), noShelf(), warmOnStartup,
+                unlimited(), noShelf(), new LibraryCatalog(), warmOnStartup,
                 Clock.fixed(Instant.parse("2026-09-06T00:00:00Z"), ZoneId.of("UTC")));
     }
 
@@ -199,8 +199,140 @@ class WimbControllerTest {
                 kr.wimb.opac.OpacTemplates.load(), noResolver(),
                 new CachingHoldingsClient((isbn, region) -> List.of(), Duration.ofHours(6), 100,
                         Clock.systemUTC()),
-                unlimited(), noShelf(), true,
+                unlimited(), noShelf(), new LibraryCatalog(), true,
                 Clock.fixed(Instant.parse("2026-09-06T00:00:00Z"), ZoneId.of("UTC")));
+    }
+
+    /**
+     * 목록을 밖에서 쥐여 주는 컨트롤러. 재배포를 흉내 내려면 앞 서버가 남긴 파일에서 되살린
+     * 목록을 새 서버에 넘겨야 합니다.
+     */
+    private static WimbController controllerOn(LibraryCatalog catalog, RegionAware transport,
+                                               HoldingsLookup.HoldingsClient holdings,
+                                               AtomicReference<Instant> now) {
+        var budget = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 100_000),
+                Clock.fixed(Instant.parse("2026-09-06T00:00:00Z"), ZoneId.of("UTC")));
+        var client = new Data4LibraryClient(transport, "테스트키", budget);
+        var search = new BookSearchService(client, new HoldingsLookup(
+                holdings, HoldingsLookup.RegionModeStore.documented()));
+        Clock moving = new Clock() {
+            public ZoneId getZone() { return ZoneId.of("UTC"); }
+            public Clock withZone(ZoneId zone) { return this; }
+            public Instant instant() { return now.get(); }
+        };
+        return new WimbController(client, search, new MultiCheckService(search), budget,
+                kr.wimb.opac.OpacTemplates.load(), noResolver(),
+                new CachingHoldingsClient((isbn, region) -> List.of(), Duration.ofHours(6), 100,
+                        Clock.systemUTC()),
+                unlimited(), noShelf(), catalog, true, moving);
+    }
+
+    /** 앞 서버가 받아 둔 목록을 파일에 남기고, 새 서버가 그것을 되살린 상태를 만듭니다. */
+    private static LibraryCatalog restoredFrom(RegionAware workingTransport, java.nio.file.Path file)
+            throws java.io.IOException {
+        var before = new LibraryCatalog();
+        controllerOn(before, workingTransport, (isbn, region) -> List.of(),
+                new AtomicReference<>(Instant.parse("2026-09-05T00:00:00Z"))).libraries();
+        before.save(file);
+        var restored = new LibraryCatalog();
+        restored.load(file);
+        return restored;
+    }
+
+    /**
+     * <b>2026-11-12 에 실제로 일어난 일입니다.</b> 서버가 다시 뜬 순간 정보나루의 목록 조회만
+     * 답하지 않아서 1,600곳 가운데 275곳만 들어왔고, 서울·경기의 도서관이 화면에서
+     * 사라졌습니다. 그 도서관을 골라 둔 사람의 소장 조회는 「확인 불가」로 나갔습니다.
+     */
+    @Test
+    @DisplayName("다시 떴을 때 정보나루가 목록을 하나도 주지 않아도 되살린 목록으로 답한다")
+    void answersFromTheRestoredCatalogWhenData4LibraryGivesNothing(
+            @org.junit.jupiter.api.io.TempDir java.nio.file.Path dir) throws java.io.IOException {
+        var working = new RegionAware();
+        // 주소에서 시도를 읽을 수 없는 도서관. 소속을 파일에 남기지 않으면 되살린 뒤에는
+        // 물어볼 방법이 없어 「확인 불가」가 됩니다.
+        working.addressFor = region -> region.equals("31") ? "고양시 일산동구 중앙로 1" : null;
+        var catalog = restoredFrom(working, dir.resolve("catalog.tsv.gz"));
+
+        var down = new RegionAware();
+        down.failsFor = region -> true;
+        var askedRegions = new ArrayList<String>();
+        var controller = controllerOn(catalog, down, (isbn, region) -> {
+            askedRegions.add(region);
+            return List.of("310001");
+        }, new AtomicReference<>(Instant.parse("2026-09-06T00:00:00Z")));
+
+        var libraries = controller.libraries();
+        assertEquals(RegionCode.values().length, libraries.size(),
+                "예전에는 여기서 503 이었습니다. 되살린 목록이 있으면 그것으로 답합니다");
+        var goyang = libraries.stream()
+                .filter(l -> l.libCode().equals("310001")).findFirst().orElseThrow();
+        assertEquals("경기도", goyang.sido(), "소속이 살아 있어야 지역 트리에 들어갑니다");
+
+        var holdings = controller.holdings(new WimbController.HoldingsRequest(
+                List.of("9788983711892"), List.of("310001")));
+        assertEquals(List.of("31"), askedRegions, "되살린 소속으로 소장을 물어야 합니다");
+        assertTrue(holdings.complete(), "물어볼 수 있었으므로 빠짐없이 확인한 것입니다");
+        assertFalse(holdings.unreadable());
+
+        var status = controller.status();
+        assertEquals(RegionCode.values().length, status.get("librariesLoaded"));
+        assertEquals(0, status.get("libraryRegionsFresh"),
+                "새로 받은 것이 없다는 사실이 상태에 드러나야 합니다");
+        assertEquals(RegionCode.values().length, status.get("libraryRegionsRestored"));
+        assertEquals("2026-09-05", status.get("libraryCatalogOldest"),
+                "되살린 목록을 오늘 받은 것처럼 말하면 안 됩니다");
+    }
+
+    /**
+     * 되살린 것으로 「다 받았다」고 쳐 버리면 그 목록은 영영 갱신되지 않습니다. 새 도서관이
+     * 안 나오고 문 닫은 도서관이 남는데 화면에는 아무 이상이 없어 보입니다.
+     */
+    @Test
+    @DisplayName("되살린 목록이 있어도 정보나루가 답하면 시도마다 새로 받는다")
+    void refreshesEveryRestoredRegionWhenData4LibraryAnswers(
+            @org.junit.jupiter.api.io.TempDir java.nio.file.Path dir) throws java.io.IOException {
+        var catalog = restoredFrom(new RegionAware(), dir.resolve("catalog.tsv.gz"));
+
+        var transport = new RegionAware();
+        var controller = controllerOn(catalog, transport, (isbn, region) -> List.of(),
+                new AtomicReference<>(Instant.parse("2026-09-06T00:00:00Z")));
+        controller.libraries();
+
+        assertEquals(RegionCode.values().length, transport.asked.size(),
+                "되살린 시도를 「이미 받았다」며 건너뛰면 안 됩니다: " + transport.asked);
+        var status = controller.status();
+        assertEquals(RegionCode.values().length, status.get("libraryRegionsFresh"));
+        assertEquals(0, status.get("libraryRegionsRestored"));
+        assertEquals("2026-09-06", status.get("libraryCatalogOldest"));
+        assertTrue(catalog.isDirty(), "새로 받은 목록을 다음 배포를 위해 다시 적어야 합니다");
+    }
+
+    @Test
+    @DisplayName("되살린 채인 시도도 5분 뒤에 다시 받고, 그 전에는 두드리지 않는다")
+    void retriesRestoredRegionsOnlyAfterTheGate(
+            @org.junit.jupiter.api.io.TempDir java.nio.file.Path dir) throws java.io.IOException {
+        var catalog = restoredFrom(new RegionAware(), dir.resolve("catalog.tsv.gz"));
+
+        var transport = new RegionAware();
+        transport.failsFor = region -> region.equals("11");
+        var now = new AtomicReference<>(Instant.parse("2026-09-06T00:00:00Z"));
+        var controller = controllerOn(catalog, transport, (isbn, region) -> List.of(), now);
+
+        assertEquals(RegionCode.values().length, controller.libraries().size(),
+                "서울은 못 받았지만 되살린 서울 도서관이 그대로 보여야 합니다");
+        assertEquals(1, controller.status().get("libraryRegionsRestored"));
+        int askedAfterFirst = transport.asked.size();
+
+        controller.libraries();
+        assertEquals(askedAfterFirst, transport.asked.size(),
+                "되살린 목록이 있다고 재시도 빗장을 건너뛰면 안 됩니다");
+
+        transport.failsFor = region -> false;
+        now.set(now.get().plus(Duration.ofMinutes(6)));
+        controller.libraries();
+        assertEquals(askedAfterFirst + 1, transport.asked.size(), "서울만 다시 받습니다");
+        assertEquals(0, controller.status().get("libraryRegionsRestored"));
     }
 
     /** 재시도 시각을 넘겨 보려면 시계를 움직일 수 있어야 합니다. */
@@ -217,7 +349,7 @@ class WimbControllerTest {
         };
         return new WimbController(client, search, new MultiCheckService(search), budget,
                 kr.wimb.opac.OpacTemplates.load(), noResolver(), new CachingHoldingsClient((isbn, region) -> List.of(), Duration.ofHours(6), 100,
-                        Clock.systemUTC()), unlimited(), noShelf(), true, moving);
+                        Clock.systemUTC()), unlimited(), noShelf(), new LibraryCatalog(), true, moving);
     }
 
     // ── 도서관 링크 (/api/go) ──────────────────────────────────────────────
@@ -264,7 +396,7 @@ class WimbControllerTest {
                 new kr.wimb.opac.DetailResolver(opac, Clock.systemUTC()),
                 new CachingHoldingsClient((isbn, region) -> List.of(), Duration.ofHours(6), 100,
                         Clock.systemUTC()),
-                unlimited(), noShelf(), true,
+                unlimited(), noShelf(), new LibraryCatalog(), true,
                 Clock.fixed(Instant.parse("2026-09-06T00:00:00Z"), ZoneId.of("UTC")));
         controller.libraries();   // 도서관 마스터를 채워야 /api/go 가 그 도서관을 압니다.
         return controller;

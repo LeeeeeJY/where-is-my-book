@@ -51,7 +51,12 @@ import java.lang.annotation.Target;
 // @TestPropertySource 는 그것과 따로 더해지고 우선순위도 더 높습니다.
 @TestPropertySource(properties = {
         "wimb.data4library.auth-key=test-key-not-used-for-calls",
-        "wimb.catalog.warm-on-startup=false"})
+        "wimb.catalog.warm-on-startup=false",
+        // **도서관 목록 스냅샷을 개발자의 backend/data/ 에서 되살리지 않게 합니다.** 로컬에서
+        // 서버를 띄운 적이 있으면 거기에 파일이 남아 있고, 그대로 두면 컨텍스트 테스트가 그
+        // 기계에 무엇이 남아 있느냐에 따라 달라집니다. 스냅샷을 일부러 쥐여 주려는 테스트는
+        // properties 에 wimb.test.catalog-path 를 적습니다.
+        "wimb.catalog.path=${wimb.test.catalog-path:build/tmp/context-test/library-catalog.tsv.gz}"})
 @Import(RefusingTransport.Config.class)
 @TestExecutionListeners(
         listeners = NoData4LibraryCalls.class,

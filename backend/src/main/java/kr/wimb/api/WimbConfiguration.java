@@ -258,6 +258,16 @@ public class WimbConfiguration implements WebMvcConfigurer {
                 reserveCalls, Clock.systemUTC());
     }
 
+    /**
+     * 도서관 마스터. <b>빈으로 꺼내 두는 것은 파일 스냅샷 때문입니다.</b>
+     * {@link LibraryCatalogStore} 가 이것을 저장하고 시작할 때 되살리고, 컨트롤러가 여기에
+     * 정보나루에서 받은 목록을 채웁니다.
+     */
+    @Bean
+    public LibraryCatalog libraryCatalog() {
+        return new LibraryCatalog();
+    }
+
     @Bean
     public HoldingsLookup holdingsLookup(CachingHoldingsClient cache) {
         // 매뉴얼 13절이 region 을 필수로 명시하므로 탐색 비용 없이 PER_REGION 으로 시작합니다.
