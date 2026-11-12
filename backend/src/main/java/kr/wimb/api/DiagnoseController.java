@@ -1,7 +1,7 @@
 package kr.wimb.api;
 
 import kr.wimb.data4library.Data4LibraryClient;
-import kr.wimb.ingest.ApiBudget;
+import kr.wimb.ingest.CallLedger;
 import kr.wimb.opac.DetailResolver;
 import kr.wimb.opac.OpacLink;
 import kr.wimb.opac.OpacTemplates;
@@ -46,14 +46,14 @@ public class DiagnoseController {
     private static final Duration TIMEOUT = Duration.ofSeconds(5);
 
     private final Data4LibraryClient client;
-    private final ApiBudget budget;
+    private final CallLedger ledger;
     private final OpacTemplates opacTemplates;
     private final DetailResolver detailResolver;
 
-    public DiagnoseController(Data4LibraryClient client, ApiBudget budget,
+    public DiagnoseController(Data4LibraryClient client, CallLedger ledger,
                               OpacTemplates opacTemplates, DetailResolver detailResolver) {
         this.client = client;
-        this.budget = budget;
+        this.ledger = ledger;
         this.opacTemplates = opacTemplates;
         this.detailResolver = detailResolver;
     }
@@ -68,8 +68,8 @@ public class DiagnoseController {
     public Map<String, Object> diagnose() {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("egressIp", egressIp());
-        out.put("callsUsedToday", budget.used(Data4LibraryClient.SOURCE_CODE));
-        out.put("callsRemaining", budget.remaining(Data4LibraryClient.SOURCE_CODE));
+        out.put("callsUsedToday", ledger.used(Data4LibraryClient.SOURCE_CODE));
+        out.put("callsRemaining", ledger.remaining(Data4LibraryClient.SOURCE_CODE));
         out.putAll(probe());
         return out;
     }
@@ -84,7 +84,7 @@ public class DiagnoseController {
     private Map<String, Object> probe() {
         Map<String, Object> out = new LinkedHashMap<>();
         try {
-            int count = client.libraries("11", ApiBudget.Priority.BACKGROUND).size();
+            int count = client.libraries("11").size();
             out.put("data4library", "ok");
             out.put("sampleCount", count);
         } catch (Data4LibraryClient.ApiErrorException e) {

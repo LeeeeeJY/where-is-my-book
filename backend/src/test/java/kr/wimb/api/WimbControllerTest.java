@@ -4,7 +4,7 @@ import kr.wimb.data4library.Data4LibraryClient;
 import kr.wimb.data4library.RegionCode;
 import kr.wimb.holdings.CachingHoldingsClient;
 import kr.wimb.holdings.HoldingsLookup;
-import kr.wimb.ingest.InMemoryApiBudget;
+import kr.wimb.ingest.DailyCallLedger;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.server.ResponseStatusException;
@@ -113,7 +113,7 @@ class WimbControllerTest {
     }
 
     private static WimbController controllerWith(Data4LibraryClient.Transport transport) {
-        var budget = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 100_000),
+        var budget = new DailyCallLedger(Map.of(Data4LibraryClient.SOURCE_CODE, 100_000),
                 Clock.fixed(Instant.parse("2026-09-06T00:00:00Z"), ZoneId.of("UTC")));
         var client = new Data4LibraryClient(transport, "테스트키", budget);
         var search = new BookSearchService(client, new HoldingsLookup(
@@ -137,7 +137,7 @@ class WimbControllerTest {
 
     /** 서버가 뜰 때의 미리 받기를 켜거나 끈 컨트롤러. 나머지는 위와 같습니다. */
     private static WimbController controllerWarming(RegionAware transport, boolean warmOnStartup) {
-        var budget = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 100_000),
+        var budget = new DailyCallLedger(Map.of(Data4LibraryClient.SOURCE_CODE, 100_000),
                 Clock.fixed(Instant.parse("2026-09-06T00:00:00Z"), ZoneId.of("UTC")));
         var client = new Data4LibraryClient(transport, "테스트키", budget);
         var search = new BookSearchService(client, new HoldingsLookup(
@@ -190,7 +190,7 @@ class WimbControllerTest {
     /** 소장 조회가 어느 지역을 물었는지 보려면 가짜 소장 클라이언트를 끼워야 합니다. */
     private static WimbController controller(RegionAware transport,
                                              HoldingsLookup.HoldingsClient holdings) {
-        var budget = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 100_000),
+        var budget = new DailyCallLedger(Map.of(Data4LibraryClient.SOURCE_CODE, 100_000),
                 Clock.fixed(Instant.parse("2026-09-06T00:00:00Z"), ZoneId.of("UTC")));
         var client = new Data4LibraryClient(transport, "테스트키", budget);
         var search = new BookSearchService(client, new HoldingsLookup(
@@ -205,7 +205,7 @@ class WimbControllerTest {
 
     /** 재시도 시각을 넘겨 보려면 시계를 움직일 수 있어야 합니다. */
     private static WimbController controller(RegionAware transport, AtomicReference<Instant> now) {
-        var budget = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 100_000),
+        var budget = new DailyCallLedger(Map.of(Data4LibraryClient.SOURCE_CODE, 100_000),
                 Clock.fixed(Instant.parse("2026-09-06T00:00:00Z"), ZoneId.of("UTC")));
         var client = new Data4LibraryClient(transport, "테스트키", budget);
         var search = new BookSearchService(client, new HoldingsLookup(
@@ -254,7 +254,7 @@ class WimbControllerTest {
     private static WimbController linkController(FakeOpac opac, List<String> rules, List<String> patterns,
                                                  boolean linksEnabled) {
         var transport = new RegionAware();
-        var budget = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 100_000),
+        var budget = new DailyCallLedger(Map.of(Data4LibraryClient.SOURCE_CODE, 100_000),
                 Clock.fixed(Instant.parse("2026-09-06T00:00:00Z"), ZoneId.of("UTC")));
         var client = new Data4LibraryClient(transport, "테스트키", budget);
         var search = new BookSearchService(client, new HoldingsLookup(

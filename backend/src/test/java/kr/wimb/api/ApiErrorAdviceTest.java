@@ -30,7 +30,7 @@ class ApiErrorAdviceTest {
             List.of("인증키", "IP", "errCode", "캐시", "authKey");
 
     private static final List<String> CODES =
-            List.of("outOflimit", "budgetExhausted", "authErr", "vitalizationErr", "알 수 없는코드");
+            List.of("outOflimit", "authErr", "vitalizationErr", "알 수 없는코드");
 
     @Test
     @DisplayName("방문자 문구에는 운영자용 어휘가 섞이지 않는다")

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiUnavailable, fetchHoldings, libraryLink, resolveLines } from '../api';
+import { leaveIfDailyLimit } from '../domain/dailyLimit';
 import { editionLine } from '../domain/editionLabels';
 import type { LineResult, WorkResult } from '../api';
 import { olderAsOf } from '../domain/asOf';
@@ -205,6 +206,9 @@ export function MultiCheck({
     try {
       resolved = await resolveLines(lines);
     } catch (error) {
+      // 정보나루의 오늘 몫을 다 쓴 날에는 안내 페이지로 보냅니다(domain/dailyLimit.ts).
+      // 한 권 검색과 같은 함수를 씁니다.
+      if (leaveIfDailyLimit(error)) return;
       setPhase(error instanceof ApiUnavailable
         ? { kind: 'offline' }
         : { kind: 'error', message: (error as Error).message });
