@@ -6,7 +6,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.nio.charset.StandardCharsets;
@@ -27,9 +26,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 조각 읽기로 가면서 「find 는 숫자가 아닙니다」라는 400 이 납니다.</b> 단위 시험은
  * 클래스를 직접 만들어 쓰므로 이 뒤집힘을 잡지 못합니다.
  */
-@SpringBootTest(properties = {
-        "wimb.data4library.auth-key=test-key-not-used-for-calls",
-        "wimb.shelf.data-dir=build/tmp/shelf-find-endpoint"})
+@WimbContextTest(properties = "wimb.shelf.data-dir=build/tmp/shelf-find-endpoint")
 @AutoConfigureMockMvc
 class ShelfFindEndpointTest {
 

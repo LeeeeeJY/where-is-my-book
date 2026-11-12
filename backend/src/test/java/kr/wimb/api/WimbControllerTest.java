@@ -122,7 +122,7 @@ class WimbControllerTest {
                 kr.wimb.opac.OpacTemplates.load(), noResolver(),
                 new CachingHoldingsClient((isbn, region) -> List.of(), Duration.ofHours(6), 100,
                         Clock.systemUTC()),
-                unlimited(), noShelf(),
+                unlimited(), noShelf(), true,
                 Clock.fixed(Instant.parse("2026-09-06T00:00:00Z"), ZoneId.of("UTC")));
     }
 
@@ -133,6 +133,58 @@ class WimbControllerTest {
 
     private static WimbController controller(RegionAware transport) {
         return controller(transport, new AtomicReference<>(Instant.parse("2026-09-06T00:00:00Z")));
+    }
+
+    /** 서버가 뜰 때의 미리 받기를 켜거나 끈 컨트롤러. 나머지는 위와 같습니다. */
+    private static WimbController controllerWarming(RegionAware transport, boolean warmOnStartup) {
+        var budget = new InMemoryApiBudget(Map.of(Data4LibraryClient.SOURCE_CODE, 100_000),
+                Clock.fixed(Instant.parse("2026-09-06T00:00:00Z"), ZoneId.of("UTC")));
+        var client = new Data4LibraryClient(transport, "테스트키", budget);
+        var search = new BookSearchService(client, new HoldingsLookup(
+                (isbn, region) -> List.of(), HoldingsLookup.RegionModeStore.documented()));
+        return new WimbController(client, search, new MultiCheckService(search), budget,
+                kr.wimb.opac.OpacTemplates.load(), noResolver(),
+                new CachingHoldingsClient((isbn, region) -> List.of(), Duration.ofHours(6), 100,
+                        Clock.systemUTC()),
+                unlimited(), noShelf(), warmOnStartup,
+                Clock.fixed(Instant.parse("2026-09-06T00:00:00Z"), ZoneId.of("UTC")));
+    }
+
+    /**
+     * <b>운영의 기본 동작입니다.</b> 첫 사람이 시도 열일곱 번의 왕복을 기다리지 않게,
+     * 뜨자마자 받아 둡니다. 테스트에서 끄려고 스위치를 달았는데, 그 스위치가 운영의
+     * 동작까지 바꾸면 안 됩니다.
+     */
+    @Test
+    @DisplayName("켜 두면 서버가 뜰 때 시도마다 한 번씩 미리 받는다")
+    void warmsTheCatalogOnStartupWhenEnabled() throws InterruptedException {
+        var transport = new RegionAware();
+        var controller = controllerWarming(transport, true);
+
+        Thread warm = controller.startCatalogWarm();
+        assertNotNull(warm, "켜 두었으면 미리 받기를 시작해야 합니다");
+        warm.join();
+
+        assertEquals(RegionCode.values().length, transport.asked.size(),
+                "시도마다 한 번씩 받습니다. 전국 한 번으로 받으면 소속을 잃습니다");
+        assertFalse(transport.asked.contains(RegionAware.ALL));
+    }
+
+    /**
+     * 컨텍스트를 올리는 테스트가 이 길로 진짜 정보나루를 부르고 있었습니다.
+     * {@code WimbContextTest} 가 이 스위치를 끕니다.
+     */
+    @Test
+    @DisplayName("꺼 두면 서버가 떠도 정보나루를 부르지 않는다")
+    void doesNotWarmTheCatalogWhenDisabled() {
+        var transport = new RegionAware();
+        var controller = controllerWarming(transport, false);
+
+        // 스레드를 아예 만들지 않으므로 「아직 부르기 전이라 0」일 수가 없습니다.
+        assertNull(controller.startCatalogWarm(), "꺼 두었으면 아무것도 시작하지 않습니다");
+        controller.warmCatalog();
+
+        assertEquals(List.of(), transport.asked);
     }
 
     /** 소장 조회가 어느 지역을 물었는지 보려면 가짜 소장 클라이언트를 끼워야 합니다. */
@@ -147,7 +199,7 @@ class WimbControllerTest {
                 kr.wimb.opac.OpacTemplates.load(), noResolver(),
                 new CachingHoldingsClient((isbn, region) -> List.of(), Duration.ofHours(6), 100,
                         Clock.systemUTC()),
-                unlimited(), noShelf(),
+                unlimited(), noShelf(), true,
                 Clock.fixed(Instant.parse("2026-09-06T00:00:00Z"), ZoneId.of("UTC")));
     }
 
@@ -165,7 +217,7 @@ class WimbControllerTest {
         };
         return new WimbController(client, search, new MultiCheckService(search), budget,
                 kr.wimb.opac.OpacTemplates.load(), noResolver(), new CachingHoldingsClient((isbn, region) -> List.of(), Duration.ofHours(6), 100,
-                        Clock.systemUTC()), unlimited(), noShelf(), moving);
+                        Clock.systemUTC()), unlimited(), noShelf(), true, moving);
     }
 
     // ── 도서관 링크 (/api/go) ──────────────────────────────────────────────
@@ -212,7 +264,7 @@ class WimbControllerTest {
                 new kr.wimb.opac.DetailResolver(opac, Clock.systemUTC()),
                 new CachingHoldingsClient((isbn, region) -> List.of(), Duration.ofHours(6), 100,
                         Clock.systemUTC()),
-                unlimited(), noShelf(),
+                unlimited(), noShelf(), true,
                 Clock.fixed(Instant.parse("2026-09-06T00:00:00Z"), ZoneId.of("UTC")));
         controller.libraries();   // 도서관 마스터를 채워야 /api/go 가 그 도서관을 압니다.
         return controller;

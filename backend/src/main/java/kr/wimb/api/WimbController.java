@@ -11,6 +11,7 @@ import kr.wimb.opac.OpacLink;
 import kr.wimb.opac.OpacTemplates;
 import kr.wimb.shelf.ShelfStore;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.http.HttpStatus;
@@ -91,6 +92,12 @@ public class WimbController {
     private final Clock clock;
 
     /**
+     * 서버가 뜨자마자 도서관 목록을 받아 둘지. <b>운영에서는 늘 참입니다.</b>
+     * {@link #warmCatalog()} 를 보세요. 끄는 것은 컨텍스트를 올리는 테스트뿐입니다.
+     */
+    private final boolean warmOnStartup;
+
+    /**
      * <b>{@code @Autowired} 를 지우지 마세요.</b> Spring 이 생성자를 알아서 고르는 것은
      * 생성자가 하나일 때뿐입니다. 아래에 시계를 받는 생성자가 있으므로 둘이 되고, 표시가
      * 없으면 Spring 이 기본 생성자를 찾다가 실패해 <b>서버가 아예 뜨지 못합니다.</b>
@@ -102,9 +109,10 @@ public class WimbController {
                           MultiCheckService multiCheckService, ApiBudget budget,
                           OpacTemplates opacTemplates, DetailResolver detailResolver,
                           CachingHoldingsClient holdingsCache,
-                          RateLimit rateLimit, ShelfStore shelfStore) {
+                          RateLimit rateLimit, ShelfStore shelfStore,
+                          @Value("${wimb.catalog.warm-on-startup:true}") boolean warmOnStartup) {
         this(client, searchService, multiCheckService, budget, opacTemplates, detailResolver,
-                holdingsCache, rateLimit, shelfStore, Clock.systemUTC());
+                holdingsCache, rateLimit, shelfStore, warmOnStartup, Clock.systemUTC());
     }
 
     /** 재시도 시각을 시험할 수 있도록 시계를 받는 생성자입니다. */
@@ -112,7 +120,9 @@ public class WimbController {
                    MultiCheckService multiCheckService, ApiBudget budget,
                    OpacTemplates opacTemplates, DetailResolver detailResolver,
                    CachingHoldingsClient holdingsCache,
-                   RateLimit rateLimit, ShelfStore shelfStore, Clock clock) {
+                   RateLimit rateLimit, ShelfStore shelfStore, boolean warmOnStartup,
+                   Clock clock) {
+        this.warmOnStartup = warmOnStartup;
         this.shelfStore = shelfStore;
         this.rateLimit = rateLimit;
         this.holdingsCache = holdingsCache;
@@ -554,10 +564,27 @@ public class WimbController {
      * 통째로 기다렸습니다. 서버는 미국에 있고 정보나루는 한국에 있어 왕복이 붙는데, 그것을
      * 사람이 기다릴 이유가 없습니다. 실패해도 삼킵니다. 목록을 못 받았다고 서버가 뜨지
      * 못하면 그때는 아무것도 할 수 없게 됩니다.
+     *
+     * <p><b>{@code wimb.catalog.warm-on-startup} 으로 끌 수 있지만 운영에서는 끄지 마세요.</b>
+     * 끄면 첫 사람이 다시 그 시간을 기다립니다. 이 스위치는 컨텍스트를 통째로 올리는
+     * 테스트를 위한 것입니다. 이 미리 받기는 테스트 컨텍스트에서도 그대로 돌아서, 테스트를
+     * 한 번 돌릴 때마다 컨텍스트 수만큼 진짜 정보나루로 요청이 나가고 있었습니다.
      */
     @EventListener(ApplicationReadyEvent.class)
     public void warmCatalog() {
-        Thread.ofVirtual().name("catalog-warm").start(() -> {
+        // 돌려주는 값을 여기서 내보내지 마세요. @EventListener 는 void 가 아닌 반환값을
+        // 새 이벤트로 다시 발행합니다.
+        startCatalogWarm();
+    }
+
+    /**
+     * @return 미리 받기를 맡은 스레드. <b>꺼 두었으면 null 이고 아무것도 시작하지 않습니다.</b>
+     *         테스트가 「시작하지 않았다」와 「시작했는데 아직 부르지 않았다」를 가를 수 있게
+     *         돌려줍니다. 뒤엣것은 건수만 봐서는 0 으로 보입니다.
+     */
+    Thread startCatalogWarm() {
+        if (!warmOnStartup) return null;
+        return Thread.ofVirtual().name("catalog-warm").start(() -> {
             try {
                 loadCatalog();
             } catch (RuntimeException e) {

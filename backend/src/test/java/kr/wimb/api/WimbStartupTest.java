@@ -3,7 +3,6 @@ package kr.wimb.api;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.ApplicationContext;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -22,7 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>이 테스트는 컨텍스트를 통째로 올려 그것을 잡습니다. 느리지만, 배포한 뒤에야 알게 되는
  * 것보다는 낫습니다.
  */
-@SpringBootTest(properties = "wimb.data4library.auth-key=test-key-not-used-for-calls")
+@WimbContextTest
 class WimbStartupTest {
 
     @Autowired
