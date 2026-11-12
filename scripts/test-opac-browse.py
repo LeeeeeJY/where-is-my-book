@@ -28,6 +28,14 @@
     detailfirst 그 책보다 앞에 같은 모양의 다른 링크(「최근 본 책」)가 있습니다
               → 패턴을 버려야 합니다. 서버는 첫 번째 링크를 쓰므로 엉뚱한 책으로 갑니다
     robotsall robots.txt 가 사이트 전체를 막았습니다                  → 홈페이지도 열지 않고 버려야 합니다
+    robotsframe 화면은 열려 있는데 그 화면이 부르는 프레임·fetch·그림의 경로가 막혀 있습니다(광주 서구·진주 모양)
+              → 규칙은 얻되 **막힌 경로로는 요청이 한 건도 나가면 안 됩니다**
+    robotssearch 홈페이지는 열려 있고 검색이 나가는 경로만 막혀 있습니다
+              → 검색어를 넣어 보내도 그 요청이 나가면 안 되고, 사유는 robots.txt 여야 합니다
+    robotsxhr 검색 화면은 열려 있는데 결과를 받아 오는 요청의 경로가 막혀 있습니다
+              → 그 요청이 나가면 안 되고, 「그 책이 안 나온다」가 아니라 robots.txt 로 적어야 합니다
+    robotsua  robots.txt 가 우리 UA 에는 없는 것으로 오고 브라우저에만 보입니다(광주 서구 모양)
+              → 브라우저로 화면을 열 것이므로 브라우저가 받은 것을 지켜야 합니다
     detailignores 상세 주소가 ISBN 을 무시하고 늘 전부 뿌립니다
               → 상세 규칙도 패턴도 버려야 합니다. 새 창에서도 그 책은 보이므로 음성 대조와
                 섞임 확인만이 잡습니다
@@ -102,6 +110,14 @@ def isbn_of(title: str) -> str:
 # 유형마다 받은 경로. robots.txt 가 막은 곳의 홈페이지를 열지 않았는지 봅니다.
 VISITS: dict[str, list[str]] = {}
 
+# 유형마다 robots.txt 가 막는 경로. 적지 않은 유형은 조사와 무관한 `/admin` 만 막습니다.
+ROBOTS_DISALLOW = {"robotsall": "/", "robotsua": "/", "robotsframe": "/hidden/",
+                   "robotssearch": "/search", "robotsxhr": "/api/"}
+
+# 화면이 스스로 부르는 것 셋: 프레임, fetch, 그림. 사람이 주소창에 넣는 주소가 아닙니다.
+HIDDEN_CALLS = ("<iframe src='/hidden/frame'></iframe><img src='/hidden/pixel.gif'>"
+                "<script>fetch('/hidden/data').catch(function () {});</script>")
+
 
 def make_handler(flavor: str):
     class Handler(http.server.BaseHTTPRequestHandler):
@@ -122,12 +138,18 @@ def make_handler(flavor: str):
             path, _, query = self.path.partition("?")
             VISITS.setdefault(flavor, []).append(path)
             if path == "/robots.txt":
-                self.send("User-agent: *\nDisallow: /\n" if flavor == "robotsall"
-                          else "User-agent: *\nDisallow: /admin\n")
+                if flavor == "robotsua" and "Chrome" not in (self.headers.get("User-Agent") or ""):
+                    self.send_error(404)                # 조사 도구의 UA 에는 없는 것으로 답합니다
+                    return
+                self.send("User-agent: *\nDisallow: " + ROBOTS_DISALLOW.get(flavor, "/admin") + "\n")
                 return
             if path == "/":
                 if flavor == "pathjs":
                     self.send(PATHJS)
+                    return
+                if flavor == "robotsframe":
+                    # 화면 자체는 열려 있고, 그 화면이 스스로 부르는 것들의 경로가 막혀 있습니다.
+                    self.send(FORM.format(method="get", extra=HIDDEN_CALLS))
                     return
                 # session 은 홈페이지를 열 때 검색 세션을 발급합니다. posttoken 은 세션에 묶인
                 # 토큰을 폼에 심습니다(POST 만 검사합니다).
@@ -164,7 +186,7 @@ def make_handler(flavor: str):
                 found = [t for i, t in BOOKS.items() if INNER_KEY[i] == key]
                 self.send(results(found))
                 return
-            if path == "/api/search" and flavor == "detailspa":
+            if path == "/api/search" and flavor in ("detailspa", "robotsxhr"):
                 term = (urllib.parse.parse_qs(query).get("q") or [""])[0]
                 data = json.dumps([[t, INNER_KEY[i]] for i, t in BOOKS.items() if term == i],
                                   ensure_ascii=False).encode("utf-8")
@@ -216,7 +238,7 @@ def make_handler(flavor: str):
                         "".join(f"<li><a href='/book?bookkey={INNER_KEY[isbn_of(t)]}'>{t}</a></li>"
                                 for t in hits) + "</ul></body></html>") if hits else results([])
                 self.send(body, "opacsid=1; Path=/" if flavor == "detailsession" else None)
-            elif flavor == "detailspa":
+            elif flavor in ("detailspa", "robotsxhr"):
                 # 원문에는 제목도 링크도 없습니다. 자바스크립트가 /api/search 를 불러 그립니다.
                 # 서버가 받는 것은 이 원문이라 제목도 링크도 못 봅니다.
                 self.send("<html><head><meta charset='utf-8'></head><body><ul id='r'></ul>"
@@ -228,6 +250,8 @@ def make_handler(flavor: str):
                           "a.textContent=x[0];li.appendChild(a);u.appendChild(li);});"
                           "if(!d.length){u.textContent='검색결과가 없습니다';}});"
                           "</script></body></html>")
+            elif flavor == "robotsframe":
+                self.send(results(hits).replace("</body>", HIDDEN_CALLS + "</body>"))
             else:
                 self.send(results(hits))
 
@@ -278,6 +302,10 @@ CASES = [
     ("detailfirst", {"ISBN_SEARCH"}, "그 책보다 앞에 잡히는 링크가 있으면 패턴을 버려야 합니다"),
     ("detailignores", {"ISBN_SEARCH"}, "ISBN 을 무시하는 상세는 규칙도 패턴도 버려야 합니다"),
     ("robotsall", set(), "사이트 전체를 막은 robots.txt 는 홈페이지부터 지켜야 합니다", "robots.txt"),
+    ("robotsframe", {"ISBN_SEARCH"}, "화면이 부르는 막힌 요청만 빼고 조사는 그대로 되어야 합니다"),
+    ("robotssearch", set(), "검색이 나가는 경로가 막혔으면 보내지 않아야 합니다", "robots.txt"),
+    ("robotsxhr", set(), "결과를 받아 오는 요청이 막혔으면 robots.txt 로 적어야 합니다", "robots.txt"),
+    ("robotsua", set(), "브라우저에만 보이는 robots.txt 도 지켜야 합니다", "robots.txt"),
 ]
 
 
@@ -322,6 +350,30 @@ def main() -> int:
             print(f"  {'✓' if ok else '✗'} robotsall 은 robots.txt 말고 받은 것이 없습니다  {touched}")
             if not ok:
                 failures.append("robots:홈페이지를 열었습니다")
+
+            # **화면이 스스로 부르는 요청도 robots.txt 의 대상입니다.** 막힌 경로로는 가짜 서버가 한 건도
+            # 받지 않아야 합니다. 예전에는 여는 주소만 견줘서 프레임과 fetch 가 그대로 나갔습니다
+            # (광주 서구·진주, 2026-11-11).
+            for flavor, prefix in (("robotsframe", "/hidden/"), ("robotssearch", "/search"),
+                                   ("robotsxhr", "/api/")):
+                touched = [x for x in VISITS.get(flavor, []) if x.startswith(prefix)]
+                ok = not touched
+                print(f"  {'✓' if ok else '✗'} {flavor} 은 막힌 경로({prefix})로 받은 것이 없습니다  {touched}")
+                if not ok:
+                    failures.append(f"robots:{flavor} 의 막힌 경로로 요청이 나갔습니다")
+            touched = [x for x in VISITS.get("robotsua", []) if x != "/robots.txt"]
+            ok = not touched
+            print(f"  {'✓' if ok else '✗'} robotsua 는 robots.txt 말고 받은 것이 없습니다  {touched}")
+            if not ok:
+                failures.append("robots:브라우저에만 보이는 robots.txt 를 지키지 않았습니다")
+            # 위의 확인이 빈말이 아니려면 그 요청들이 **실제로 나가려다 막힌 것**이어야 합니다. 화면이
+            # 아예 부르지 않았다면 받은 것이 없는 것이 당연합니다.
+            kinds = {r["type"] for r in ob.BLOCKED_REQUESTS
+                     if f":{ports['robotsframe']}/hidden/" in r["url"]}
+            ok = {"document", "fetch", "image"} <= kinds
+            print(f"  {'✓' if ok else '✗'} robotsframe 에서 프레임·fetch·그림이 나가려다 막혔습니다  {sorted(kinds)}")
+            if not ok:
+                failures.append("robots:막힌 요청을 세지 못했습니다")
 
             # 얻은 주소가 서버가 쓸 모양인지. 토큰 칸이 남으면 오늘만 되는 규칙이고, ISBN 항목을
             # 고른 값이 빠지면 전체 검색으로 돌아가 0건이 됩니다.
@@ -447,6 +499,16 @@ def main() -> int:
     print(f"  {'✓' if ok else '✗'} 전부 규칙이 있는 묶음만 빠집니다  {kept}")
     if not ok:
         failures.append("규칙 있는 묶음 거르기")
+
+    # 창을 그냥 만드는 자리가 늘면 그 창은 막힌 경로까지 조용히 내보냅니다. 그냥 만들어도 되는 곳은
+    # 둘뿐입니다. robots.txt 를 읽는 창과, guarded_context 가 가로채기를 걸기 전에 만드는 창입니다.
+    print("\n  브라우저 창을 만드는 자리")
+    source = open(os.path.join(HERE, "opac-browse.py"), encoding="utf-8").read()
+    bare = source.count("browser.new_context(")
+    ok = bare == 2 and source.count("guarded_context(browser,") >= 4
+    print(f"  {'✓' if ok else '✗'} 그냥 만드는 자리 {bare}곳 (기대 2곳), 나머지는 guarded_context 를 거칩니다")
+    if not ok:
+        failures.append("robots:가로채지 않는 창을 만드는 자리가 생겼습니다")
 
     if failures:
         print(f"\n실패: {', '.join(failures)}")

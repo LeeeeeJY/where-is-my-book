@@ -78,7 +78,9 @@ ISBN 검색 결과를 받아 그 패턴으로 링크를 꺼내 상세로 보냅�
 ## 외부 서버에 대한 예의
 
 같은 호스트에는 한 번에 하나씩, 요청 사이에 간격을 둡니다(`--host-delay`, 기본 3초).
-robots.txt 를 받아 거부된 경로는 건드리지 않습니다. 한 묶음이 그 서버에 보내는 요청은
+robots.txt 를 받아 거부된 경로는 건드리지 않습니다. **여는 주소만이 아니라 그 화면이 스스로
+부르는 프레임과 요청도 견줍니다**(`guarded_context`). 브라우저 창을 새로 만드는 자리는 그
+함수를 거치세요. 그냥 만든 창은 막힌 경로까지 조용히 내보냅니다. 한 묶음이 그 서버에 보내는 요청은
 검색 한 번과 확인 두 번, 많아야 대여섯 번입니다. **이 값을 올리기 전에 CLAUDE.md 의
 「외부 서버에 대한 예의」를 읽으세요.**
 """
@@ -133,6 +135,127 @@ def chromium(p):
         if path and os.path.exists(path):
             return p.chromium.launch(executable_path=path)
     return p.chromium.launch()
+
+
+# ── robots.txt: 여는 주소만이 아니라 화면이 스스로 부르는 요청까지 ─────────
+
+# 호스트마다 한 번 받은 Disallow 목록. None 은 「받지 못했다」이고 전부 막힌 것으로 봅니다.
+_ROBOTS: dict[str, list[str] | None] = {}
+# robots.txt 에 걸려 내보내지 않은 요청({"type", "url", "body"}). 사유를 적을 때와 시험에서 봅니다.
+BLOCKED_REQUESTS: list[dict] = []
+
+
+def robots_via_browser(browser, home: str, pacer, timeout: float) -> list[str] | None:
+    """그 호스트의 robots.txt 를 브라우저로 읽습니다. 못 읽으면 None.
+
+    두 스킴을 다 해 봅니다. 받았는데 robots.txt 가 아니면(404, HTML) 제한이 없는 것입니다.
+    """
+    parsed = urllib.parse.urlparse(home)
+    schemes = [parsed.scheme] + [s for s in ("https", "http") if s != parsed.scheme]
+    for scheme in schemes:
+        context = browser.new_context()
+        try:
+            page = context.new_page()
+            pacer.wait(parsed.netloc)
+            response = page.goto(f"{scheme}://{parsed.netloc}/robots.txt",
+                                 timeout=min(timeout, 15) * 1000, wait_until="domcontentloaded")
+            if response is None:
+                continue
+            body = response.text()
+            if response.status != 200 or "<html" in body[:200].lower():
+                return []
+            return od.parse_robots(body)
+        except Exception:
+            continue
+        finally:
+            context.close()
+    return None
+
+
+def robots_for(browser, url: str, pacer, timeout: float) -> list[str] | None:
+    """그 주소의 호스트가 막은 경로. **받지 못했으면 None 이고, 부르는 쪽은 그것을 막힌 것으로 봅니다.**
+
+    파이썬으로 먼저 받고, 브라우저로 한 번 더 읽습니다. 둘이 다르게 오는 곳이 있기 때문입니다.
+    파이썬이 붙지 못하는 호스트(인증서 사슬이 끊긴 곳)가 브라우저로는 열리고, 광주 서구처럼
+    **우리 UA 에는 robots.txt 가 없는 것으로 오고 브라우저에만 보이는 곳**이 있습니다(2026-11-11).
+    브라우저로 화면을 열 것이면 브라우저가 받는 robots.txt 가 기준입니다. 그래서 파이썬이 규칙을
+    하나라도 읽었을 때만 브라우저 읽기를 건너뜁니다.
+    """
+    parsed = urllib.parse.urlparse(url)
+    key = parsed.netloc.lower()
+    if key in _ROBOTS:
+        return _ROBOTS[key]
+    origin = f"{parsed.scheme}://{parsed.netloc}/"
+    rules = od.robots_rules(origin, pacer)
+    if not rules:
+        seen = robots_via_browser(browser, origin, pacer, timeout)
+        if seen is not None and (rules is None or seen):
+            rules = seen
+    _ROBOTS[key] = rules
+    return rules
+
+
+def robots_blocks(browser, url: str, pacer, timeout: float) -> bool:
+    """그 주소를 기계가 받으면 안 되는지. robots.txt 를 받지 못한 호스트도 막힌 것입니다."""
+    rules = robots_for(browser, url, pacer, timeout)
+    return rules is None or od.blocked(url, rules)
+
+
+def guarded_context(browser, site_url: str, pacer, timeout: float):
+    """**화면이 스스로 부르는 요청까지** robots.txt 에 견주는 창을 만듭니다. 막힌 것은 내보내지 않습니다.
+
+    여는 주소만 견주던 때에는 화면의 스크립트와 프레임이 부르는 것이 그대로 나갔습니다. 광주 서구는
+    검색 화면은 열려 있는데 그 화면이 부르는 `/groups/…` 가 막혀 있고, 진주는 결과 프레임의
+    경로(`/dls_lt/`)가 막혀 있습니다. 2026-11-11 에 두 곳에서 그렇게 나갔습니다
+    (docs/가정과-검증상태.md 2-32). 사람이 누르는 링크가 아니라 프로그램이 여는 화면이라, 그 화면이
+    부르는 것도 프로그램이 받는 것입니다.
+
+    견주는 것은 둘입니다. **같은 기관의 요청 전부**(그림·스크립트까지), 그리고 **다른 기관으로 가는
+    화면 이동과 프레임**입니다. 검색 폼이 다른 기관의 호스트로 나가는 도서관이 있기 때문입니다
+    (대전 동구·대덕·대전교육청). 남의 CDN 이나 통계 스크립트는 견주지 않습니다. 호스트마다
+    robots.txt 를 받으러 가는 것 자체가 그쪽에는 없던 요청입니다.
+
+    막힌 화면 이동은 `page.goto` 에서 예외로 드러나고, 막힌 하위 요청은 그 화면에서 그 부분만
+    비게 됩니다. 그래서 **이 창으로 얻은 「그 책이 안 나온다」는 robots.txt 탓일 수 있습니다.**
+    부르는 쪽이 `BLOCKED_REQUESTS` 를 보고 사유를 가립니다.
+    """
+    org = od.registrable_domain(urllib.parse.urlsplit(site_url).netloc)
+    context = browser.new_context()
+
+    def handle(route, request):
+        parts = urllib.parse.urlsplit(request.url)
+        if parts.scheme not in ("http", "https"):
+            return route.continue_()
+        same_org = od.registrable_domain(parts.netloc) == org
+        if not same_org and request.resource_type != "document":
+            return route.continue_()
+        if robots_blocks(browser, request.url, pacer, timeout):
+            try:
+                body = (request.post_data_buffer or b"").decode("latin-1")
+            except Exception:
+                body = ""
+            BLOCKED_REQUESTS.append({"type": request.resource_type, "url": request.url, "body": body})
+            return route.abort("blockedbyclient")
+        return route.continue_()
+
+    context.route("**/*", handle)
+    return context
+
+
+def blocked_since(mark: int, carrying: str | None = None) -> list[dict]:
+    """`mark`(그때의 `len(BLOCKED_REQUESTS)`) 뒤로 robots.txt 에 걸려 내보내지 않은 요청.
+
+    `carrying` 을 주면 그 글자(검색어)를 주소나 본문에 실은 것만 돌려줍니다. 검색 자체가 막힌 것과
+    그 화면의 곁가지 요청이 막힌 것을 가르는 데 씁니다.
+    """
+    since = BLOCKED_REQUESTS[mark:]
+    if carrying is None:
+        return since
+    quoted = urllib.parse.quote(carrying)
+    return [r for r in since if any(form in r["url"] or form in r["body"] for form in (carrying, quoted))]
+
+
+ROBOTS_NOTE = "robots.txt 가 막은 경로입니다"
 
 
 def looks_like_box(name: str, ident: str, placeholder: str, aria: str) -> bool:
@@ -220,7 +343,10 @@ def opens_fresh(browser, template: str, isbn: str, title: str, pacer, timeout: f
     사용자에게 죽은 링크로 나갑니다.
     """
     url = fill(template, isbn, encoding)
-    context = browser.new_context()
+    if robots_blocks(browser, url, pacer, timeout):
+        return False, False, ROBOTS_NOTE
+    mark = len(BLOCKED_REQUESTS)
+    context = guarded_context(browser, url, pacer, timeout)
     try:
         page = context.new_page()
         pacer.wait(urllib.parse.urlparse(url).netloc)
@@ -230,8 +356,15 @@ def opens_fresh(browser, template: str, isbn: str, title: str, pacer, timeout: f
         except Exception:
             pass
         html = page.content()
-        return od.page_has(html, title), od.says_no_result(html), html
+        hit = od.page_has(html, title)
+        if not hit and blocked_since(mark):
+            # 화면은 열렸는데 그 화면이 부르는 요청이 robots.txt 에 걸려 나가지 않았습니다. 그 책이 안
+            # 보이는 까닭이 그것일 수 있으므로 「세션에 묶임」이나 「그 책이 없다」로 적으면 안 됩니다.
+            return False, False, f"{ROBOTS_NOTE} (화면이 부르는 요청 {len(blocked_since(mark))}건)"
+        return hit, od.says_no_result(html), html
     except Exception as e:
+        if blocked_since(mark):
+            return False, False, f"{ROBOTS_NOTE} (넘어간 주소)"
         # 오류 문구까지 싣습니다. 이 기계의 네트워크가 끊긴 것(net::ERR_INTERNET_DISCONNECTED)과
         # 그 도서관이 안 열린 것을 가려야 하기 때문입니다.
         return False, False, f"열지 못했습니다: {type(e).__name__}: {e}"
@@ -253,10 +386,12 @@ def detail_rule(browser, template: str, books: list[str], pacer, timeout: float)
     **찾았다고 그냥 쓰지 않습니다.** 다른 책의 ISBN 으로 바꿔 새 창에서 열어 그 책이 나오는지
     봅니다. 그러지 않으면 첫 책에만 우연히 맞는 주소가 규칙이 됩니다.
     """
-    context = browser.new_context()
+    url = template.replace("{isbn13}", books[0])
+    if robots_blocks(browser, url, pacer, timeout):
+        return None
+    context = guarded_context(browser, url, pacer, timeout)
     try:
         page = context.new_page()
-        url = template.replace("{isbn13}", books[0])
         pacer.wait(urllib.parse.urlparse(url).netloc)
         page.goto(url, timeout=timeout * 1000, wait_until="domcontentloaded")
         try:
@@ -322,6 +457,10 @@ def detail_pattern(browser, template: str, books: list[str], pacer, timeout: flo
              내부 키라면 여기서 걸립니다.
     """
     hrefs, pages = [], {}
+    if robots_blocks(browser, template.replace("{isbn13}", books[0]), pacer, timeout):
+        # 서버도 이 경로를 받지 않습니다(DetailResolver 가 robots.txt 를 봅니다). 패턴을 두면 늘
+        # 검색 결과로 내려가면서 화면의 배지만 「상세」라고 말하게 됩니다.
+        return None, ROBOTS_NOTE
     for isbn in books[:2]:
         title = od.PROBE_BOOKS[isbn]
         status, page_html, final = od.fetch(template.replace("{isbn13}", isbn), pacer, timeout)
@@ -367,6 +506,8 @@ def detail_pattern(browser, template: str, books: list[str], pacer, timeout: flo
     # 자리표가 없는 주소라 opens_fresh 는 그것을 그대로 엽니다.
     hit, _, detail_html = opens_fresh(browser, detail_url, books[1], od.PROBE_BOOKS[books[1]],
                                       pacer, timeout)
+    if detail_html.startswith(ROBOTS_NOTE):
+        return None, f"{ROBOTS_NOTE} (뽑은 상세 링크)"
     if not hit:
         return None, "뽑은 상세 링크를 새 창에서 열면 그 책이 나오지 않습니다 (세션에 묶인 키)"
     # 그 책의 상세라면 다른 책 제목은 없어야 합니다. 링크의 열쇠를 무시하고 목록을 뿌리는
@@ -559,33 +700,6 @@ def best_note(notes: list[str]) -> str:
     return notes[-1] if notes else "주소에 검색어가 남지 않습니다"
 
 
-def robots_via_browser(browser, home: str, pacer, timeout: float) -> list[str] | None:
-    """파이썬이 붙지 못한 호스트의 robots.txt 를 브라우저로 읽습니다. 못 읽으면 None.
-
-    두 스킴을 다 해 봅니다. 받았는데 robots.txt 가 아니면(404, HTML) 제한이 없는 것입니다.
-    """
-    parsed = urllib.parse.urlparse(home)
-    schemes = [parsed.scheme] + [s for s in ("https", "http") if s != parsed.scheme]
-    for scheme in schemes:
-        context = browser.new_context()
-        try:
-            page = context.new_page()
-            pacer.wait(parsed.netloc)
-            response = page.goto(f"{scheme}://{parsed.netloc}/robots.txt",
-                                 timeout=min(timeout, 15) * 1000, wait_until="domcontentloaded")
-            if response is None:
-                continue
-            body = response.text()
-            if response.status != 200 or "<html" in body[:200].lower():
-                return []
-            return od.parse_robots(body)
-        except Exception:
-            continue
-        finally:
-            context.close()
-    return None
-
-
 def investigate(browser, key: str, members: list[dict], rep: dict, books: list[str],
                 pacer, timeout: float) -> dict:
     """묶음 하나. 예외가 새어 나가면 수백 묶음짜리 조사가 통째로 죽습니다."""
@@ -600,12 +714,9 @@ def investigate(browser, key: str, members: list[dict], rep: dict, books: list[s
         return out
 
     host = urllib.parse.urlparse(home).netloc
-    disallows = od.robots_rules(f"{urllib.parse.urlparse(home).scheme}://{host}/", pacer)
-    if disallows is None:
-        # 파이썬이 그 호스트에 붙지 못한 것입니다(인증서 사슬이 끊긴 곳이 흔합니다). 브라우저는
-        # 붙는 일이 많으므로 한 번 더 읽어 봅니다. 그래도 못 읽으면 **모르는 채로 조사하지
-        # 않습니다.** 예전에는 「제한 없음」으로 넘어가 robots.txt 가 Disallow: / 인 곳을 조사했습니다.
-        disallows = robots_via_browser(browser, home, pacer, timeout)
+    # 파이썬으로 받고 브라우저로 한 번 더 읽습니다(robots_for). 둘 다 못 읽으면 **모르는 채로 조사하지
+    # 않습니다.** 예전에는 「제한 없음」으로 넘어가 robots.txt 가 Disallow: / 인 곳을 조사했습니다.
+    disallows = robots_for(browser, home, pacer, timeout)
     if disallows is None:
         out["note"] = "robots.txt 를 받지 못해 조사하지 않았습니다"
         return out
@@ -616,7 +727,8 @@ def investigate(browser, key: str, members: list[dict], rep: dict, books: list[s
         out["note"] = "robots.txt 가 막은 경로입니다 (홈페이지)"
         return out
 
-    context = browser.new_context()
+    started = len(BLOCKED_REQUESTS)
+    context = guarded_context(browser, home, pacer, timeout)
     try:
         page = context.new_page()
         pacer.wait(host)
@@ -670,11 +782,14 @@ def investigate(browser, key: str, members: list[dict], rep: dict, books: list[s
                 notes.append("제목으로는 나오지만 주소에 제목이 남지 않습니다")
                 return None
             template, encoding = strip_tokens(made[0]), made[1]
-            if od.blocked(template, disallows):
-                notes.append("robots.txt 가 막은 경로입니다")
+            if robots_blocks(browser, template, pacer, timeout):
+                notes.append(ROBOTS_NOTE)
                 return None
             second_title = od.PROBE_BOOKS[books[1]]
             hit, _, fresh = opens_fresh(browser, template, title, title, pacer, timeout, encoding)
+            if fresh.startswith(ROBOTS_NOTE):
+                notes.append(fresh)
+                return None
             if network_failure(fresh) or not hit:
                 notes.append("제목 검색 주소를 새 창에서 열면 그 책이 나오지 않습니다")
                 return None
@@ -705,11 +820,17 @@ def investigate(browser, key: str, members: list[dict], rep: dict, books: list[s
                 recorder.seen.clear()
                 option = choose_isbn_option(page, box)
                 before = page.url
+                mark = len(BLOCKED_REQUESTS)
                 url = submit(page, box, books[0], timeout)
                 if not recorder.seen and page.url == before:
                     if press_search_button(page, box, books[0], timeout):
                         url = next((o.url for o in context.pages if o is not page and books[0] in o.url),
                                    page.url)
+                if blocked_since(mark, carrying=books[0]):
+                    # 검색어를 실은 요청이 robots.txt 에 걸려 나가지 않았습니다. 같은 칸에 제목을 넣어도
+                    # 같은 경로로 나가므로 더 해 보지 않습니다. 그런 곳은 사람이 주소를 확인해 넣습니다.
+                    notes.append(f"{ROBOTS_NOTE} (검색이 나가는 주소)")
+                    continue
 
                 candidates = search_candidates(url, recorder.seen, books[0])
                 if not candidates:
@@ -732,8 +853,8 @@ def investigate(browser, key: str, members: list[dict], rep: dict, books: list[s
                     continue
 
                 for template, via in candidates:
-                    if od.blocked(template, disallows):
-                        notes.append("robots.txt 가 막은 경로입니다")
+                    if robots_blocks(browser, template, pacer, timeout):
+                        notes.append(ROBOTS_NOTE)
                         continue
 
                     # ① 양성 — 그 도서관이 실제로 소장한 책
@@ -741,6 +862,9 @@ def investigate(browser, key: str, members: list[dict], rep: dict, books: list[s
                     if network_failure(fresh):
                         out["note"] = f"이 기계의 네트워크가 끊겼습니다 ({network_failure(fresh)})"
                         return out
+                    if fresh.startswith(ROBOTS_NOTE):
+                        notes.append(fresh)
+                        continue
                     if not hit:
                         notes.append(FRESH_MISS_NOTE[via])
                         continue
@@ -796,7 +920,7 @@ def investigate(browser, key: str, members: list[dict], rep: dict, books: list[s
             # 떨어졌습니다(2026-11-05 조사에서 612곳). 그래서 홈페이지 검색창으로 안 되면 자료검색
             # 페이지로 보이는 링크를 몇 개 따라가 같은 일을 다시 합니다. 한 단계만, 셋까지입니다.
             for link in od.search_page_links(home_html, home, 3):
-                if od.blocked(link, disallows):
+                if robots_blocks(browser, link, pacer, timeout):
                     continue
                 pacer.wait(host)
                 try:
@@ -817,14 +941,20 @@ def investigate(browser, key: str, members: list[dict], rep: dict, books: list[s
             return found
         if not boxes and not notes:
             out["note"] = "검색창을 찾지 못했습니다"
-            return out
-        out["note"] = best_note(notes)
+        else:
+            out["note"] = best_note(notes)
         return out
     except Exception as e:
         out["note"] = f"{type(e).__name__}: {e}"
         return out
     finally:
         context.close()
+        # 규칙을 못 얻었고 사유가 robots.txt 가 아닌데 **내보내지 않은 요청이 있었으면** 그것을 덧붙입니다.
+        # 화면이 덜 그려져서 검색창이나 책이 안 보였을 수 있고, 그때 「검색창을 찾지 못했습니다」만
+        # 남으면 그 도서관에 검색이 없는 것으로 읽힙니다.
+        refused = blocked_since(started)
+        if not out["rules"] and refused and "robots.txt" not in out["note"]:
+            out["note"] += f" (robots.txt 에 걸려 내보내지 않은 요청 {len(refused)}건)"
 
 
 def groups_of(libs: list[dict], probe: dict) -> list[tuple]:
@@ -1039,6 +1169,10 @@ def find_patterns(work: str, csv_path: str, patterns_csv: str, host_delay: float
                         out["note"] = "같은 호스트의 패턴을 이미 찾았습니다"
                     elif len(books) < 2:
                         out["note"] = "검증용으로 쓸 소장 도서가 모자랍니다"
+                    elif robots_blocks(browser, template.replace("{isbn13}", books[0]), pacer, timeout):
+                        # 예전에는 이 길이 robots.txt 를 아예 보지 않았습니다. 규칙 표의 주소는 사람이
+                        # 누르는 링크라 막힌 경로여도 들어 있을 수 있는데, 여기서는 프로그램이 엽니다.
+                        out["note"] = ROBOTS_NOTE
                     else:
                         try:
                             detail = detail_rule(browser, template, books, pacer, timeout)
@@ -1103,7 +1237,10 @@ def check_gaps(work: str, csv_path: str, host_delay: float, timeout: float) -> i
                 if org not in org_rule or not without:
                     continue
                 url = org_rule[org].replace("{isbn13}", isbn)
-                context = browser.new_context()
+                if robots_blocks(browser, url, pacer, timeout):
+                    print(f"\n[{org}] {ROBOTS_NOTE}. 열지 않았습니다.", file=sys.stderr)
+                    continue
+                context = guarded_context(browser, url, pacer, timeout)
                 try:
                     page = context.new_page()
                     pacer.wait(urllib.parse.urlparse(url).netloc)
