@@ -4,7 +4,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -25,7 +24,7 @@ import static org.hamcrest.Matchers.containsString;
  * 못했습니다」 배너가 뜬 화면을 색인합니다. 그 문장이 검색 결과에 실리는 것이 크롤링 몇
  * 번보다 나쁩니다. 양쪽을 한꺼번에 지키는지 여기서 고정합니다.
  */
-@SpringBootTest(properties = "wimb.data4library.auth-key=test-key-not-used-for-calls")
+@WimbContextTest
 @AutoConfigureMockMvc
 class ApiRobotsTest {
 

@@ -121,16 +121,33 @@ public class WimbConfiguration implements WebMvcConfigurer {
                 Clock.system(ZoneId.of("Asia/Seoul")));
     }
 
+    /**
+     * 정보나루로 실제 요청이 나가는 <b>단 하나의 문</b>입니다.
+     *
+     * <p>빈으로 꺼내 둔 것은 컨텍스트를 통째로 올리는 테스트 때문입니다. 클라이언트 안에서
+     * 직접 만들면 테스트가 이 문을 갈아 끼울 방법이 없어서, 컨텍스트 테스트가 도는 동안
+     * 무엇이든 정보나루를 부르면 <b>진짜 요청이 그대로 나갑니다.</b> 실제로 서버가 뜰 때의
+     * 도서관 목록 미리 받기가 테스트에서도 돌아, {@code ./gradlew test} 한 번마다(그리고 이미지
+     * 빌드마다) 컨텍스트 수만큼 정보나루를 두드리고 있었습니다. 테스트는 이 빈을 「부르면
+     * 거절하고 세는」 것으로 덮습니다({@code @WimbContextTest}).
+     *
+     * <p>운영에서는 예전과 똑같이 간격과 동시 요청 수를 지키는 전송 계층 하나가 만들어집니다.
+     */
     @Bean
-    public Data4LibraryClient data4LibraryClient(ApiBudget budget) {
+    public Data4LibraryClient.Transport data4LibraryTransport() {
+        return new ThrottledHttpTransport(minIntervalMs, maxInFlight);
+    }
+
+    @Bean
+    public Data4LibraryClient data4LibraryClient(ApiBudget budget,
+                                                 Data4LibraryClient.Transport transport) {
         if (authKey == null || authKey.isBlank()) {
             throw new IllegalStateException("""
                     D4L_AUTH_KEY 가 비어 있습니다. 정보나루 인증키를 넣어 주세요.
                       cp .env.example .env  후 D4L_AUTH_KEY 를 채우고
                       set -a; . ./.env; set +a  로 환경 변수에 올린 뒤 실행하세요.""");
         }
-        return new Data4LibraryClient(
-                new ThrottledHttpTransport(minIntervalMs, maxInFlight), authKey, budget);
+        return new Data4LibraryClient(transport, authKey, budget);
     }
 
     /**
