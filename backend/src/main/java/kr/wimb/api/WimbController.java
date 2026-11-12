@@ -29,8 +29,6 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 
 @RestController
 @RequestMapping("/api")
@@ -61,30 +59,12 @@ public class WimbController {
     private final DetailResolver detailResolver;
 
     /**
-     * 도서관 마스터를 메모리에 담아 둡니다. 1,619건뿐이라 이걸로 충분하고,
-     * 매번 정보나루를 부르면 예산이 검색에 쓸 몫까지 갉아먹습니다.
+     * 도서관 마스터와 각 도서관의 소속 시도. 1,600곳 남짓이라 메모리에 담아 두고, 매번
+     * 정보나루를 부르지 않습니다. <b>파일로도 남아 재배포를 넘겨 삽니다</b>
+     * ({@link LibraryCatalog}, {@link LibraryCatalogStore}). 되살린 시도는 「새로 받았다」로
+     * 치지 않으므로 아래의 미리 받기와 재시도가 예전과 똑같이 돕니다.
      */
-    private final Map<String, LibraryInfo> catalog = new ConcurrentHashMap<>();
-
-    /**
-     * 각 도서관이 어느 시도에 속하는지. <b>정보나루가 그 시도의 {@code libSrch} 목록에
-     * 넣어 준 것</b>이 근거입니다.
-     *
-     * <p>예전에는 도서관 주소의 앞머리에서 시도명을 뽑았습니다. 그런데 {@code libSrchByBook}
-     * 의 {@code region} 은 정보나루가 그 도서관에 붙여 둔 지역으로 걸러지는 것이라, 주소를
-     * 우리가 읽어 낸 값과 어긋나면 <b>그 도서관은 물어보지도 않은 채 「없음」으로
-     * 나갑니다.</b> 실제로 「고양시립」 두 곳은 주소에서 시도를 뽑지 못해 확인 불가로만
-     * 답할 수 있었습니다. 정보나루가 시도별로 돌려주는 목록에서 소속을 그대로 받으면
-     * 소장 조회가 쓰는 것과 같은 기준이 됩니다. 주소 읽기는 이 값이 없을 때의 예비입니다.
-     */
-    private final Map<String, RegionCode> regionOf = new ConcurrentHashMap<>();
-
-    /**
-     * 이미 받아 둔 시도. <b>실패한 시도는 여기에 없으므로 다음 기회에 다시 받습니다.</b>
-     * 이것이 없으면 시도 하나가 잠깐 실패했을 때 그 지역 도서관이 영영 목록에 나타나지
-     * 않고, 사용자에게는 "그런 도서관이 없다"로 보입니다.
-     */
-    private final Set<String> loadedRegions = ConcurrentHashMap.newKeySet();
+    private final LibraryCatalog catalog;
 
     /** 실패한 시도를 다시 받아 볼 시각. 계속 실패하는 지역을 매 요청마다 두드리지 않습니다. */
     private volatile Instant nextRetry = Instant.EPOCH;
@@ -109,10 +89,10 @@ public class WimbController {
                           MultiCheckService multiCheckService, CallLedger ledger,
                           OpacTemplates opacTemplates, DetailResolver detailResolver,
                           CachingHoldingsClient holdingsCache,
-                          RateLimit rateLimit, ShelfStore shelfStore,
+                          RateLimit rateLimit, ShelfStore shelfStore, LibraryCatalog catalog,
                           @Value("${wimb.catalog.warm-on-startup:true}") boolean warmOnStartup) {
         this(client, searchService, multiCheckService, ledger, opacTemplates, detailResolver,
-                holdingsCache, rateLimit, shelfStore, warmOnStartup, Clock.systemUTC());
+                holdingsCache, rateLimit, shelfStore, catalog, warmOnStartup, Clock.systemUTC());
     }
 
     /** 재시도 시각을 시험할 수 있도록 시계를 받는 생성자입니다. */
@@ -120,8 +100,9 @@ public class WimbController {
                    MultiCheckService multiCheckService, CallLedger ledger,
                    OpacTemplates opacTemplates, DetailResolver detailResolver,
                    CachingHoldingsClient holdingsCache,
-                   RateLimit rateLimit, ShelfStore shelfStore, boolean warmOnStartup,
-                   Clock clock) {
+                   RateLimit rateLimit, ShelfStore shelfStore, LibraryCatalog catalog,
+                   boolean warmOnStartup, Clock clock) {
+        this.catalog = catalog;
         this.warmOnStartup = warmOnStartup;
         this.shelfStore = shelfStore;
         this.rateLimit = rateLimit;
@@ -143,7 +124,7 @@ public class WimbController {
      */
     @GetMapping("/libraries")
     public List<LibraryDto> libraries() {
-        if (!isComplete()) {
+        if (!catalog.isComplete()) {
             try {
                 loadCatalog();
             } catch (RuntimeException e) {
@@ -152,8 +133,9 @@ public class WimbController {
                 throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, e.getMessage(), e);
             }
         }
-        return catalog.values().stream()
-                .map(info -> LibraryDto.from(info, opacTemplates, regionOf.get(info.libCode())))
+        return catalog.all().stream()
+                .map(info -> LibraryDto.from(info, opacTemplates,
+                        catalog.regionOf(info.libCode()).orElse(null)))
                 // 시도를 못 알아낸 도서관은 끝으로 보냅니다. 목록에서 빼지는 않습니다.
                 .sorted(Comparator.comparing(LibraryDto::sido,
                                 Comparator.nullsLast(Comparator.naturalOrder()))
@@ -251,8 +233,8 @@ public class WimbController {
      * 그 도서관은 물어보지도 않은 채 「없음」이 됩니다.
      */
     private Optional<RegionCode> regionFor(String libCode) {
-        RegionCode fromSource = regionOf.get(libCode);
-        if (fromSource != null) return Optional.of(fromSource);
+        Optional<RegionCode> fromSource = catalog.regionOf(libCode);
+        if (fromSource.isPresent()) return fromSource;
         LibraryInfo info = catalog.get(libCode);
         return info == null ? Optional.empty() : info.region();
     }
@@ -513,6 +495,15 @@ public class WimbController {
     public Map<String, Object> status() {
         Map<String, Object> out = new java.util.LinkedHashMap<>();
         out.put("librariesLoaded", catalog.size());
+        // **목록이 어디서 왔는지.** 도서관 목록은 파일에서 되살린 뒤 정보나루가 답하는 시도부터
+        // 새로 받습니다. librariesLoaded 만 보면 「새로 받았다」와 「예전 것을 되살렸다」를 가를
+        // 수 없습니다. Restored 가 0이 아닌 채로 오래 남으면 libSrch 가 그 시도에 답하지 않는
+        // 것이고(/api/diagnose 를 보세요), 배포 직후 둘 다 0이면 되살릴 파일이 없었던 것이라
+        // 볼륨부터 봅니다. Oldest 는 지금 쓰는 목록 가운데 가장 오래전에 받은 날짜입니다.
+        out.put("libraryRegionsFresh", catalog.freshRegions());
+        out.put("libraryRegionsRestored", catalog.restoredRegions());
+        out.put("libraryCatalogOldest", catalog.oldestFetchedAt()
+                .map(at -> LocalDate.ofInstant(at, SEOUL).toString()).orElse(null));
         out.put("callsUsedToday", ledger.used(Data4LibraryClient.SOURCE_CODE));
         out.put("callsRemaining", ledger.remaining(Data4LibraryClient.SOURCE_CODE));
         // **한도가 실제로 도는지 알 방법이 있어야 합니다.** 호출이 갑자기 줄었을 때
@@ -559,7 +550,7 @@ public class WimbController {
      * <b>"확인 불가"</b>로 나가는데, 그것이 정확한 표현입니다.
      */
     private void loadCatalogQuietly(List<String> selectedLibs) {
-        if (isComplete() || selectedLibs.isEmpty()) return;
+        if (catalog.isComplete() || selectedLibs.isEmpty()) return;
         try {
             loadCatalog();
         } catch (RuntimeException e) {
@@ -623,7 +614,7 @@ public class WimbController {
      *                                 돌려주면 화면이 도서관이 없는 것으로 그립니다.
      */
     private synchronized void loadCatalog() {
-        if (isComplete()) return;
+        if (catalog.isComplete()) return;
         // **비어 있을 때도 기다립니다.** 예전에는 목록이 비어 있으면 이 빗장을 건너뛰었는데,
         // 정보나루가 답하지 않는 동안에는 목록이 늘 비어 있습니다. 그래서 아무도 기다리지
         // 않고, 화면을 한 번 열 때마다 시도 열일곱 번을 다시 부르게 됩니다.
@@ -633,29 +624,24 @@ public class WimbController {
 
         int failures = 0;
         for (RegionCode region : RegionCode.values()) {
-            if (loadedRegions.contains(region.code())) continue;
+            // 되살린 시도는 여기서 건너뛰지 않습니다. 새로 받은 것만 건너뜁니다.
+            if (catalog.isFresh(region)) continue;
             try {
-                for (LibraryInfo library : client.libraries(region.code())) {
-                    if (library.libCode() == null) continue;
-                    catalog.put(library.libCode(), library);
-                    regionOf.put(library.libCode(), region);
-                }
-                loadedRegions.add(region.code());
+                List<LibraryInfo> received = client.libraries(region.code());
+                // 빈 목록이 되살린 시도를 지우려 하면 받아들이지 않습니다. 못 받은 것으로 칩니다.
+                if (!catalog.accept(region, received, clock.instant())) failures++;
             } catch (RuntimeException e) {
                 // 이 시도만 빼고 계속합니다. 성공으로 기억하지 않으므로 다음에 다시 받습니다.
+                // 되살린 것이 있으면 그 시도는 그것을 그대로 씁니다.
                 failures++;
             }
         }
 
-        if (failures > 0 || !isComplete()) nextRetry = clock.instant().plus(CATALOG_RETRY_AFTER);
+        if (failures > 0 || !catalog.isComplete()) nextRetry = clock.instant().plus(CATALOG_RETRY_AFTER);
         if (catalog.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
                     "도서관 목록을 한 곳도 받지 못했습니다. 정보나루가 답하지 않습니다.");
         }
-    }
-
-    private boolean isComplete() {
-        return loadedRegions.size() == RegionCode.values().length;
     }
 
     /**

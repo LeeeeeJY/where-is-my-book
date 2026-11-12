@@ -133,7 +133,8 @@ class DailyLimitHandlingTest {
                     throw new java.io.IOException("테스트에서는 OPAC 을 부르지 않습니다");
                 }, clock),
                 cache, new RateLimit(1_000_000, 1_000_000, 0, 100, clock),
-                new kr.wimb.shelf.ShelfStore(java.nio.file.Path.of("build/tmp/no-shelf")), true, clock);
+                new kr.wimb.shelf.ShelfStore(java.nio.file.Path.of("build/tmp/no-shelf")), new LibraryCatalog(),
+                true, clock);
         mvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new ApiErrorAdvice())
                 .build();
