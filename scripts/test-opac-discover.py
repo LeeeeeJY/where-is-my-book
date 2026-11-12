@@ -553,6 +553,19 @@ def check_import_patterns(work: str) -> list[str]:
         ("@anchor:@anchor:@onclick:fnDetail", False),                                  # 두 겹
         ('@anchor:@json:GET https://x.kr/api?q={isbn13} => list => /d/{id}', False),   # JSON 은 도서관으로 고릅니다
         ('@anchor:href="/book/view"', False),                                          # 그룹 없음
+        # @frame: — 결과가 다른 주소의 프레임에 있는 OPAC. 서버(DetailRule.Frame)와 같은 조건입니다.
+        ('@frame:https://x.kr:7443/l.php?word={title}&m=MA => @anchor:href="(v\\.php\\?k=[^"]+)"', True),
+        ('@frame:EUC-KR https://x.kr:7443/l.php?word={title} => @anchor:@onclick:fnView', True),
+        ('@frame:https://x.kr:7443/l.php?isbn={isbn13}&lib={libCode} => href="(v\\.php\\?k=[^"]+)"', True),
+        ('@frame:https://x.kr:7443/l.php?word={title} => @anchor:@template:k="(\\d+)" => v.php?k={1}', True),
+        ('@frame:https://x.kr:7443/l.php?word=fixed => @anchor:href="(v[^"]+)"', False),        # 자리표 없음
+        ('@frame:https://x.kr:7443/l.php?word={title}&m={manageCode} => @anchor:href="(v[^"]+)"', False),  # 모르는 자리표
+        ('@frame:KOREAN-9 https://x.kr:7443/l.php?word={title} => @anchor:href="(v[^"]+)"', False),       # 모르는 인코딩
+        ('@frame:/l.php?word={title} => @anchor:href="(v[^"]+)"', False),                       # 절대 주소가 아님
+        ('@frame:https://x.kr:7443/l.php?word={title} @anchor:href="(v[^"]+)"', False),         # => 없음
+        ('@frame:https://x.kr/l?word={title} => @json:GET https://x.kr/a?q={isbn13} => l => /d/{id}', False),
+        ('@frame:https://x.kr/l?word={title} => @frame:https://x.kr/m?word={title} => href="(v[^"]+)"', False),
+        ('@anchor:@frame:https://x.kr/l?word={title} => href="(v[^"]+)"', False),               # 프레임이 바깥입니다
     ]
     for rule, want_ok in grammar:
         problem = od.pattern_problem(rule)

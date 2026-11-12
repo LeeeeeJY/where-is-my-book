@@ -509,4 +509,43 @@ class OpacTemplatesTest {
         assertThrows(IllegalStateException.class, () -> OpacTemplates.of(tmpl, List.of("lib.example.kr,@json:GET https://x.kr/a?q={isbn13} => list => /d/none"), true), "상세 자리표 없음");
         assertThrows(IllegalStateException.class, () -> OpacTemplates.of(tmpl, List.of("lib.example.kr,@json:POST https://x.kr/a => list => /d/{id}"), true), "POST 본문 없음");
     }
+
+    // ── 결과를 프레임으로 보여 주는 OPAC (@frame:) ─────────────────────────
+
+    private static final List<String> FRAMED_TITLE_RULE = List.of(
+            "143013,TITLE_SEARCH,UTF-8,https://www.cbelib.go.kr/srch/smart2.do?cmd=SEARCH&menuId=MNU_0000000000000024&searchKeyword={title}");
+    private static final String FRAME =
+            "https://www.cbelib.go.kr:7443/dls_le/index.php?mod=wdDataSearch&act=searchIList&word={title}&manageCode=MA";
+
+    @Test
+    @DisplayName("프레임을 받아 닻으로 고르는 규칙이 있으면 제목 검색 도서관도 상세를 찾아 본다")
+    void framedAnchorRuleMakesATitleSearchADetailLookup() {
+        var templates = OpacTemplates.of(FRAMED_TITLE_RULE,
+                List.of("www.cbelib.go.kr,@frame:" + FRAME + " => @anchor:href=\"(index\\.php\\?act=dataView[^\"]*)\""), true);
+
+        assertEquals(OpacLink.Kind.DETAIL_LOOKUP, templates.kindFor("143013"));
+        var pattern = templates.titleDetailPatternFor("143013").orElseThrow();
+        assertInstanceOf(DetailRule.Frame.class, pattern.rule());
+        // 화면이 여는 검색 링크는 그대로 검색 화면입니다. 프레임 주소는 서버만 받습니다.
+        assertTrue(templates.bestFor("143013", "9788937462665", "이방인").orElseThrow().url()
+                .startsWith("https://www.cbelib.go.kr/srch/smart2.do?"));
+    }
+
+    @Test
+    @DisplayName("프레임 안쪽이 닻 규칙이 아니면 제목 검색에서는 쓰지 않는다")
+    void framedRuleWithoutAnAnchorIsNotUsedForTitleSearch() {
+        // 제목 검색 결과의 첫 줄은 그 책이 아닙니다. 프레임을 받는다고 그 사정이 달라지지 않습니다.
+        var templates = OpacTemplates.of(FRAMED_TITLE_RULE,
+                List.of("www.cbelib.go.kr,@frame:" + FRAME + " => href=\"(index\\.php\\?act=dataView[^\"]*)\""), true);
+
+        assertEquals(OpacLink.Kind.TITLE_SEARCH, templates.kindFor("143013"));
+        assertTrue(templates.titleDetailPatternFor("143013").isEmpty());
+    }
+
+    @Test
+    @DisplayName("틀린 @frame: 줄이 있으면 서버가 뜨지 않는다")
+    void malformedFrameRuleStopsTheServer() {
+        assertThrows(IllegalStateException.class, () -> OpacTemplates.of(FRAMED_TITLE_RULE,
+                List.of("www.cbelib.go.kr,@frame:https://www.cbelib.go.kr:7443/dls_le/index.php?word=fixed => @anchor:href=\"(x[^\"]*)\""), true));
+    }
 }

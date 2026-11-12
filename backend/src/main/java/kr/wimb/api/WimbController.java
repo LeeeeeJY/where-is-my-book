@@ -386,7 +386,7 @@ public class WimbController {
         // 제목 검색에 넣을 표제는 권차를 뗀 것입니다(SearchTitle). 화면의 표제를 그대로 넣으면 0건인 OPAC 이 있습니다.
         String core = kr.wimb.opac.SearchTitle.withoutVolume(title);
         String url = opacTemplates.bestFor(libCode, first, title)
-                .map(link -> detailOrSame(libCode, link, isbns, first, core))
+                .map(link -> detailOrSame(libCode, link, isbns, first, title, core))
                 .or(() -> Homepage.usable(library.homepage()))
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND,
@@ -408,7 +408,7 @@ public class WimbController {
      * <b>페이지를 아예 못 받았으면 다시 두드리지 않습니다.</b>
      */
     private String detailOrSame(String libCode, OpacLink link, List<String> isbns, String firstIsbn,
-                                String coreTitle) {
+                                String title, String coreTitle) {
         if (link.kind() == OpacLink.Kind.TITLE_SEARCH) {
             String broad = opacTemplates.bestFor(libCode, firstIsbn, coreTitle)
                     .filter(l -> l.kind() == OpacLink.Kind.TITLE_SEARCH)
@@ -418,11 +418,13 @@ public class WimbController {
             var anchored = opacTemplates.titleDetailPatternFor(libCode);
             if (anchored.isEmpty() || isbns.isEmpty()) return broad;
             List<String> anchors = isbns.subList(0, Math.min(MAX_DETAIL_ATTEMPTS, isbns.size()));
-            var context = new DetailResolver.Context(anchors.get(0), libCode, anchors);
+            // 검색 주소를 만든 표제를 함께 넘깁니다. 결과를 프레임으로 보여 주는 OPAC(@frame:)은 서버가
+            // 검색 화면이 아니라 프레임을 받는데, 그 프레임 주소에 같은 표제가 들어가야 합니다.
+            var context = new DetailResolver.Context(anchors.get(0), libCode, anchors).withTitle(title);
             var outcome = detailResolver.resolve(link.url(), anchored.get().rule(), context);
             if (outcome.status() == DetailResolver.Status.RESOLVED) return outcome.detailUrl();
             if (outcome.status() == DetailResolver.Status.NO_MATCH && !broad.equals(link.url())) {
-                var again = detailResolver.resolve(broad, anchored.get().rule(), context);
+                var again = detailResolver.resolve(broad, anchored.get().rule(), context.withTitle(coreTitle));
                 if (again.status() == DetailResolver.Status.RESOLVED) return again.detailUrl();
             }
             return broad;

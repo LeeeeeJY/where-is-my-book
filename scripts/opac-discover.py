@@ -440,7 +440,40 @@ TEMPLATE_PREFIX = "@template:"
 JSON_PREFIX = "@json:"
 ANCHOR_PREFIX = "@anchor:"
 ANCHOR_AFTER_PREFIX = "@anchor-after:"
+FRAME_PREFIX = "@frame:"
 TEMPLATE_SEPARATOR = "=>"
+
+# 서버의 DetailRule.FRAME_SHAPE 와 같은 모양입니다. 주소에는 공백이 없으므로 첫 「=>」가 경계입니다.
+FRAME_SHAPE = re.compile(r"^(?:(\S+)\s+)?(https?://\S+)\s+=>\s*(.+)$", re.S)
+FRAME_PLACEHOLDERS = {"title", "isbn13", "libCode"}
+
+
+def split_frame(rule: str) -> tuple[str, str, str] | None:
+    """`@frame:[인코딩 ]프레임주소틀 => 안쪽 규칙` → (인코딩, 주소틀, 안쪽 규칙). 프레임 규칙이 아니면 None.
+
+    결과를 **다른 주소의 프레임**으로 보여 주는 OPAC 을 위한 규칙입니다(충북교육청 계열). 서버는 검색
+    화면 대신 그 프레임을 받아 안쪽 규칙을 적용합니다. 인코딩을 적지 않으면 UTF-8 입니다.
+    모양이 틀리면 ValueError 입니다.
+    """
+    if not rule.lower().startswith(FRAME_PREFIX):
+        return None
+    m = FRAME_SHAPE.match(rule[len(FRAME_PREFIX):].strip())
+    if not m:
+        raise ValueError("@frame: 은 「[인코딩 ]http(s)://프레임주소틀 => 안쪽 규칙」이어야 합니다")
+    return (m.group(1) or "UTF-8"), m.group(2), m.group(3).strip()
+
+
+def fill_frame(template: str, encoding: str, title: str = "", isbn13: str = "", lib_code: str = "") -> str:
+    """프레임 주소틀을 채웁니다. **서버의 `DetailResolver.fillFrame` 과 같은 글자를 냅니다.**
+
+    표제는 규칙이 적은 글자 집합으로 퍼센트 부호를 쓰고 공백은 `%20` 입니다. 한쪽을 고치면 다른 쪽도
+    고치세요. 확인한 주소와 서버가 내보내는 주소가 달라집니다.
+    """
+    raw = title.strip().encode(encoding)
+    # 자바의 URLEncoder 가 그대로 두는 글자는 영문·숫자와 「.-*_」 입니다. 파이썬은 「~」도 그대로
+    # 두므로 그것만 따로 바꿉니다.
+    return (template.replace("{title}", urllib.parse.quote(raw, safe="*").replace("~", "%7E"))
+            .replace("{isbn13}", isbn13).replace("{libCode}", lib_code))
 
 
 def pattern_problem(regex: str) -> str | None:
@@ -454,12 +487,30 @@ def pattern_problem(regex: str) -> str | None:
     """
     if not regex:
         return "정규식이 비어 있습니다"
+    if regex.lower().startswith(FRAME_PREFIX):
+        # @frame:[인코딩 ]프레임주소틀 => 안쪽 규칙 (서버의 DetailRule.Frame 과 같은 조건)
+        try:
+            encoding, template, inner = split_frame(regex)
+        except ValueError as e:
+            return str(e)
+        try:
+            "".encode(encoding)
+        except LookupError:
+            return f"@frame: 의 인코딩을 모릅니다 ({encoding})"
+        if "{title}" not in template and "{isbn13}" not in template:
+            return "@frame: 의 주소틀에 {title} 이나 {isbn13} 자리표가 있어야 합니다"
+        unknown = set(re.findall(r"\{([A-Za-z_]\w*)}", template)) - FRAME_PLACEHOLDERS
+        if unknown:
+            return f"@frame: 의 주소틀이 모르는 자리표를 씁니다 ({', '.join(sorted(unknown))})"
+        if inner.lower().startswith((JSON_PREFIX, FRAME_PREFIX)):
+            return "@frame: 의 안쪽에는 정규식·@onclick:·@template:·@anchor: 규칙이 와야 합니다"
+        return pattern_problem(inner)
     for prefix in (ANCHOR_AFTER_PREFIX, ANCHOR_PREFIX):
         # @anchor:규칙 — 결과 목록에서 그 ISBN 이 적힌 항목의 링크를 고릅니다(서버의 DetailRule.Anchored).
         # 제목 검색 규칙은 이것이 붙어야 상세로 갑니다. 안쪽은 정규식·@onclick:·@template: 입니다.
         if regex.lower().startswith(prefix):
             inner = regex[len(prefix):].strip()
-            if inner.lower().startswith((JSON_PREFIX, ANCHOR_PREFIX, ANCHOR_AFTER_PREFIX)):
+            if inner.lower().startswith((JSON_PREFIX, ANCHOR_PREFIX, ANCHOR_AFTER_PREFIX, FRAME_PREFIX)):
                 return f"{prefix} 뒤에는 정규식·@onclick:·@template: 규칙이 와야 합니다"
             return pattern_problem(inner)
     if regex.lower().startswith(ONCLICK_PREFIX):
@@ -1236,6 +1287,12 @@ def import_patterns(path: str, libs: list[dict], csv_path: str = DEFAULT_PATTERN
         problem = pattern_problem(regex)
         if problem:
             problems.append(f"{where}: {problem} — {regex}")
+            continue
+        # 프레임은 그 기관의 것이어야 합니다. 서버가 받는 주소를 남의 도메인으로 돌리는 줄을 막습니다.
+        framed = split_frame(regex)
+        if framed and registrable_domain(urllib.parse.urlparse(framed[1]).hostname or "") != \
+                registrable_domain(host_key.partition("?")[0].split("/")[0]):
+            problems.append(f"{where}: 프레임 주소가 열쇠({host_key})와 다른 기관입니다 — {framed[1][:60]}")
             continue
         before = emitted.get(host_key) or already.get(host_key)
         if before is not None:

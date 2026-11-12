@@ -33,6 +33,23 @@ ISBN 이 적힌 항목의 링크」를 고를 수 있습니다(`kr.wimb.opac.Isb
 목록(`@anchor:`)과 뒤에 오는 목록(`@anchor-after:`)이 있고, 글자만 보고는 알 수 없습니다. 거꾸로 적으면
 윗줄이나 아랫줄 책의 상세가 열리는데 거기에는 그 ISBN 이 없으므로 1번에서 떨어집니다.
 
+## 결과가 프레임에 있는 OPAC (`@frame:`)
+
+검색 화면의 HTML 에 결과가 없고 **다른 주소의 프레임**에 있는 OPAC 이 있습니다(충북교육청 계열 14곳:
+검색 화면은 `/srch/smart2.do?…`, 결과는 같은 호스트의 `:7443/dls_le/index.php?…&word=…`). 서버는
+`@frame:[인코딩 ]프레임주소틀 => @anchor:…` 규칙으로 그 프레임을 직접 받습니다. 이 도구는 검색 화면에
+ISBN 이 없으면 **그 화면의 `<iframe src>` 가운데 검색어가 들어 있는 것**을 프레임 주소로 삼아 같은
+확인을 프레임에 대고 합니다. 프레임 주소를 스크립트가 만들어 HTML 에 없으면 사람이 브라우저의 개발자
+도구에서 읽어 `--frame` 으로 알려 줍니다.
+
+    ./scripts/opac-title-probe.py --only www.cbelib.go.kr
+    ./scripts/opac-title-probe.py --only www.cbelib.go.kr \
+        --frame 'www.cbelib.go.kr=https://www.cbelib.go.kr:7443/dls_le/index.php?mod=wdDataSearch&act=searchIList&word={title}&searchType=&manageCode=MA&siteId=SITE_000000000000003'
+
+프레임은 **검색 화면과 다른 출처**(포트가 다릅니다)라 robots.txt 를 따로 받아 지킵니다. 프레임 주소에
+기관마다 다른 값(`manageCode`, `siteId`)이 들어가므로 규칙은 호스트마다 한 줄이고, 한 호스트의
+도서관들이 서로 다른 프레임 주소를 쓰면 규칙을 내지 않습니다.
+
 서버와 같은 UA 로, 자바스크립트 없이 받습니다. robots.txt 가 검색 경로를 막는 호스트는 조사하지
 않습니다(서버도 받지 않으므로 규칙을 두어도 늘 검색 결과로 내려갑니다). 정보나루는 부르지 않습니다
 (`probe.json` 의 소장 책을 씁니다). 한 호스트에 한꺼번에 하나씩, 요청 사이 3초입니다.
@@ -45,6 +62,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.parse
 from collections import defaultdict
 
@@ -109,6 +127,40 @@ def calls(page: str, fn: str) -> list[tuple[int, int, list[str]]]:
     return out
 
 
+IFRAME_SRC = re.compile(r"""<i?frame\b[^>]*?\bsrc\s*=\s*["']([^"']+)["']""", re.I)
+
+
+def frame_template(page: str, base: str, title: str) -> tuple[str, str] | None:
+    """검색 화면의 `<iframe src>` 가운데 **그 검색어가 들어 있는 것**을 (인코딩, 주소틀)로.
+
+    검색어를 UTF-8 과 EUC-KR 로, 공백을 `%20` 과 `+` 로 적은 네 가지를 찾습니다. 찾은 자리를 `{title}`
+    로 바꾼 것이 주소틀입니다. 검색어가 든 프레임이 없으면 None 입니다(스크립트가 주소를 만드는
+    화면이거나, 결과가 프레임에 있는 화면이 아닙니다). **주소를 짐작해 만들지 않습니다.** 그 화면이
+    스스로 적어 둔 주소만 씁니다.
+    """
+    for m in IFRAME_SRC.finditer(page):
+        src = urllib.parse.urljoin(base, od.attr_unescape(m.group(1)).strip())
+        if not src.startswith(("http://", "https://")):
+            continue
+        for encoding in ("UTF-8", "EUC-KR"):
+            try:
+                raw = title.strip().encode(encoding)
+            except UnicodeEncodeError:
+                continue
+            quoted = urllib.parse.quote(raw, safe="*").replace("~", "%7E")
+            for needle in (quoted, quoted.replace("%20", "+")):
+                at = src.lower().find(needle.lower())
+                if needle and at >= 0:
+                    return encoding, src[:at] + "{title}" + src[at + len(needle):]
+    return None
+
+
+def frame_rule(encoding: str, template: str, inner: str) -> str:
+    """서버의 `DetailRule.Frame.describe` 와 같은 한 줄."""
+    prefix = "" if encoding.upper().replace("_", "-") == "UTF-8" else encoding + " "
+    return f"{od.FRAME_PREFIX}{prefix}{template} {od.TEMPLATE_SEPARATOR} {inner}"
+
+
 def split_rule(rule: str) -> tuple[str, bool] | None:
     """`@anchor:규칙` → (안쪽 규칙, 링크가 앞인가). 닻 규칙이 아니면 None."""
     low = rule.lower()
@@ -160,12 +212,18 @@ def resolve(page: str, base: str, rule: str, isbn: str, timeout: float, scripts:
 
 
 def nearest_href(page: str, isbn: str, link_first: bool) -> str | None:
-    """그 ISBN 의 항목에 있는 **주소다운 href**. 정규식 후보를 만들 재료입니다."""
+    """그 ISBN 의 항목에 있는 **주소다운 href**. 정규식 후보를 만들 재료입니다.
+
+    **HTML 에 적힌 글자 그대로 돌려줍니다**(`&amp;` 를 `&` 로 되돌리지 않습니다). 이것으로 만든
+    정규식은 서버가 받는 HTML 원문에 대고 돌기 때문입니다. 되돌린 글자로 만들면 앞머리에 `&` 가 든
+    링크(`index.php?mod=…&amp;act=…`)에서 정규식이 원문과 한 번도 맞지 않습니다. 잡힌 값의 엔티티는
+    서버(`DetailResolver.unescape`)와 `resolve` 가 되돌립니다.
+    """
     spans = []
     for m in re.finditer(r"""<a\b[^>]*?\bhref\s*=\s*["']([^"']+)["']""", page):
         href = od.attr_unescape(m.group(1)).strip()
         if href and not href.startswith(("#", "javascript:", "mailto:")):
-            spans.append((m.start(), m.end(), href))
+            spans.append((m.start(), m.end(), m.group(1).strip()))
     href, _ = pick(page, spans, isbn, link_first)
     return href
 
@@ -185,10 +243,26 @@ def candidates(pages: dict[str, str], link_first: bool) -> list[str]:
     return out
 
 
+_ROBOTS: dict[str, list[str]] = {}
+
+
+def disallows_for(url: str, pacer) -> list[str]:
+    """그 주소의 출처(포트까지)의 robots.txt. 출처마다 한 번만 받습니다."""
+    parsed = urllib.parse.urlparse(url)
+    origin = f"{parsed.scheme}://{parsed.netloc}"
+    if origin not in _ROBOTS:
+        _ROBOTS[origin] = od.robots_disallows(origin, pacer)
+    return _ROBOTS[origin]
+
+
 def check_detail(url: str, isbn: str, listed: set[str], search_url: str, pacer, timeout: float) -> tuple[bool, str]:
     """도착한 상세에 그 ISBN 이 있고, 결과 목록의 다른 책 ISBN 들이 함께 있지 않은지."""
     if url == search_url:
         return False, "검색 결과 자기 주소입니다"
+    # 상세 화면은 서버가 받지 않고(302 로 보낼 뿐입니다) 이 도구만 확인하려고 받습니다. 그래도 기계가
+    # 받는 것이므로 그 출처의 robots.txt 를 지킵니다. 막혀 있으면 확인할 수 없는 규칙입니다.
+    if od.blocked(url, disallows_for(url, pacer)):
+        return False, "robots.txt 가 상세 경로를 막습니다 (기계로 확인할 수 없습니다)"
     status, page, _ = od.fetch(url, pacer, timeout=timeout)
     if status != 200:
         return False, f"상세를 받지 못했습니다 ({'HTTP ' + str(status) if status else page[:60]})"
@@ -258,8 +332,12 @@ def ascii_url(url: str) -> str:
     return urllib.parse.quote(url, safe="%/:?&=#;,+@!$'()*~[]-._")
 
 
-def probe_host(host: str, members: list[tuple[dict, str, str]], probe: dict, pacer, timeout: float) -> tuple[str | None, str]:
+def probe_host(host: str, members: list[tuple[dict, str, str]], probe: dict, pacer, timeout: float,
+               frame: tuple[str, str] | None = None) -> tuple[str | None, str]:
     """(통과한 닻 규칙 또는 None, 사유).
+
+    `frame` 은 사람이 알려 준 (인코딩, 프레임주소틀)입니다. 없으면 검색 화면에 ISBN 이 없을 때 그
+    화면의 `<iframe src>` 에서 찾습니다. 프레임으로 본 호스트의 규칙은 `@frame:… => @anchor:…` 로 냅니다.
 
     **두 책을 될 수 있으면 서로 다른 도서관의 검색 주소로 봅니다.** 한 호스트에 분관마다 검색 주소가
     따로 있는 시스템이 많은데(강남·세종·용인), 규칙은 호스트에 한 줄입니다. 한 분관의 화면 둘에서
@@ -288,6 +366,7 @@ def probe_host(host: str, members: list[tuple[dict, str, str]], probe: dict, pac
 
     views: list[tuple[dict, str, str, str, str]] = []      # (도서관, ISBN, 검색 주소, 최종 주소, 본문)
     fetches = 0
+    framed: tuple[str, str] | None = frame                 # (인코딩, 프레임주소틀). 정해지면 프레임을 받습니다
     for lib, template, encoding, isbn in plan:
         if len(views) == 2 or fetches >= 6:
             break
@@ -296,17 +375,52 @@ def probe_host(host: str, members: list[tuple[dict, str, str]], probe: dict, pac
         if views and views[0][1] == isbn and any(p[3] != isbn for p in plan):
             continue                                        # 다른 책이 있으면 같은 책을 또 보지 않습니다
         url = fill(template, od.PROBE_BOOKS[isbn], encoding)
-        if od.blocked(url, disallows):
-            return None, "robots.txt 가 검색 결과 경로를 막습니다 (서버가 받을 수 없어 조사하지 않습니다)"
-        status, body, final = od.fetch(url, pacer, timeout=timeout)
+        title = od.PROBE_BOOKS[isbn]
+        if framed is None:
+            # 프레임 주소를 아직 모르면 검색 화면부터 받습니다. 거기에 결과가 있으면 프레임이 아닌 보통
+            # 화면이고, 없으면 그 화면이 적어 둔 프레임 주소를 읽습니다. 프레임 주소를 알게 된 뒤로는
+            # 검색 화면을 받지 않습니다. 서버도 받지 않습니다.
+            if od.blocked(url, disallows):
+                return None, "robots.txt 가 검색 결과 경로를 막습니다 (서버가 받을 수 없어 조사하지 않습니다)"
+            status, body, final = od.fetch(url, pacer, timeout=timeout)
+            fetches += 1
+            if status != 200:
+                return None, f"검색 결과를 서버 방식으로 받지 못했습니다 ({'HTTP ' + str(status) if status else body[:60]})"
+            if isbn in {m.group(0) for m in ISBN_TOKEN.finditer(body)}:
+                views.append((lib, isbn, url, final or url, body))
+                continue
+            found = frame_template(body, final or url, title)
+            if found is None:
+                continue                                    # 프레임도 없습니다. 아래에서 사유를 말합니다
+            framed = found
+        encoding_f, template_f = framed
+        frame_url = od.fill_frame(template_f, encoding_f, title=title, isbn13=isbn, lib_code=lib["libCode"])
+        fp = urllib.parse.urlparse(frame_url)
+        if od.registrable_domain(fp.hostname or "") != od.registrable_domain(host):
+            return None, f"프레임이 다른 기관의 주소입니다 ({fp.hostname})"
+        # 포트가 다르면 다른 출처입니다. 검색 화면의 robots.txt 로 갈음하지 않습니다.
+        if od.blocked(frame_url, disallows_for(frame_url, pacer)):
+            return None, "robots.txt 가 프레임의 경로를 막습니다 (서버가 받을 수 없어 조사하지 않습니다)"
+        # 포트만 다른 같은 기계일 수 있습니다. 검색 화면을 받은 직후에 잇달아 두드리지 않습니다.
+        time.sleep(pacer.delay)
+        status, body, final = od.fetch(frame_url, pacer, timeout=timeout)
         fetches += 1
         if status != 200:
-            return None, f"검색 결과를 서버 방식으로 받지 못했습니다 ({'HTTP ' + str(status) if status else body[:60]})"
+            return None, f"프레임을 서버 방식으로 받지 못했습니다 ({'HTTP ' + str(status) if status else body[:60]})"
         if isbn in {m.group(0) for m in ISBN_TOKEN.finditer(body)}:
-            views.append((lib, isbn, url, final or url, body))
+            views.append((lib, isbn, frame_url, final or frame_url, body))
     if len(views) < 2:
-        return None, ("결과 목록에 ISBN 이 적혀 있지 않습니다 (닻으로 삼을 것이 없습니다)" if not views
-                      else "두 번째 책의 ISBN 이 결과 목록에 없습니다 (그 OPAC 에 없는 판)")
+        where = "프레임의 결과 목록" if framed else "결과 목록"
+        return None, (f"{where}에 ISBN 이 적혀 있지 않습니다 (닻으로 삼을 것이 없습니다. 결과가 프레임에 있는데 "
+                      f"그 주소가 HTML 에 없으면 --frame 으로 알려 주세요)" if not views
+                      else f"두 번째 책의 ISBN 이 {where}에 없습니다 (그 OPAC 에 없는 판)")
+    if framed and any(v[2].split("?")[0] != views[0][2].split("?")[0] for v in views):
+        return None, "프레임과 검색 화면이 섞였습니다 (같은 호스트에 두 가지 화면이 있습니다)"
+    if framed and len({t for _, t, _ in members}) > 1:
+        # 프레임 주소에는 기관마다 다른 값(manageCode, siteId)이 글자 그대로 들어갑니다. 한 호스트의
+        # 도서관들이 검색 주소를 따로 가지면 프레임 주소도 따로일 것이고, 한 줄로는 남의 분관을 받습니다.
+        return None, ("이 호스트의 도서관들이 검색 주소를 따로 씁니다. 프레임 규칙은 호스트에 한 줄이라 "
+                      "낼 수 없습니다 (도서관마다 프레임 주소가 같은지 사람이 봐야 합니다)")
 
     scripts: dict[str, str] = {}
     reasons: list[str] = []
@@ -328,6 +442,9 @@ def probe_host(host: str, members: list[tuple[dict, str, str]], probe: dict, pac
                     break
             if ok:
                 names = " · ".join(dict.fromkeys(v[0]["name"] for v in views))
+                if framed:
+                    return (frame_rule(framed[0], framed[1], rule),
+                            f"{names} 에서 두 책 모두 프레임의 그 ISBN 줄에서 상세로 갔습니다")
                 return rule, f"{names} 에서 두 책 모두 그 ISBN 의 상세로 갔습니다"
     return None, " / ".join(reasons[:4]) or "후보가 없습니다 (그 항목에 상세로 보이는 링크가 없습니다)"
 
@@ -340,7 +457,24 @@ def main() -> int:
     ap.add_argument("--patterns-csv", default=od.DEFAULT_PATTERNS_CSV)
     ap.add_argument("--timeout", type=float, default=30.0)
     ap.add_argument("--host-delay", type=float, default=3.0)
+    ap.add_argument("--frame", action="append", default=[], metavar="HOST=[인코딩 ]프레임주소틀",
+                    help="결과가 프레임에 있는데 그 주소가 검색 화면의 HTML 에 없을 때, 브라우저에서 읽은 "
+                         "프레임 주소를 {title} 자리표와 함께 알려 줍니다. 여러 번 줄 수 있습니다")
     args = ap.parse_args()
+
+    frames: dict[str, tuple[str, str]] = {}
+    for item in args.frame:
+        frame_host, _, spec = item.partition("=")
+        try:
+            parsed = od.split_frame(od.FRAME_PREFIX + spec.strip() + " => x")
+        except ValueError as e:
+            print(f"--frame {item!r}: {e}", file=sys.stderr)
+            return 1
+        problem = od.pattern_problem(f'{od.FRAME_PREFIX}{spec.strip()} => @anchor:href="(x[^"]+)"')
+        if parsed is None or problem:
+            print(f"--frame {item!r}: {problem or '프레임 주소틀이 아닙니다'}", file=sys.stderr)
+            return 1
+        frames[frame_host.strip().lower()] = (parsed[0], parsed[1])
 
     libs = od.load_libraries(args.work)
     probe_path = os.path.join(args.work, "probe.json")
@@ -357,7 +491,7 @@ def main() -> int:
     found = 0
     for host, members in sorted(hosts.items(), key=lambda kv: -len(kv[1])):
         try:
-            rule, why = probe_host(host, members, probe, pacer, args.timeout)
+            rule, why = probe_host(host, members, probe, pacer, args.timeout, frames.get(host))
         except Exception as e:                         # 한 곳의 이상한 응답으로 전체가 죽지 않게
             rule, why = None, f"{type(e).__name__}: {e}"
         print(f"# {host} ({len(members)}곳): {rule or '—'}  {why}", file=sys.stderr, flush=True)
@@ -368,6 +502,18 @@ def main() -> int:
         # 검색 결과에는 같은 ISBN 의 줄이 분관마다 따로 있어서, 분관으로 좁힌 검색에만 규칙이 걸려야
         # 합니다. 파주·부평은 분관 사이트마다 주소가 다르면서 일부(또는 전부)가 searchLibrary=ALL 이라,
         # 호스트 열쇠 하나로 덮으면 남의 분관 소장본으로 갑니다.
+        framed = od.split_frame(rule)
+        if framed:
+            # **프레임 규칙은 좁히는 값이 프레임 주소에 글자 그대로 들어 있습니다**(manageCode=MA). 열쇠의
+            # ?칸이름 은 검색 주소의 칸을 보는 조건인데, 그 값은 검색 주소가 아니라 프레임 주소에 있으므로
+            # 붙이지 않습니다. 대신 프레임 주소가 한 도서관으로 좁혀 주는지를 사람이 봐야 합니다.
+            in_frame = branch_param([framed[1]])
+            print(f"#   ⚠ {host}: 프레임 규칙입니다. 프레임의 목록에 **그 도서관의 줄만** 나오는지 결과의 소장처를 "
+                  f"보세요" + (f" (프레임 주소의 {in_frame} 가 좁히는 값으로 보입니다)." if in_frame else
+                             ". 프레임 주소에 분관을 좁히는 칸이 보이지 않습니다. 여러 도서관의 줄이 섞여 "
+                             "나오면 이 줄을 넣지 마세요."), file=sys.stderr, flush=True)
+            print(f"{od.group_key(members[0][0]['homepageUrl'])} | DETAIL_PATTERN | {host} | {rule}", flush=True)
+            continue
         narrowed = branch_param([t for _, t, _ in members])
         suffix = "?" + narrowed if narrowed else ""
         if not narrowed:

@@ -172,7 +172,8 @@ public final class OpacTemplates {
         Template title = templates == null ? null : templates.get(OpacLink.Kind.TITLE_SEARCH);
         if (title == null || !allowed(title)) return Optional.empty();
         if (titleTemplateUsers.getOrDefault(title.urlTemplate(), 0) != 1) return Optional.empty();
-        return detailPatternFor(title.urlTemplate()).filter(pattern -> pattern.rule() instanceof DetailRule.Anchored);
+        // 닻 규칙 자신이거나, 프레임을 받아 그 안에서 닻으로 고르는 규칙(@frame: … => @anchor:…)입니다.
+        return detailPatternFor(title.urlTemplate()).filter(pattern -> pattern.rule().anchored());
     }
 
     /** 자원에서 읽어 들입니다. 파일이 없으면 규칙이 하나도 없는 것으로 보고 넘어갑니다. */
