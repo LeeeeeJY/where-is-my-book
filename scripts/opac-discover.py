@@ -86,18 +86,82 @@ LEGACY_TLS_HOSTS = frozenset({"library.daegu.go.kr", "lib.anyang.go.kr"})
 _LEGACY_TLS_CONTEXT = None
 
 
+# 중간 인증서를 보내지 않는 호스트와, 그 호스트에 보태는 중간 인증서 묶음입니다. **서버가 읽는 바로 그
+# 파일입니다**(kr.wimb.opac.IntermediateCerts). 목록이 한 군데뿐이라 서버와 도구가 갈릴 수 없습니다.
+# 묶음은 scripts/opac-chain-certs.py 가 씁니다.
+_OPAC_RESOURCES = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir,
+                               "backend", "src", "main", "resources", "opac")
+CHAIN_HOSTS_FILE = os.path.join(_OPAC_RESOURCES, "chain-hosts.txt")
+CHAIN_CERTS_FILE = os.path.join(_OPAC_RESOURCES, "chain-certs.pem")
+_CHAIN_HOSTS = None
+_CHAIN_CONTEXT = None
+
+
+def read_chain_hosts(path: str = None) -> frozenset:
+    """chain-hosts.txt 의 호스트. `#` 뒤는 주석입니다. 서버의 parseHosts 와 같은 읽기입니다."""
+    hosts = set()
+    try:
+        with open(path or CHAIN_HOSTS_FILE, encoding="utf-8") as f:
+            for raw in f:
+                line = raw.split("#", 1)[0].strip()
+                if line:
+                    hosts.add(line)
+    except FileNotFoundError:
+        pass
+    return frozenset(hosts)
+
+
+def chain_hosts() -> frozenset:
+    global _CHAIN_HOSTS
+    if _CHAIN_HOSTS is None:
+        _CHAIN_HOSTS = read_chain_hosts()
+    return _CHAIN_HOSTS
+
+
+def chain_context(pem: str, roots: str = None):
+    """기본 루트에 `pem` 의 중간 인증서를 **재료로만** 보탠 설정.
+
+    파이썬 3.13 부터 기본 설정은 「신뢰 저장소에 든 것이면 중간 인증서에서 사슬을 끝내도 된다」
+    (VERIFY_X509_PARTIAL_CHAIN)입니다. 그대로 두면 보탠 인증서가 곧 신뢰의 뿌리가 되어, 서버가
+    하는 검사(루트까지 이어져야 한다)보다 느슨해집니다. 도구가 통과시킨 것을 서버가 거절하게
+    되므로 그 표시를 끕니다. `roots` 는 테스트가 기본 루트 대신 끼우는 파일입니다.
+    """
+    ctx = ssl.create_default_context(cafile=roots) if roots else ssl.create_default_context()
+    partial = getattr(ssl, "VERIFY_X509_PARTIAL_CHAIN", 0)
+    if partial:
+        ctx.verify_flags &= ~partial
+    # 묶음 파일에는 한글 주석이 섞여 있고, cadata 는 ASCII 만 받습니다. 인증서 블록만 골라 넘깁니다.
+    blocks = re.findall(r"-----BEGIN CERTIFICATE-----[A-Za-z0-9+/=\s]*?-----END CERTIFICATE-----", pem)
+    if blocks:
+        ctx.load_verify_locations(cadata="\n".join(blocks) + "\n")
+    return ctx
+
+
 def tls_context(url: str):
-    """그 호스트로 가는 요청에만 RSA 키 교환을 더한 설정을 돌려줍니다. 나머지는 기본값(None)입니다."""
-    global _LEGACY_TLS_CONTEXT
+    """호스트에 따라 TLS 설정을 고릅니다. 나머지는 기본값(None)입니다.
+
+    RSA 키 교환만 내놓는 호스트에는 그 계열을 더한 설정을, 중간 인증서를 보내지 않는 호스트에는
+    묶음의 중간 인증서를 보탠 설정을 돌려줍니다. 서버가 호스트로 클라이언트를 고르는 것과 같습니다.
+    """
+    global _LEGACY_TLS_CONTEXT, _CHAIN_CONTEXT
     host = (urllib.parse.urlparse(url).hostname or "").lower()
-    if host not in LEGACY_TLS_HOSTS:
-        return None
-    if _LEGACY_TLS_CONTEXT is None:
-        ctx = ssl.create_default_context()
-        ctx.set_ciphers("ECDH+AESGCM:ECDH+CHACHA20:ECDH+AES:DHE+AES:kRSA+AESGCM:kRSA+AES:"
-                        "!aNULL:!eNULL:!aDSS:!AESCCM")
-        _LEGACY_TLS_CONTEXT = ctx
-    return _LEGACY_TLS_CONTEXT
+    if host in LEGACY_TLS_HOSTS:
+        if _LEGACY_TLS_CONTEXT is None:
+            ctx = ssl.create_default_context()
+            ctx.set_ciphers("ECDH+AESGCM:ECDH+CHACHA20:ECDH+AES:DHE+AES:kRSA+AESGCM:kRSA+AES:"
+                            "!aNULL:!eNULL:!aDSS:!AESCCM")
+            _LEGACY_TLS_CONTEXT = ctx
+        return _LEGACY_TLS_CONTEXT
+    if host in chain_hosts():
+        if _CHAIN_CONTEXT is None:
+            try:
+                with open(CHAIN_CERTS_FILE, encoding="utf-8") as f:
+                    pem = f.read()
+            except FileNotFoundError:
+                pem = ""
+            _CHAIN_CONTEXT = chain_context(pem)
+        return _CHAIN_CONTEXT
+    return None
 API = os.environ.get("WIMB_API", "https://where-is-my-book.duckdns.org")
 
 # 검증에 쓰는 책. 널리 소장된 것으로 골랐고, 제목이 흔한 낱말이 아니어야 합니다.
