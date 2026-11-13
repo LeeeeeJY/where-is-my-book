@@ -224,6 +224,17 @@ def main():
     code, text = run([("localhost", noaia.port)], os.path.join(work, "noaia-bundle.pem"), roots)
     check("붙지 못한다고 답하고 이유를 말한다", (code, "발급자 인증서 주소가 없습니다" in text), (1, True))
 
+    print("잎 뒤에 엉뚱한 인증서를 붙여 보내는 서버")
+    # 남양주: 잎의 발급자가 아닌 다른 중간 인증서를 보냅니다. 괴산: 중간을 건너뛰고 루트를 보냅니다.
+    stray = TlsServer(work, "leaf.key", ["leaf.pem", "roguemid.pem"])
+    stray_bundle = os.path.join(work, "stray-bundle.pem")
+    code, text = run([("localhost", stray.port)], stray_bundle, roots)
+    check("상관없는 중간 인증서가 붙어 와도 잎의 발급자를 받아 넣는다", (code, held(stray_bundle)), (0, MID))
+    skipped = TlsServer(work, "leaf.key", ["leaf.pem", "root.pem"])
+    skipped_bundle = os.path.join(work, "skipped-bundle.pem")
+    code, text = run([("localhost", skipped.port)], skipped_bundle, roots)
+    check("중간을 건너뛰고 루트를 보내도 잎의 발급자를 받아 넣는다", (code, held(skipped_bundle)), (0, MID))
+
     print("닿지 않는 호스트")
     closed = socket.create_server(("127.0.0.1", 0))
     closed_port = closed.getsockname()[1]

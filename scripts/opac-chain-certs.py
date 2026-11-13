@@ -285,7 +285,7 @@ def examine(host: str, port: int, roots=None, timeout: float = 10.0, delay: floa
     time.sleep(delay)
     try:
         sent = sent_certs(host, port, timeout)
-        last = cert_info(sent[-1])
+        last = top_of_sent_chain(sent)
     except (OSError, ssl.SSLError, ValueError, IndexError) as e:
         return {"status": UNREACHABLE, "note": f"{type(e).__name__}: {e}", "found": []}
     found: list[bytes] = []
@@ -325,6 +325,24 @@ def _info(der: bytes):
         return cert_info(der)
     except (ValueError, IndexError):
         return None
+
+
+def top_of_sent_chain(sent: list[bytes]) -> dict:
+    """서버가 보낸 것 가운데 **잎에서부터 실제로 이어지는** 사슬의 맨 위 인증서.
+
+    보낸 차례의 마지막 장을 그대로 쓰면 안 됩니다. 사슬이 끊긴 서버는 잎 뒤에 엉뚱한 것을 붙여 보내는
+    일이 있습니다(2026-11-13 실측). 남양주는 잎의 발급자가 아닌 다른 중간 인증서를 보내고, 괴산은 중간
+    인증서를 건너뛰고 루트를 보냅니다. 마지막 장에서 시작하면 잎의 발급자 주소를 읽지도 않은 채
+    「보태도 안 붙음」으로 끝납니다. (파이썬 3.12 까지는 잎 한 장만 읽혀서 드러나지 않습니다.)
+    """
+    last = cert_info(sent[0])
+    rest = [i for i in map(_info, sent[1:]) if i and not self_signed(i)]
+    for _ in rest:
+        upper = next((i for i in rest if i["subject"] == last["issuer"]), None)
+        if upper is None:
+            break
+        last = upper
+    return last
 
 
 # ── 대상과 묶음 ──────────────────────────────────────────────────────────────
