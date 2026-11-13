@@ -233,6 +233,48 @@ class DetailResolverTest {
     }
 
     @Test
+    @DisplayName("닿는지 볼 때는 그 출처의 robots.txt 한 번만 받고, 포트를 지킨다")
+    void reachFetchesOnlyRobots() {
+        var site = new FakeSite();
+        site.page("https://lib.example.kr:8443/robots.txt", "User-agent: *\nDisallow: /\n");
+
+        var reach = resolver(site).reach("https://lib.example.kr:8443/search?q=1");
+
+        assertTrue(reach.reached());
+        assertEquals(200, reach.httpStatus());
+        assertEquals("https://lib.example.kr:8443/robots.txt", reach.fetched());
+        // 검색 화면은 받지 않습니다. robots.txt 가 무엇을 막든 그 파일 자체는 받아도 되는 주소입니다.
+        assertEquals(List.of("https://lib.example.kr:8443/robots.txt"), site.asked);
+    }
+
+    @Test
+    @DisplayName("robots.txt 가 없어도 답을 받았으면 닿은 것이다")
+    void reachCountsAnyAnswer() {
+        var reach = resolver(new FakeSite()).reach("https://lib.example.kr/search?q=1");
+
+        assertTrue(reach.reached(), "404 도 서버가 답한 것입니다");
+        assertEquals(404, reach.httpStatus());
+    }
+
+    @Test
+    @DisplayName("닿지 못하면 사유를 그대로 말하고, 빗장도 기억도 건드리지 않는다")
+    void reachReportsWhyItFailed() {
+        var site = new FakeSite();
+        site.down = true;
+        var resolver = resolver(site);
+
+        for (int i = 0; i < 5; i++) {
+            var reach = resolver.reach("https://lib.example.kr/search?q=1");
+            assertFalse(reach.reached());
+            assertEquals("IOException: connect timed out", reach.note());
+        }
+
+        assertEquals(5, site.asked.size(), "진단은 빗장에 걸리지 않고 매번 실제로 받아 봅니다");
+        assertEquals(0L, resolver.stats().get("opacDetailFailed"), "진단은 운영 숫자에 섞이지 않습니다");
+        assertFalse(resolver.reach("없는 주소").reached());
+    }
+
+    @Test
     @DisplayName("robots.txt 규칙의 별표와 달러 표기를 읽는다")
     void robotsWildcards() {
         // 앞머리 견주기 (질의까지 포함해 견줍니다)

@@ -240,6 +240,49 @@ public final class DetailResolver {
         return fetchAndRemember(searchUrl, rule, context, false);
     }
 
+    /**
+     * 그 주소의 출처에 지금 닿는지. {@code httpStatus} 는 닿았을 때 robots.txt 가 준 상태 코드이고,
+     * {@code note} 는 닿지 못했을 때의 사유(시간 초과인지 TLS 인지)입니다.
+     */
+    public record Reach(String fetched, boolean reached, int httpStatus, long millis, String note) {}
+
+    /**
+     * 그 주소의 출처에서 robots.txt 를 한 번 받아 봅니다. 진단용입니다.
+     *
+     * <p>{@link #probe} 는 상세 패턴이 있어야 받아 볼 수 있는데, 패턴을 만들기 전에 알아야 하는 것이
+     * 「운영 서버가 그 호스트에 붙기는 하는가」입니다. 해외 IP 를 막는 곳과 TLS 로 붙지 못하는 곳은
+     * 국내 회선에서 패턴을 만들어 와도 운영에서 검색 결과로 내려갑니다. 받는 것이 robots.txt 인 이유는
+     * 어느 사이트든 기계가 받아도 되는 주소이고, 해석기가 어차피 가장 먼저 받는 주소이기 때문입니다.
+     * 기억해 둔 답을 쓰지 않고 닿지 않는 호스트의 빗장도 건너뜁니다.
+     */
+    public Reach reach(String url) {
+        URI target;
+        try {
+            target = URI.create(url);
+        } catch (IllegalArgumentException e) {
+            return new Reach(url, false, 0, 0, "주소가 아닙니다");
+        }
+        if (target.getScheme() == null || target.getRawAuthority() == null) {
+            return new Reach(url, false, 0, 0, "주소가 아닙니다");
+        }
+        String robotsUrl = target.getScheme() + "://" + target.getRawAuthority() + "/robots.txt";
+        long started = System.nanoTime();
+        try {
+            Page page = fetcher.fetch(URI.create(robotsUrl));
+            return new Reach(robotsUrl, true, page.status(), elapsedMillis(started), null);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return new Reach(robotsUrl, false, 0, elapsedMillis(started), "중단되었습니다");
+        } catch (Exception e) {
+            return new Reach(robotsUrl, false, 0, elapsedMillis(started), e.getClass().getSimpleName()
+                    + (e.getMessage() == null ? "" : ": " + e.getMessage()));
+        }
+    }
+
+    private static long elapsedMillis(long startedNanos) {
+        return (System.nanoTime() - startedNanos) / 1_000_000;
+    }
+
     private Outcome fetchAndRemember(String searchUrl, DetailRule stated, Context context, boolean honourBreaker) {
         // @frame: 은 「어느 주소를 받는가」만 바꿉니다. 받은 HTML 에 적용하는 것은 안쪽 규칙입니다.
         DetailRule rule = stated instanceof DetailRule.Frame frame ? frame.inner() : stated;
@@ -892,6 +935,14 @@ public final class DetailResolver {
                 .followRedirects(HttpClient.Redirect.NORMAL)
                 .sslParameters(LegacyTls.legacyParameters())
                 .build();
+        // 중간 인증서를 보내지 않는 호스트(IntermediateCerts.hosts())로 가는 요청만 이 클라이언트로 나갑니다.
+        // 믿는 루트는 위의 둘과 같고, 묶음의 중간 인증서를 사슬을 잇는 재료로만 보탭니다.
+        HttpClient chain = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(3))
+                .followRedirects(HttpClient.Redirect.NORMAL)
+                .sslContext(IntermediateCerts.context())
+                .sslParameters(LegacyTls.strictParameters())
+                .build();
         return new Fetcher() {
             @Override public Page fetch(URI url) throws IOException, InterruptedException {
                 return fetch(url, "GET", null, null);
@@ -914,7 +965,8 @@ public final class DetailResolver {
                 } else {
                     builder.GET();
                 }
-                HttpClient http = LegacyTls.isLegacyHost(url.getHost()) ? legacy : strict;
+                HttpClient http = LegacyTls.isLegacyHost(url.getHost()) ? legacy
+                        : IntermediateCerts.isChainHost(url.getHost()) ? chain : strict;
                 HttpResponse<byte[]> response = http.send(builder.build(), HttpResponse.BodyHandlers.ofByteArray());
                 byte[] raw = response.body();
                 if (raw.length > MAX_BODY_BYTES) raw = java.util.Arrays.copyOf(raw, MAX_BODY_BYTES);

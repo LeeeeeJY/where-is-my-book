@@ -1,0 +1,40 @@
+# 중간 인증서를 보내지 않아 서버가 TLS 로 붙지 못하는 호스트.
+#
+# 한 줄에 호스트 이름 하나입니다. 소문자로, 스킴과 포트 없이 적습니다(논산 :8443, 정읍 :31824 도
+# 이름만 적습니다. 포트는 규칙 표의 주소에서 읽습니다).
+#
+# 여기 적힌 호스트로 가는 요청만 chain-certs.pem 의 중간 인증서를 보태어 사슬을 잇습니다.
+# 신뢰의 뿌리는 JDK 가 믿는 루트 그대로이고, 보탠 인증서는 사슬을 잇는 데만 쓰입니다
+# (kr.wimb.opac.IntermediateCerts). 서버와 조사 도구(scripts/opac-discover.py 의 tls_context)가
+# 이 파일 하나를 함께 읽습니다. 목록이 두 군데에 있지 않으므로 맞출 것이 없습니다.
+#
+# 호스트를 더하거나 뺀 뒤에는 국내 회선에서 scripts/opac-chain-certs.py 를 돌려 chain-certs.pem 을
+# 다시 만드세요. 그 도구가 호스트마다 「사슬이 멀쩡한지 / 보태면 붙는지 / 보태도 안 붙는지」를 말합니다.
+# 사슬이 멀쩡하다고 나온 호스트는 여기서 빼세요.
+#
+# 아래 열 곳은 2026-11-11 에 국내 회선에서 자바와 파이썬이 둘 다 인증서 검증에 실패한 곳입니다
+# (docs/가정과-검증상태.md 2-32). 괄호 안은 그 호스트에 걸린 도서관 수입니다.
+#
+# 속초(library.sokcho.go.kr)는 넣지 않았습니다. 사슬이 끊긴 데 더해 RSA 키 교환만 내놓고,
+# robots.txt 가 검색 주소를 막습니다.
+
+# 남양주 (13)
+lib.nyj.go.kr
+# 구미 (11)
+lib.gumi.go.kr
+# 울진 (9)
+lib.uljin.go.kr
+# 충주 (6)
+lib.chungju.go.kr
+# 논산 (3)
+lib.nonsan.go.kr
+# 정읍 (3)
+lib.jeongeup.go.kr
+# 예산 (2)
+www.ysplib.go.kr
+# 곡성 (2)
+www.gokseong.go.kr
+# 보은 (1)
+lib.boeun.go.kr
+# 괴산 (1)
+lib.goesan.go.kr

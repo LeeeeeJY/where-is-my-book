@@ -536,6 +536,10 @@ public class WimbController {
         // RSA 키 교환만 내놓는 호스트(대구·안양)에 붙을 수 있는 상태인지. 거짓이면 그 호스트의
         // 상세 규칙은 전부 FETCH_FAILED 로 검색 결과에 내려갑니다(WIMB_OPAC_LEGACY_TLS=false).
         out.put("opacLegacyTls", kr.wimb.opac.LegacyTls.enabled());
+        // 중간 인증서를 보내지 않는 호스트에 붙으려고 보태는 묶음. opacChainCerts 가 0 이면 묶음이 비어
+        // 그 호스트들은 예전처럼 검색 결과로 내려갑니다. opacChainCertsExpire 는 묶음에서 가장 먼저
+        // 끝나는 인증서의 만료일이고, 그날이 지나면 그 인증서에 기대던 호스트가 조용히 내려갑니다.
+        out.putAll(kr.wimb.opac.IntermediateCerts.stats());
         out.put("opacRuleLibraries", opacTemplates.size());
         out.put("opacDetailPatterns", opacTemplates.patternCount());
         out.putAll(detailResolver.stats());

@@ -198,6 +198,52 @@ public class DiagnoseController {
         return out;
     }
 
+    /** 검색 주소를 만들어 호스트만 읽으려고 끼우는 값입니다. 이 주소 자체는 받지 않습니다. */
+    private static final String ANY_ISBN = "9788937473135";
+    private static final String ANY_TITLE = "책";
+
+    /**
+     * 이 서버가 그 도서관의 OPAC 호스트에 <b>붙기는 하는지</b>를 봅니다. robots.txt 를 한 번 받습니다.
+     *
+     * <p>{@code /api/diagnose/opac} 은 상세 패턴이 없으면 {@code NO_PATTERN} 으로 끝나고 그 호스트를
+     * 두드리지 않습니다. 그런데 패턴을 만들기 전에 알아야 하는 것이 바로 이것입니다. 해외 IP 를 막는
+     * 호스트와 TLS 로 붙지 못하는 호스트는 국내 회선에서 패턴을 만들어 와도 운영에서는 검색 결과로
+     * 내려갑니다. {@code note} 가 시간 초과면 회선(나가는 IP)이고, {@code PKIX path building failed} 면
+     * 인증서 사슬입니다. 뒤엣것은 {@code chain-hosts.txt} 와 {@code chain-certs.pem} 을 보세요.
+     *
+     * <p>호스트는 규칙 표에서 나옵니다. 아무 주소나 받아 주는 통로가 아닙니다. 자동으로 돌리지 마세요.
+     */
+    @GetMapping("/diagnose/opac/reach")
+    public Map<String, Object> opacReach(@RequestParam String lib) {
+        if (lib.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "lib 이 필요합니다.");
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("libCode", lib);
+        var link = opacTemplates.asIfEnabled().bestFor(lib, ANY_ISBN, ANY_TITLE);
+        if (link.isEmpty()) {
+            out.put("status", "NO_RULE");
+            out.put("note", "이 도서관에는 검색 규칙이 없어 어느 호스트를 볼지 알 수 없습니다.");
+            return out;
+        }
+        String host;
+        try {
+            host = URI.create(link.get().url()).getHost();
+        } catch (IllegalArgumentException e) {
+            host = null;                              // 아래 reach 가 「주소가 아닙니다」로 답합니다.
+        }
+        // 어느 TLS 설정으로 나갔는지. chain 인데 PKIX 로 실패하면 묶음에 그 호스트의 중간 인증서가 없는 것입니다.
+        out.put("tls", kr.wimb.opac.LegacyTls.isLegacyHost(host) ? "legacy"
+                : kr.wimb.opac.IntermediateCerts.isChainHost(host) ? "chain" : "default");
+        var reach = detailResolver.reach(link.get().url());
+        out.put("fetched", reach.fetched());
+        out.put("status", reach.reached() ? "REACHED" : "UNREACHABLE");
+        if (reach.reached()) out.put("httpStatus", reach.httpStatus());
+        out.put("millis", reach.millis());
+        if (reach.note() != null) out.put("note", reach.note());
+        return out;
+    }
+
     /** 실패해도 진단 자체는 계속되어야 합니다. 못 알아낸 것과 오류를 구분해 적습니다. */
     private String egressIp() {
         try (HttpClient http = HttpClient.newBuilder().connectTimeout(TIMEOUT)
