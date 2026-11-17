@@ -238,3 +238,7 @@ www.jwelib.go.kr,@frame:https://www.jwelib.go.kr:7443/dls_le/index.php?mod=wdDat
 www.mwelib.go.kr,@frame:https://www.mwelib.go.kr:7443/dls_le/index.php?mod=wdDataSearch&act=searchIList&word={title}&searchType=&manageCode=MF&siteId=SITE_000000000000006 => @anchor:href=["'](\./index\.php\?mod=wdDataSearch&act=searchResultDetail&dbType=dan&jongKey=[^"']*)["']
 www.ocelib.go.kr,@frame:https://www.ocelib.go.kr:7443/dls_le/index.php?mod=wdDataSearch&act=searchIList&word={title}&searchType=&manageCode=MH&siteId=SITE_000000000000008 => @anchor:href=["'](\./index\.php\?mod=wdDataSearch&act=searchResultDetail&dbType=dan&jongKey=[^"']*)["']
 www.ydelib.go.kr,@frame:https://www.ydelib.go.kr:7443/dls_le/index.php?mod=wdDataSearch&act=searchIList&word={title}&searchType=&manageCode=MI&siteId=SITE_000000000000009 => @anchor:href=["'](\./index\.php\?mod=wdDataSearch&act=searchResultDetail&dbType=dan&jongKey=[^"']*)["']
+lib.nyj.go.kr?searchLibrary,@onclick:fnSearchResultDetail
+www.hanamlib.go.kr?searchLibrary,@onclick:fnSearchDetailView
+library.cheongju.go.kr?manage_code_detail,class="book_name">\s*<a href="(\?g_page=search[^"]*act=view)"
+www.capc.go.kr,@frame:https://www.capc.go.kr/library/dls_lt/index.php?mod=wdDataSearch&act=searchResultList&deSearch=1&manageCode=MA&isbn={isbn13} => @anchor:href="(\./index\.php\?mod=wdDataSearch&act=searchResultDetail&dbType=dan&jongKey=[^"]*)"
