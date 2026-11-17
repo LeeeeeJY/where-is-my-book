@@ -304,7 +304,8 @@ def title_hosts(csv_path: str, patterns_csv: str, libs: list[dict], probe: dict,
 
 
 # 분관을 좁히는 칸으로 알려진 이름들. 값이 ALL 이거나 비어 있으면 좁힌 것이 아닙니다.
-BRANCH_PARAMS = ("searchLibraryArr", "searchManageCodeArr", "manage_code", "manageCode", "libraryCodes")
+# `sh_MGC` 는 울진입니다(2026-11-17). 이 목록에 없던 때에는 도구가 호스트만 적은 열쇠를 냈습니다.
+BRANCH_PARAMS = ("searchLibraryArr", "searchManageCodeArr", "manage_code", "manageCode", "libraryCodes", "sh_MGC")
 
 
 def branch_param(templates: list[str]) -> str | None:

@@ -241,6 +241,10 @@ def main() -> int:
           tp.branch_param(["https://www.bppl.or.kr/galsan/list.do?searchLibrary=ALL&searchWord={title}",
                            "https://mplib.mapo.go.kr/libsmall/list.do?searchLibraryArr=&searchKeyword={title}"]), None)
     check("manage_code", tp.branch_param(["https://lib.sejong.go.kr/goun/s.do?manage_code=MJ&search_txt={title}"]), "manage_code")
+    # 울진의 실제 검색 주소입니다. 이 칸을 모르던 때에는 도구가 호스트만 적은 열쇠를 냈습니다(2026-11-17).
+    check("sh_MGC (울진)",
+          tp.branch_param(["https://lib.uljin.go.kr/content/01search/01_01.php?TAG1_cmd=IAL&TAG1_keyword={title}&sh_MGC=SD&x=0&y=0"]),
+          "sh_MGC")
 
     print("\n프레임 규칙 (@frame:) — 서버의 FrameRuleTest 와 같은 값")
     frame_tpl = ("https://www.cbelib.go.kr:7443/dls_le/index.php?mod=wdDataSearch&act=searchIList"
