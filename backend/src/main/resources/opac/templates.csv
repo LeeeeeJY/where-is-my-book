@@ -1244,7 +1244,6 @@
 145025,ISBN_SEARCH,UTF-8,https://lib.wanju.go.kr:31824/search/keyword/{isbn13}?manageCode=
 145118,ISBN_SEARCH,UTF-8,https://lib.wanju.go.kr:31824/search/keyword/{isbn13}?manageCode=
 145148,ISBN_SEARCH,UTF-8,https://lib.wanju.go.kr:31824/search/keyword/{isbn13}?manageCode=
-111314,TITLE_SEARCH,UTF-8,https://lib.seoul.go.kr/searchA/dtz?st=KWRD&si=1&q={title}
 748286,ISBN_SEARCH,UTF-8,https://lib.yangsan.go.kr/YS/search/search.do?idx=101010100&search_manage_code=HF&search_txt={isbn13}
 748245,ISBN_SEARCH,UTF-8,https://lib.yangsan.go.kr/YS/search/search.do?idx=101010100&search_manage_code=GX&search_txt={isbn13}
 128122,ISBN_SEARCH,UTF-8,https://www.issl.go.kr/sch/bsch/list.do?mnidx=1597&searchKeyword={isbn13}
