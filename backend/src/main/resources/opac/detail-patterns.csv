@@ -27,8 +27,12 @@
 #                                쓸 수 있습니다. manageCode 처럼 기관마다 다른 값은 글자 그대로 적으므로
 #                                호스트마다 한 줄입니다. 제목으로 찾는 프레임이면 안쪽이 @anchor: 여야 상세로
 #                                갑니다. robots.txt 는 프레임의 출처(포트까지)의 것을 봅니다.
-#                                **2026-11-12 에 형식만 만들었고 이 형식의 줄은 아직 없습니다.** 국내 회선에서
+#                                2026-11-17 에 충북교육청 계열 14개 호스트의 줄을 넣었습니다. 국내 회선에서
 #                                scripts/opac-title-probe.py 로 확인한 것만 넣습니다.
+#                                프레임 안에 ISBN 으로 찾는 상세검색이 있으면 주소틀에 {isbn13} 을 씁니다(천안아산:
+#                                …/dls_lt/index.php?…&deSearch=1&manageCode=MA&isbn={isbn13}). 그 결과의 상세 링크에는
+#                                검색 조건(isbn=…)이 되돌려 적혀 있어 @anchor: 가 「링크 안의 ISBN」으로 첫 줄을
+#                                고르고, 결과가 없으면 고르지 않습니다. 못 찾으면 제목 검색 화면으로 갑니다.
 #
 # 열쇠   검색 규칙(templates.csv 의 ISBN_SEARCH 주소)의 호스트입니다. 한 호스트에 시스템이 둘
 #        있으면 「호스트/경로조각」으로 좁힙니다. 여럿이 맞으면 가장 긴 열쇠를 씁니다.
@@ -238,3 +242,7 @@ www.jwelib.go.kr,@frame:https://www.jwelib.go.kr:7443/dls_le/index.php?mod=wdDat
 www.mwelib.go.kr,@frame:https://www.mwelib.go.kr:7443/dls_le/index.php?mod=wdDataSearch&act=searchIList&word={title}&searchType=&manageCode=MF&siteId=SITE_000000000000006 => @anchor:href=["'](\./index\.php\?mod=wdDataSearch&act=searchResultDetail&dbType=dan&jongKey=[^"']*)["']
 www.ocelib.go.kr,@frame:https://www.ocelib.go.kr:7443/dls_le/index.php?mod=wdDataSearch&act=searchIList&word={title}&searchType=&manageCode=MH&siteId=SITE_000000000000008 => @anchor:href=["'](\./index\.php\?mod=wdDataSearch&act=searchResultDetail&dbType=dan&jongKey=[^"']*)["']
 www.ydelib.go.kr,@frame:https://www.ydelib.go.kr:7443/dls_le/index.php?mod=wdDataSearch&act=searchIList&word={title}&searchType=&manageCode=MI&siteId=SITE_000000000000009 => @anchor:href=["'](\./index\.php\?mod=wdDataSearch&act=searchResultDetail&dbType=dan&jongKey=[^"']*)["']
+lib.nyj.go.kr?searchLibrary,@onclick:fnSearchResultDetail
+www.hanamlib.go.kr?searchLibrary,@onclick:fnSearchDetailView
+library.cheongju.go.kr?manage_code_detail,class="book_name">\s*<a href="(\?g_page=search[^"]*act=view)"
+www.capc.go.kr,@frame:https://www.capc.go.kr/library/dls_lt/index.php?mod=wdDataSearch&act=searchResultList&deSearch=1&manageCode=MA&isbn={isbn13} => @anchor:href="(\./index\.php\?mod=wdDataSearch&act=searchResultDetail&dbType=dan&jongKey=[^"]*)"
