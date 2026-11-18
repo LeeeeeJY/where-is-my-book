@@ -246,3 +246,4 @@ lib.nyj.go.kr?searchLibrary,@onclick:fnSearchResultDetail
 www.hanamlib.go.kr?searchLibrary,@onclick:fnSearchDetailView
 library.cheongju.go.kr?manage_code_detail,class="book_name">\s*<a href="(\?g_page=search[^"]*act=view)"
 www.capc.go.kr,@frame:https://www.capc.go.kr/library/dls_lt/index.php?mod=wdDataSearch&act=searchResultList&deSearch=1&manageCode=MA&isbn={isbn13} => @anchor:href="(\./index\.php\?mod=wdDataSearch&act=searchResultDetail&dbType=dan&jongKey=[^"]*)"
+lib.boeun.go.kr,@frame:https://lib.boeun.go.kr/dls_lt/index.php?mod=wdDataSearch&act=searchResultList&deSearch=1&manageCode=MA&isbn={isbn13} => @anchor:href="(\./index\.php\?mod=wdDataSearch&act=searchResultDetail&dbType=dan&jongKey=[^"]*)"
