@@ -1452,3 +1452,4 @@
 143060,ISBN_SEARCH,UTF-8,https://library.cheongju.go.kr/lib/front/index.php?g_page=search&m_page=search01&search_type=DETAIL&search_isbn_issn={isbn13}&manage_code_detail=MJ
 143131,ISBN_SEARCH,UTF-8,https://library.cheongju.go.kr/lib/front/index.php?g_page=search&m_page=search01&search_type=DETAIL&search_isbn_issn={isbn13}&manage_code_detail=MM
 143136,ISBN_SEARCH,UTF-8,https://library.cheongju.go.kr/lib/front/index.php?g_page=search&m_page=search01&search_type=DETAIL&search_isbn_issn={isbn13}&manage_code_detail=MN
+144033,TITLE_SEARCH,UTF-8,https://hongseong.go.kr/prog/bookSearch/gclib/sub02_01/list.do?search_type=normal&searchCaseChk=true&manage_codes=MA&search_txt={title}
