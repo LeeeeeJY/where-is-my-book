@@ -361,8 +361,13 @@ function SearchState({
   const { works, totalWorks, foundBooks, droppedNoIsbn, droppedBooks,
     alsoSearchedTitles, alsoSearchedAuthors } = state.response;
   if (works.length === 0) {
+    /*
+      **노란 상자가 아닙니다.** 노랑은 「확인 불가」에만 쓰는 색인데, 이것은 물어봤고 답이
+      「없다」인 경우입니다. 바로 위의 두 상자(서버에 닿지 못함, 검색 실패)는 물어보지 못한
+      것이라 노랑입니다. 같은 색이면 사용자가 그 둘을 가를 수 없습니다.
+    */
     return (
-      <div className="banner banner--warn">
+      <div className="banner banner--info">
         <strong>찾은 책이 없습니다.</strong>{' '}
         {alsoSearchedTitles.length > 0
           ? `띄어쓰기를 바꾼 ${quoteAll(alsoSearchedTitles)} 표기로도 찾아봤습니다.`
@@ -706,13 +711,19 @@ function Holdings({
   }
 
   if (state === 'none') {
-    return <p className="holding holding--none">고른 도서관에는 없습니다.</p>;
+    return (
+      <p className="holding holding--none">
+        <StateTag kind="none" />
+        고른 도서관에는 없습니다.
+      </p>
+    );
   }
 
   const held = facts?.libCodes ?? [];
   return (
     <div className="holding holding--held">
       <p className="holding__count">
+        <StateTag kind="held" />
         <strong>{held.length}곳에 있습니다.</strong>
         {facts !== null && !facts.complete && ' 확인하지 못한 판본이 있어 더 있을 수 있습니다.'}
       </p>
@@ -777,4 +788,21 @@ function formatAsOf(asOf: string | null): string {
     day: 'numeric',
     timeZone: 'Asia/Seoul',
   }).format(date);
+}
+
+/**
+ * 소장 상태를 한 낱말로 적은 표시. 「있음」은 채우고 「없음」은 테두리만 둡니다.
+ *
+ * <p><b>색만으로 가르지 않습니다.</b> 채움과 테두리가 다르고 글자가 다릅니다. 「확인
+ * 불가」는 여기에 없습니다. 그쪽은 노란 상자가 통째로 말하고, 노랑은 그 자리에만 씁니다.
+ *
+ * <p><b>화면을 읽어 주는 쪽에는 감춥니다.</b> 바로 옆 문장이 같은 말을 하므로
+ * 「없음 고른 도서관에는 없습니다」로 두 번 읽히게 둘 이유가 없습니다.
+ */
+function StateTag({ kind }: { kind: 'held' | 'none' }) {
+  return (
+    <span className={`state state--${kind}`} aria-hidden="true">
+      {kind === 'held' ? '있음' : '없음'}
+    </span>
+  );
 }

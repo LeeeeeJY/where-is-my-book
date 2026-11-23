@@ -24,9 +24,16 @@ export function coverPaper(book: ShelfBook): string {
   const digits = (book.call ?? book.isbn ?? '').replace(/[^0-9]/g, '');
   const hue = (Number(digits.slice(0, 3) || '0') * 37) % 360;
 
-  // 채도와 밝기를 좁게 묶어 둡니다. 이 값을 넓히면 서가가 알록달록해집니다.
-  return `linear-gradient(160deg,
-    hsl(${hue} 22% 42%) 0%,
-    hsl(${hue} 26% 32%) 55%,
-    hsl(${hue} 24% 27%) 100%)`;
+  /*
+    **한 색으로 칠합니다.** 예전에는 위에서 아래로 어두워지는 세 단계였는데, 화면이 종이와
+    가죽을 흉내 내던 때의 것입니다. 지금은 면을 평평하게 두므로 표지도 한 색입니다.
+
+    채도와 밝기는 좁게 묶어 둡니다. 넓히면 서가가 알록달록해지고, 밝아지면 표지 위의 흰
+    글자가 읽히지 않습니다(이 밝기에서 흰 글자와의 대비는 색상에 따라 5.3:1 에서 11:1 사이입니다).
+
+    돌려주는 값은 여전히 `background-image` 에 넣는 꼴입니다. 부르는 쪽 두 곳이 그 자리에
+    넣고 있어서, 꼴을 바꾸면 한쪽만 고쳐졌을 때 표지가 조용히 투명해집니다.
+  */
+  const paint = `hsl(${hue} 34% 32%)`;
+  return `linear-gradient(${paint}, ${paint})`;
 }
