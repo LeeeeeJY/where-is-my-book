@@ -734,7 +734,7 @@
 122003,TITLE_SEARCH,UTF-8,https://library.daegu.go.kr/bukbu/intro/search/index.do?menu_idx=13&booktype=BOOKANDNONBOOK&libraryCodes=AC&title={title}#search_result
 122008,TITLE_SEARCH,UTF-8,https://library.daegu.go.kr/seobu/intro/search/index.do?menu_idx=13&booktype=BOOKANDNONBOOK&libraryCodes=AF&title={title}#search_result
 122007,TITLE_SEARCH,UTF-8,https://library.daegu.go.kr/suseong/intro/search/index.do?menu_idx=13&booktype=BOOKANDNONBOOK&libraryCodes=AE&title={title}#search_result
-127111,TITLE_SEARCH,UTF-8,https://library.daegu.go.kr/dglib/intro/totalSearch/index.do?menu_idx=53&booktype=BOOKANDNONBOOK&search_text={title}
+127111,TITLE_SEARCH,UTF-8,https://library.daegu.go.kr/dglib/intro/search/index.do?menu_idx=171&booktype=BOOKANDNONBOOK&libraryCodes=DG&title={title}#search_result
 127091,TITLE_SEARCH,UTF-8,https://library.daegu.go.kr/namdm/intro/search/index.do?menu_idx=9&booktype=BOOKANDNONBOOK&libraryCodes=BS&title={title}#search_result
 127090,TITLE_SEARCH,UTF-8,https://library.daegu.go.kr/namic/intro/search/index.do?menu_idx=9&booktype=BOOKANDNONBOOK&libraryCodes=BT&title={title}#search_result
 126152,ISBN_SEARCH,UTF-8,https://www.bsbukgu.go.kr/bglib/index.bsbukgu?menuCd=DOM_000001303001000000&mode=result&search_category=search_title&search_txt=&libraryPath=bglib&orderby_item=&orderby=&search_isbn_issn={isbn13}&subject_code=&search_year_start=&search_year_end=&display=10
@@ -1288,11 +1288,11 @@
 147029,TITLE_SEARCH,UTF-8,https://lib.gumi.go.kr/dls_lt/index.php?mod=wdDataSearch&act=searchResultList&manageCode%5BMC%5D=MC&searchItem%5B%5D=title&searchWord%5B%5D={title}
 147169,TITLE_SEARCH,UTF-8,https://lib.gumi.go.kr/dls_lt/index.php?mod=wdDataSearch&act=searchResultList&manageCode%5BMG%5D=MG&searchItem%5B%5D=title&searchWord%5B%5D={title}
 147051,TITLE_SEARCH,UTF-8,https://lib.gumi.go.kr/dls_lt/index.php?mod=wdDataSearch&act=searchResultList&manageCode%5BMB%5D=MB&searchItem%5B%5D=title&searchWord%5B%5D={title}
-14703810,TITLE_SEARCH,UTF-8,https://lib.gumi.go.kr/dls_lt/index.php?mod=wdDataSearch&act=searchResultList&manageCode%5BBA%5D=BA&searchItem%5B%5D=title&searchWord%5B%5D={title}
-14703811,TITLE_SEARCH,UTF-8,https://lib.gumi.go.kr/dls_lt/index.php?mod=wdDataSearch&act=searchResultList&manageCode%5BBA%5D=BA&searchItem%5B%5D=title&searchWord%5B%5D={title}
-14703812,TITLE_SEARCH,UTF-8,https://lib.gumi.go.kr/dls_lt/index.php?mod=wdDataSearch&act=searchResultList&manageCode%5BBA%5D=BA&searchItem%5B%5D=title&searchWord%5B%5D={title}
-14703813,TITLE_SEARCH,UTF-8,https://lib.gumi.go.kr/dls_lt/index.php?mod=wdDataSearch&act=searchResultList&manageCode%5BBA%5D=BA&searchItem%5B%5D=title&searchWord%5B%5D={title}
-14703801,TITLE_SEARCH,UTF-8,https://lib.gumi.go.kr/dls_lt/index.php?mod=wdDataSearch&act=searchResultList&manageCode%5BBA%5D=BA&searchItem%5B%5D=title&searchWord%5B%5D={title}
+14703810,TITLE_SEARCH,UTF-8,https://lib.gumi.go.kr/dls_lt/index.php?mod=wdDataSearch&act=searchResultList&deSearch=1&manageCode=BA&placeInfo=BA4&searchItem%5B%5D=title&searchWord%5B%5D={title}
+14703811,TITLE_SEARCH,UTF-8,https://lib.gumi.go.kr/dls_lt/index.php?mod=wdDataSearch&act=searchResultList&deSearch=1&manageCode=BA&placeInfo=BA5&searchItem%5B%5D=title&searchWord%5B%5D={title}
+14703812,TITLE_SEARCH,UTF-8,https://lib.gumi.go.kr/dls_lt/index.php?mod=wdDataSearch&act=searchResultList&deSearch=1&manageCode=BA&placeInfo=BA8&searchItem%5B%5D=title&searchWord%5B%5D={title}
+14703813,TITLE_SEARCH,UTF-8,https://lib.gumi.go.kr/dls_lt/index.php?mod=wdDataSearch&act=searchResultList&deSearch=1&manageCode=BA&placeInfo=BA7&searchItem%5B%5D=title&searchWord%5B%5D={title}
+14703801,TITLE_SEARCH,UTF-8,https://lib.gumi.go.kr/dls_lt/index.php?mod=wdDataSearch&act=searchResultList&deSearch=1&manageCode=BA&placeInfo=BA2&searchItem%5B%5D=title&searchWord%5B%5D={title}
 146036,ISBN_SEARCH,UTF-8,http://yslib.yeosu.go.kr/front/index.php?g_page=service&m_page=service01&searchWord={isbn13}
 146038,ISBN_SEARCH,UTF-8,http://yslib.yeosu.go.kr/front/index.php?g_page=service&m_page=service01&searchWord={isbn13}
 146026,ISBN_SEARCH,UTF-8,http://yslib.yeosu.go.kr/front/index.php?g_page=service&m_page=service01&searchWord={isbn13}
