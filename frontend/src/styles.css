@@ -99,7 +99,7 @@ body {
 
 .app { max-width: 1180px; margin: 0 auto; padding: 0 clamp(16px, 4vw, 32px) 48px; }
 
-.app__head { padding: 28px 0 0; margin-bottom: 28px; }
+.app__head { padding: 28px 0 0; margin-bottom: 22px; }
 /*
   **`ch` 로 글줄 길이를 재지 마세요.** `ch` 는 숫자 「0」의 폭이라 한글 한 자의 절반쯤입니다.
   62ch 로 두었더니 한글 서른세 자에서 줄이 바뀌어 「알려 줍니 / 다.」가 되었습니다.
@@ -133,8 +133,12 @@ body {
 /*
   ── 화면 전환: 노선 하나에 역 셋 ───────────────────────────────────────
 
-  **굵은 선 위에 역이 셋이고, 지금 있는 화면이 큰 역입니다.** 선은 머리말을 닫는 줄이기도
-  해서 따로 구분선을 긋지 않습니다. 역은 `::before` 로 그리므로 마크업은 여느 탭과 같습니다.
+  **굵은 선 위에 역이 셋이고, 지금 있는 화면이 큰 역입니다.** 역은 `::before` 로 그리므로
+  마크업은 여느 탭과 같습니다.
+
+  **자리는 화면 폭에 따라 다릅니다**(아래 `.layout`). 넓은 화면에서는 두 칸 위를 가로질러
+  머리말을 닫는 줄이 되고, 좁은 화면에서는 도서관 선택과 내용 사이에 서서 두 구역을 가르는
+  줄이 됩니다. 어느 쪽이든 선이 구분선을 겸하므로 따로 긋지 않습니다.
 
   **선택자를 `.tabs.tabs--mode` 로 적습니다.** 여느 탭 줄(`.tabs`)의 규칙이 이 아래에 있어서,
   클래스 하나로만 적으면 뒤에 오는 그쪽이 이겨 밑줄과 배치가 되돌아갑니다.
@@ -146,7 +150,7 @@ body {
 .tabs.tabs--mode {
   position: relative;
   display: flex; flex-wrap: wrap; gap: 0 48px;
-  margin: 22px 0 0; padding: 0 0 0 28px;
+  margin: 0; padding: 0 0 0 28px;
   border-bottom: 0;
 }
 .tabs--mode::before {
@@ -193,21 +197,23 @@ body {
 /* 좁은 화면에서는 세로로 쌓고, 넓은 화면에서만 좌우로 나눕니다. */
 .layout { display: grid; gap: 28px; }
 /*
-  **좁은 화면에서는 선택 칸과 그 아래 화면 사이에 선을 긋습니다.** 카드로 두르지 않으므로
-  선이 없으면 도서관 선택의 마지막 줄과 검색 칸의 제목이 한 덩어리로 붙습니다.
+  **좁은 화면에서는 DOM 순서 그대로 선택 → 화면 전환 → 내용으로 쌓입니다.** 화면 전환의
+  노선이 선택 칸과 내용 사이의 구분선을 겸합니다. 사람이 머무는 곳이 내용이라 탭은 그
+  바로 위에 있어야 합니다. 머리말에 두면 화면을 바꿀 때마다 선택 칸을 거슬러 올라갑니다.
 */
-@media (max-width: 859px) {
-  .layout > .picker { padding-bottom: 24px; border-bottom: 2px solid var(--line); }
-}
 @media (min-width: 860px) {
-  /*
-    두 칸의 윗선은 저절로 맞습니다. 화면 전환이 머리말로 올라가면서 격자에는 선택 칸과
-    결과 칸 둘만 남았습니다.
-  */
   .layout {
     grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
-    gap: 32px 48px; align-items: start;
+    gap: 30px 48px; align-items: start;
   }
+  /*
+    **넓은 화면에서는 화면 전환이 첫 줄을 통째로 쓰고 그 아래에 두 칸이 섭니다.** 두 칸이
+    같은 줄에 있으므로 윗선이 저절로 맞습니다. 탭을 오른쪽 칸 안에 두면 왼쪽 칸만 탭
+    높이만큼 위에서 시작합니다.
+  */
+  .layout > .tabs--mode { grid-column: 1 / -1; grid-row: 1; }
+  .layout > .picker { grid-column: 1; grid-row: 2; }
+  .layout > .results-column { grid-column: 2; grid-row: 2; }
 
   /*
     **오른쪽 칸은 페이지와 함께 스크롤합니다. 왼쪽만 붙여 둡니다.**

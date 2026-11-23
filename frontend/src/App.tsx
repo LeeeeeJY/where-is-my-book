@@ -19,7 +19,7 @@ import type { Library, UserPosition } from './domain/types';
 const INITIAL_SEARCH = window.location.search;
 
 /**
- * 화면 셋. 머리말의 노선에 역으로 놓입니다. 차례가 곧 역의 차례입니다.
+ * 화면 셋. 노선 위에 역으로 놓입니다. 차례가 곧 역의 차례입니다.
  */
 const MODES = [
   ['single', '한 권 검색'],
@@ -124,27 +124,6 @@ export default function App() {
           자주 가는 도서관을 골라 두면, 읽고 싶은 책이 그 중 어디에 있는지 알려 줍니다.
         </p>
 
-        {/*
-          **화면 전환은 머리말의 노선 위에 있습니다.** 굵은 선 하나에 역 셋이고, 지금 있는
-          화면이 큰 역입니다. 예전에는 아래 격자의 한 칸이라 좁은 화면에서 도서관 선택 칸
-          아래로 내려갔는데, 그 칸이 길어서 화면을 바꾸려면 한참을 내려가야 했습니다.
-
-          **목록을 받는 동안에도 보입니다.** 어느 화면에 있는지는 목록과 상관이 없고,
-          받는 사이에 사라졌다 나타나면 머리말 높이가 한 번 튑니다.
-        */}
-        <nav className="tabs tabs--mode" role="tablist" aria-label="화면 전환">
-          {MODES.map(([key, label]) => (
-            <button
-              key={key}
-              role="tab"
-              aria-selected={mode === key}
-              className={mode === key ? 'tab tab--active' : 'tab'}
-              onClick={() => setMode(key)}
-            >
-              {label}
-            </button>
-          ))}
-        </nav>
       </header>
 
       {catalog.kind === 'sample' && (
@@ -177,6 +156,30 @@ export default function App() {
             position={position}
             onPosition={setPosition}
           />
+
+          {/*
+            **화면 전환은 선 하나에 역 셋이고, 격자의 한 칸입니다.** 넓은 화면에서는 두 칸
+            위를 가로지르는 첫 줄에 서고, 좁은 화면에서는 DOM 순서 그대로 도서관 선택과
+            내용 사이에 섭니다. 자리는 CSS 가 정하고 여기에는 한 벌만 둡니다.
+
+            **좁은 화면에서 머리말로 올리지 마세요.** 2026-11-23 에 한 번 올렸다가 그날
+            되돌렸습니다. 휴대폰에서는 화면이 위아래로 쌓이고 사람이 머무는 곳은 내용인데,
+            탭이 도서관 선택 칸 위에 있으면 화면을 바꿀 때마다 그 칸을 통째로 거슬러
+            올라가야 합니다. 실제로 그렇게 불편하다는 말을 들었습니다.
+          */}
+          <nav className="tabs tabs--mode" role="tablist" aria-label="화면 전환">
+            {MODES.map(([key, label]) => (
+              <button
+                key={key}
+                role="tab"
+                aria-selected={mode === key}
+                className={mode === key ? 'tab tab--active' : 'tab'}
+                onClick={() => setMode(key)}
+              >
+                {label}
+              </button>
+            ))}
+          </nav>
 
           <div className="results-column">
             {mode === 'single' && <BookSearch libraries={libraries} selected={selected} />}
