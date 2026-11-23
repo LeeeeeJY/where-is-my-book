@@ -435,7 +435,11 @@ def check_import_patterns(work: str) -> list[str]:
         ("경로로 좁힌 열쇠", f"www.lib.example.go.kr | DETAIL_PATTERN | www.lib.example.go.kr/opac | {good}", 1),
         # 「이 칸이 있는 검색에만」. 칸 이름은 대소문자를 가리므로 글자 그대로 나가야 합니다.
         ("칸으로 좁힌 열쇠", f"www.lib.example.go.kr | DETAIL_PATTERN | WWW.lib.example.go.kr?searchLibraryArr | @anchor:@onclick:fnDetail", 1),
-        ("칸 이름이 아닌 것", f"www.lib.example.go.kr | DETAIL_PATTERN | www.lib.example.go.kr?a=1 | {good}", 0),
+        # 「이 칸이 바로 이 값인 검색에만」. 이름과 값은 규칙 주소에 적힌 글자 그대로 나가야 합니다.
+        ("값까지 적은 열쇠", f"www.lib.example.go.kr | DETAIL_PATTERN | WWW.lib.example.go.kr?manage_code%5B%5D=MA | {good}", 1),
+        ("칸을 여럿 적은 것", f"www.lib.example.go.kr | DETAIL_PATTERN | www.lib.example.go.kr?a&b | {good}", 0),
+        ("값이 빈 것", f"www.lib.example.go.kr | DETAIL_PATTERN | www.lib.example.go.kr?a= | {good}", 0),
+        ("값에 쉼표가 든 것", f"www.lib.example.go.kr | DETAIL_PATTERN | www.lib.example.go.kr?a=MA%2CMB | {good}", 0),
         ("다른 기관 열쇠", f"www.lib.example.go.kr | DETAIL_PATTERN | vendor.example.com | {good}", 0),
         ("모르는 묶음", f"nowhere.example.kr | DETAIL_PATTERN | nowhere.example.kr | {good}", 0),
         ("그룹이 둘", 'www.lib.example.go.kr | DETAIL_PATTERN | www.lib.example.go.kr | href=["\'](/a)(/b)["\']', 0),
@@ -462,7 +466,8 @@ def check_import_patterns(work: str) -> list[str]:
             regex = line.split("|", 3)[3].strip()
             ok = rows[0] == f"{od.pattern_key(line.split('|')[2])},{regex}"
             if "?" in line.split("|")[2]:
-                ok = ok and rows[0].startswith("www.lib.example.go.kr?searchLibraryArr,")
+                ok = ok and rows[0].startswith(("www.lib.example.go.kr?searchLibraryArr,",
+                                                "www.lib.example.go.kr?manage_code%5B%5D=MA,"))
         print(f"  {'✓' if ok else '✗'} {label:22s} 줄 {len(rows)}개 (기대 {want}개)")
         if not ok:
             failures.append(f"패턴 받기:{label}")
@@ -483,6 +488,56 @@ def check_import_patterns(work: str) -> list[str]:
         print(f"  {'✓' if ok else '✗'} {label:22s} {got[0] if got else '걸리는 열쇠 없음'}")
         if not ok:
             failures.append(f"열쇠 걸림:{label}")
+
+    # 열쇠 조건의 문법. 서버(OpacTemplatesTest.rejectsMalformedRequiredParam)와 같은 사례입니다.
+    # 한쪽을 고치면 다른 쪽도 고칩니다.
+    bad = ["a&b", "", "a=", "=MA", "a=1&b=2", "a=1=2", "a=MA%2CMB", "a=MA%2cMB", "a=M A", "a=%ZZ",
+           "a={title}", "1a", "a%5"]
+    fine = ["a", "a=1", "manage_code%5B%5D", "manage_code%5B%5D=MA", "searchLibraryArr=MB",
+            "lib.code-x=141137", "a=%EA%B0%80~1"]
+    ok = not any(od.KEY_CONDITION.fullmatch(c) for c in bad) and all(od.KEY_CONDITION.fullmatch(c) for c in fine)
+    print(f"  {'✓' if ok else '✗'} {'열쇠 조건의 문법':22s} 막는 것 {len(bad)}개, 받는 것 {len(fine)}개")
+    if not ok:
+        failures.append("열쇠 조건의 문법")
+
+    # 값까지 적은 열쇠. 서버(OpacTemplatesTest.keyWithRequiredValueOnlyCoversThatBranch)와 같은 사례입니다.
+    base = "https://library.cheongju.go.kr/lib/front/index.php?g_page=search&m_page=search01"
+    patterns = {"library.cheongju.go.kr?manage_code_detail": "D",
+                "library.cheongju.go.kr?manage_code%5B%5D=MA": "A",
+                "library.cheongju.go.kr?manage_code%5B%5D=MB": "B"}
+    for label, url, want in [
+        ("그 값의 분관", base + "&manage_code%5B%5D=MA&search_txt={title}", "library.cheongju.go.kr?manage_code%5B%5D=MA"),
+        ("다른 값의 분관", base + "&manage_code%5B%5D=MB&search_txt={title}", "library.cheongju.go.kr?manage_code%5B%5D=MB"),
+        ("줄을 걸지 않은 분관", base + "&manage_code%5B%5D=MC&search_txt={title}", None),
+        ("ISBN 검색 줄은 칸 이름 열쇠", base + "&search_isbn_issn={isbn13}&manage_code_detail=MF", "library.cheongju.go.kr?manage_code_detail"),
+        ("그 값이 있어도 칸이 두 번", base + "&manage_code%5B%5D=MA&manage_code%5B%5D=MB&search_txt={title}", None),
+        ("값의 대소문자가 다름", base + "&manage_code%5B%5D=ma&search_txt={title}", None),
+        ("이름의 인코딩이 다름", base + "&manage_code[]=MA&search_txt={title}", None),
+        ("채운 주소", base + "&manage_code%5B%5D=MA&search_txt=%EB%8D%B0%EB%AF%B8%EC%95%88", "library.cheongju.go.kr?manage_code%5B%5D=MA"),
+        ("값이 그 글자로 시작만 함", base + "&manage_code%5B%5D=MAX&search_txt=1", None),
+    ]:
+        got = od.pattern_for(patterns, url)
+        ok = (got[0] if got else None) == want
+        print(f"  {'✓' if ok else '✗'} {'값 열쇠: ' + label:22s} {got[0] if got else '걸리는 열쇠 없음'}")
+        if not ok:
+            failures.append(f"값까지 적은 열쇠:{label}")
+
+    # 열쇠의 차례. 서버(OpacTemplatesTest.keyOrderIsPathThenValueThenParamThenBare)와 같은 사례입니다.
+    patterns = {"lib.example.kr": "bare", "lib.example.kr?lib": "param", "lib.example.kr?lib=MA": "value",
+                "lib.example.kr/small?lib=MB": "pathvalue", "lib.example.kr/small": "path"}
+    for label, url, want in [
+        ("값까지 적은 열쇠", "https://lib.example.kr/s?lib=MA&q=1", "lib.example.kr?lib=MA"),
+        ("칸 이름만 적은 열쇠", "https://lib.example.kr/s?lib=MB&q=1", "lib.example.kr?lib"),
+        ("조건 없는 열쇠", "https://lib.example.kr/s?q=1", "lib.example.kr"),
+        ("칸이 두 번이면 조건 없는 열쇠", "https://lib.example.kr/s?lib=MA&lib=MB&q=1", "lib.example.kr"),
+        ("경로가 긴 열쇠가 값 조건을 이김", "https://lib.example.kr/small/s?lib=MA&q=1", "lib.example.kr/small"),
+        ("같은 경로에서는 값 조건", "https://lib.example.kr/small/s?lib=MB&q=1", "lib.example.kr/small?lib=MB"),
+    ]:
+        got = od.pattern_for(patterns, url)
+        ok = (got[0] if got else None) == want
+        print(f"  {'✓' if ok else '✗'} {'차례: ' + label:22s} {got[0] if got else '걸리는 열쇠 없음'}")
+        if not ok:
+            failures.append(f"열쇠의 차례:{label}")
 
     # 이미 들어 있는 열쇠. 같은 정규식이면 조용히 건너뛰고, 다르면 넣지 않고 알립니다.
     existing = os.path.join(work, "detail-patterns.csv")

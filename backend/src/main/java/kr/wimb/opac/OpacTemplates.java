@@ -84,13 +84,33 @@ public final class OpacTemplates {
         }
 
         /**
-         * 열쇠에 {@code ?칸이름} 이 붙어 있으면 그 이름. <b>검색 주소에 그 칸이 값 하나로 있을 때만</b>
-         * 이 규칙을 씁니다. {@code www.l4d.or.kr?searchLibraryArr} 는 분관 부호가 붙은 검색에만
-         * 걸리고, 같은 호스트의 {@code searchLibrary=ALL}(통합 검색)에는 걸리지 않습니다.
+         * 열쇠에 {@code ?칸이름} 이나 {@code ?칸이름=값} 이 붙어 있으면 그 이름. <b>검색 주소에 그 칸이 값
+         * 하나로 있을 때만</b> 이 규칙을 씁니다. {@code www.l4d.or.kr?searchLibraryArr} 는 분관 부호가 붙은
+         * 검색에만 걸리고, 같은 호스트의 {@code searchLibrary=ALL}(통합 검색)에는 걸리지 않습니다.
          */
         String requiredParam() {
             int q = key.indexOf('?');
-            return q < 0 ? null : key.substring(q + 1);
+            if (q < 0) return null;
+            int eq = key.indexOf('=', q);
+            return eq < 0 ? key.substring(q + 1) : key.substring(q + 1, eq);
+        }
+
+        /**
+         * 열쇠에 {@code ?칸이름=값} 으로 값까지 적혀 있으면 그 값. <b>그 칸이 바로 그 값일 때만</b> 이 규칙을
+         * 씁니다({@code library.cheongju.go.kr?manage_code%5B%5D=MA}). 분관들이 호스트와 경로를 함께 쓰고
+         * 분관 부호의 값만 다른 시스템에서, 분관마다 줄을 따로 걸 때 씁니다. 프레임 주소에 그 분관의 부호를
+         * 글자로 적어야 하는 {@code @frame:} 규칙이 그렇습니다. 이름과 값은 <b>규칙 주소에 적힌 글자
+         * 그대로</b> 견줍니다. 인코딩을 풀거나 대소문자를 고르지 않습니다.
+         */
+        String requiredValue() {
+            int q = key.indexOf('?');
+            int eq = q < 0 ? -1 : key.indexOf('=', q);
+            return eq < 0 ? null : key.substring(eq + 1);
+        }
+
+        /** 조건이 얼마나 좁은지. 값까지 적은 열쇠 2, 칸 이름만 적은 열쇠 1, 조건 없는 열쇠 0. */
+        int conditionRank() {
+            return requiredValue() != null ? 2 : requiredParam() != null ? 1 : 0;
         }
     }
 
@@ -311,6 +331,18 @@ public final class OpacTemplates {
     }
 
     /**
+     * 열쇠의 {@code ?} 뒤에 올 수 있는 것. {@code 칸이름} 하나이거나 {@code 칸이름=값} 하나입니다.
+     * 이름과 값에는 주소에 적히는 글자(영문·숫자·{@code _ . -}, 값에는 {@code ~} 도)와 {@code %XX} 만
+     * 받습니다. 규칙 주소가 {@code manage_code%5B%5D=MA} 처럼 인코딩된 이름을 쓰면 열쇠에도 그 글자
+     * 그대로 적습니다. <b>값에 쉼표({@code %2C})는 받지 않습니다.</b> 쉼표로 늘어놓은 값은 「좁힌 검색」이
+     * 아니라서({@link #hasParam}) 그런 열쇠는 어느 주소에도 걸리지 않습니다. 조사 도구의
+     * {@code KEY_CONDITION} 과 같아야 합니다.
+     */
+    private static final java.util.regex.Pattern KEY_CONDITION = java.util.regex.Pattern.compile(
+            "[A-Za-z_](?:[A-Za-z0-9_.\\-]|%[0-9A-Fa-f]{2})*"
+                    + "(?:=(?:[A-Za-z0-9_.~\\-]|%(?!2[Cc])[0-9A-Fa-f]{2})+)?");
+
+    /**
      * 상세 패턴 파일. 한 줄이 {@code 열쇠,정규식} 이고 열쇠는 검색 주소의 호스트, 필요하면
      * {@code 호스트/경로조각} 입니다. 정규식에 쉼표가 있어도 되도록 첫 쉼표에서만 나눕니다.
      */
@@ -334,11 +366,11 @@ public final class OpacTemplates {
                 continue;
             }
             int q = key.indexOf('?');
-            if (q >= 0 && !key.substring(q + 1).matches("[A-Za-z_][\\w.\\-]*")) {
-                // 값까지 적거나(?a=1) 여럿을 적은(?a&b) 열쇠입니다. 조용히 넘기면 그 규칙은 어느 주소에도
-                // 걸리지 않아 「패턴이 있는데 상세로 안 간다」가 됩니다.
-                problems.add("상세 패턴 " + lineNo + "행: 열쇠의 ? 뒤에는 검색 주소의 칸 이름 하나가 와야 합니다 — "
-                        + parts[0]);
+            if (q >= 0 && !KEY_CONDITION.matcher(key.substring(q + 1)).matches()) {
+                // 칸을 여럿 적었거나(?a&b), 값이 비었거나(?a=), 값에 쉼표가 든(?a=MA%2CMB) 열쇠입니다. 조용히
+                // 넘기면 그 규칙은 어느 주소에도 걸리지 않아 「패턴이 있는데 상세로 안 간다」가 됩니다.
+                problems.add("상세 패턴 " + lineNo + "행: 열쇠의 ? 뒤에는 검색 주소의 칸 이름 하나(?칸이름)나 "
+                        + "칸 이름과 값 하나(?칸이름=값)가 와야 합니다 — " + parts[0]);
                 continue;
             }
             DetailRule rule;
@@ -360,8 +392,9 @@ public final class OpacTemplates {
 
     /**
      * 열쇠를 견줄 모양으로. 호스트와 경로는 소문자로 바꾸고 끝의 {@code /} 를 뗍니다.
-     * <b>{@code ?} 뒤의 칸 이름은 글자 그대로 둡니다.</b> 주소의 칸 이름은 대소문자를 가립니다
-     * ({@code searchLibraryArr} 를 소문자로 바꾸면 어느 주소에도 걸리지 않습니다).
+     * <b>{@code ?} 뒤의 칸 이름과 값은 글자 그대로 둡니다.</b> 주소의 칸 이름은 대소문자를 가립니다
+     * ({@code searchLibraryArr} 를 소문자로 바꾸면 어느 주소에도 걸리지 않습니다). 분관 부호의 값도
+     * 그렇습니다.
      */
     private static String normalizeKey(String raw) {
         String text = raw.strip();
@@ -433,6 +466,11 @@ public final class OpacTemplates {
      * ({@code www.l4d.or.kr?searchLibraryArr}). 같은 호스트의 통합 검색({@code searchLibrary=ALL})은
      * 한 도서관만 쓰는 주소여도 여기서 빠집니다.
      *
+     * <p>열쇠에 {@code ?칸이름=값} 으로 값까지 적혀 있으면 <b>그 칸이 바로 그 값인 주소에만</b> 걸립니다
+     * ({@code library.cheongju.go.kr?manage_code%5B%5D=MA}). 분관들이 호스트와 경로를 함께 쓰고 분관
+     * 부호의 값만 다른 시스템에서 분관마다 줄을 따로 거는 장치입니다. 차례는 경로가 긴 열쇠, 값까지 적은
+     * 열쇠, 칸 이름만 적은 열쇠, 조건 없는 열쇠입니다.
+     *
      * <p>자리표가 든 규칙 주소({@code /KeywordSearchResult/{isbn13}})도 받아야 하므로 URI 로
      * 파싱하지 않고 글자로 자릅니다.
      */
@@ -444,17 +482,21 @@ public final class OpacTemplates {
         for (DetailPattern candidate : patterns.values()) {
             if (!keyCovers(candidate.hostPath(), hostPath)) continue;
             String param = candidate.requiredParam();
-            if (param != null && !hasParam(url, param)) continue;
+            if (param != null && !hasParam(url, param, candidate.requiredValue())) continue;
             if (best == null || moreSpecific(candidate, best)) best = candidate;
         }
         return Optional.ofNullable(best);
     }
 
-    /** 경로가 더 긴 열쇠가 이기고, 같으면 칸 조건이 붙은 쪽이 이깁니다. */
+    /**
+     * 경로가 더 긴 열쇠가 이기고, 같으면 조건이 더 좁은 쪽이 이깁니다. 값까지 적은 열쇠({@code ?칸=값}),
+     * 칸 이름만 적은 열쇠({@code ?칸}), 조건 없는 열쇠의 차례입니다. 그래도 같으면 파일에서 먼저 나온
+     * 쪽이 남습니다. 조사 도구의 {@code pattern_for} 와 같은 차례여야 합니다.
+     */
     private static boolean moreSpecific(DetailPattern a, DetailPattern b) {
         int byPath = Integer.compare(a.hostPath().length(), b.hostPath().length());
         if (byPath != 0) return byPath > 0;
-        return a.requiredParam() != null && b.requiredParam() == null;
+        return a.conditionRank() > b.conditionRank();
     }
 
     /**
@@ -471,6 +513,16 @@ public final class OpacTemplates {
      * 셋 다 결과에 여러 분관의 소장본이 섞여 있어, 닻만으로는 누른 분관의 줄을 가를 수 없습니다.
      */
     static boolean hasParam(String url, String name) {
+        return hasParam(url, name, null);
+    }
+
+    /**
+     * {@link #hasParam(String, String)} 에 더해, {@code value} 가 있으면 <b>그 칸이 바로 그 값일 때만</b>
+     * 참입니다. 「좁혔다」의 조건(한 번만, 값이 있고, 쉼표 없이)은 그대로입니다. 값은 주소에 적힌 글자
+     * 그대로 견줍니다({@code MA} 와 {@code ma} 는 다른 값입니다). 규칙 주소의 자리표(표제나 ISBN)가
+     * 채워지기 전이든 뒤든 분관 칸의 글자는 같으므로 두 주소에 같은 답을 냅니다.
+     */
+    static boolean hasParam(String url, String name, String value) {
         int q = url.indexOf('?');
         if (q < 0) return false;
         String query = url.substring(q + 1);
@@ -482,8 +534,9 @@ public final class OpacTemplates {
             int eq = pair.indexOf('=');
             if (eq <= 0 || !pair.substring(0, eq).equals(name)) continue;
             seen++;
-            String value = pair.substring(eq + 1);
-            single = !value.isEmpty() && !value.contains(",") && !value.toLowerCase(Locale.ROOT).contains("%2c");
+            String found = pair.substring(eq + 1);
+            single = !found.isEmpty() && !found.contains(",") && !found.toLowerCase(Locale.ROOT).contains("%2c")
+                    && (value == null || found.equals(value));
         }
         return seen == 1 && single;
     }
