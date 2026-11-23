@@ -1377,9 +1377,6 @@
 131028,ISBN_SEARCH,UTF-8,https://library.ulsan.go.kr/lib/lib/unit/search/localList.do?mId=001001002000000000&option=detail&libcodes=131028&isbn={isbn13}
 131021,ISBN_SEARCH,UTF-8,https://library.ulsan.go.kr/lib/lib/unit/search/localList.do?mId=001001002000000000&option=detail&libcodes=131021&isbn={isbn13}
 131016,ISBN_SEARCH,UTF-8,https://library.ulsan.go.kr/lib/lib/unit/search/localList.do?mId=001001002000000000&option=detail&libcodes=131016&isbn={isbn13}
-148014,ISBN_SEARCH,UTF-8,https://library.ulsan.go.kr/lib/lib/unit/search/localList.do?mId=001001002000000000&option=detail&libcodes=148014&isbn={isbn13}
-148015,ISBN_SEARCH,UTF-8,https://library.ulsan.go.kr/lib/lib/unit/search/localList.do?mId=001001002000000000&option=detail&libcodes=148015&isbn={isbn13}
-148018,ISBN_SEARCH,UTF-8,https://library.ulsan.go.kr/lib/lib/unit/search/localList.do?mId=001001002000000000&option=detail&libcodes=148018&isbn={isbn13}
 131022,ISBN_SEARCH,UTF-8,https://library.ulsan.go.kr/lib/lib/unit/search/localList.do?mId=001001002000000000&option=detail&libcodes=131022&isbn={isbn13}
 121002,ISBN_SEARCH,UTF-8,https://library.busan.go.kr/gdbooks/book/search/collectionOfMaterials?searchMode=detail&procMode=search&search_type=detail&pageno=1&display=10&manage_code=AA&option=0&search_isbn_issn={isbn13}
 126156,ISBN_SEARCH,UTF-8,https://library.busan.go.kr/gsmbooks/book/search/collectionOfMaterials?searchMode=detail&procMode=search&search_type=detail&pageno=1&display=10&manage_code=BQ&option=0&search_isbn_issn={isbn13}
