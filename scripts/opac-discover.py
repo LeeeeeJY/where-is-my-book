@@ -1243,12 +1243,20 @@ def import_findings(path: str, libs: list[dict]) -> int:
     return 1 if problems and taken == 0 else 0
 
 
+# 열쇠의 `?` 뒤에 올 수 있는 것. `칸이름` 하나이거나 `칸이름=값` 하나입니다. 서버(OpacTemplates.KEY_CONDITION)와
+# 같은 정규식이어야 합니다. 값에 쉼표(%2C)를 받지 않는 것은, 쉼표로 늘어놓은 값이 「좁힌 검색」이 아니라서
+# 그런 열쇠가 어느 주소에도 걸리지 않기 때문입니다.
+KEY_CONDITION = re.compile(r"[A-Za-z_](?:[A-Za-z0-9_.\-]|%[0-9A-Fa-f]{2})*"
+                           r"(?:=(?:[A-Za-z0-9_.~\-]|%(?!2[Cc])[0-9A-Fa-f]{2})+)?")
+
+
 def pattern_key(raw: str) -> str:
     """상세 패턴의 열쇠를 서버(OpacTemplates.normalizeKey)와 같은 모양으로.
 
-    호스트와 경로는 소문자로 바꾸고 끝의 `/` 를 뗍니다. **`?` 뒤의 칸 이름은 글자 그대로 둡니다.**
+    호스트와 경로는 소문자로 바꾸고 끝의 `/` 를 뗍니다. **`?` 뒤의 칸 이름과 값은 글자 그대로 둡니다.**
     `www.l4d.or.kr?searchLibraryArr` 는 「검색 주소에 searchLibraryArr 가 값과 함께 있을 때만」이라는
     뜻이고, 주소의 칸 이름은 대소문자를 가립니다. 소문자로 바꾸면 어느 주소에도 걸리지 않습니다.
+    `library.cheongju.go.kr?manage_code%5B%5D=MA` 처럼 값까지 적으면 「그 칸이 바로 그 값일 때만」입니다.
     """
     text = raw.strip()
     host_path, sep, param = text.partition("?")
@@ -1256,31 +1264,51 @@ def pattern_key(raw: str) -> str:
     return host_path + ("?" + param.strip() if sep else "")
 
 
+def key_condition(key: str) -> tuple[str | None, str | None]:
+    """열쇠의 조건을 (칸 이름, 값)으로. 조건이 없으면 (None, None), 칸 이름만 있으면 값이 None 입니다."""
+    _, sep, cond = key.partition("?")
+    if not sep:
+        return None, None
+    name, eq, value = cond.partition("=")
+    return name, (value if eq else None)
+
+
 def pattern_covers(key: str, url: str) -> bool:
     """그 열쇠의 규칙이 이 검색 주소에 걸리는지. 서버(OpacTemplates.detailPatternFor)와 같습니다."""
-    host_path, sep, param = key.partition("?")
+    host_path = key.partition("?")[0]
+    param, want = key_condition(key)
     rest = re.sub(r"^https?://", "", url.strip())
     path_part = re.split(r"[?#]", rest)[0]
     host, slash, path = path_part.partition("/")
     here = (re.sub(r":\d+$", "", host) + (slash + path if slash else "")).lower().rstrip("/")
     if not (here == host_path or here.startswith(host_path + "/")):
         return False
-    if not sep:
+    if param is None:
         return True
     # 그 칸이 **값 하나로** 있어야 합니다. 빈 값, 여러 번 나오는 칸(연천·광산), 쉼표로 늘어놓은 값(사하)은
-    # 분관을 좁힌 것이 아니라 통합 검색입니다. 서버의 OpacTemplates.hasParam 과 같습니다.
+    # 분관을 좁힌 것이 아니라 통합 검색입니다. 열쇠에 값까지 적혀 있으면 그 값과 글자 그대로 같아야 합니다.
+    # 서버의 OpacTemplates.hasParam 과 같습니다.
     query = rest.partition("?")[2].split("#")[0]
-    values = [pair.partition("=")[2] for pair in query.split("&") if pair.partition("=")[0] == param]
-    return len(values) == 1 and bool(values[0]) and "," not in values[0] and "%2c" not in values[0].lower()
+    values = [pair.partition("=")[2] for pair in query.split("&")
+              if "=" in pair and pair.partition("=")[0] == param]
+    if not (len(values) == 1 and bool(values[0]) and "," not in values[0] and "%2c" not in values[0].lower()):
+        return False
+    return want is None or values[0] == want
 
 
 def pattern_for(patterns: dict[str, str], url: str) -> tuple[str, str] | None:
-    """이 검색 주소에 걸리는 (열쇠, 규칙). 경로가 긴 열쇠가 이기고 같으면 칸 조건이 붙은 쪽이 이깁니다."""
+    """이 검색 주소에 걸리는 (열쇠, 규칙).
+
+    경로가 긴 열쇠가 이기고, 같으면 조건이 좁은 쪽이 이깁니다. 값까지 적은 열쇠(`?칸=값`), 칸 이름만 적은
+    열쇠(`?칸`), 조건 없는 열쇠의 차례입니다. 그래도 같으면 파일에서 먼저 나온 쪽이 남습니다. 서버의
+    OpacTemplates.moreSpecific 과 같은 차례여야 합니다.
+    """
     best = None
     for key, rule in patterns.items():
         if not pattern_covers(key, url):
             continue
-        rank = (len(key.partition("?")[0]), "?" in key)
+        param, want = key_condition(key)
+        rank = (len(key.partition("?")[0]), 2 if want is not None else 1 if param is not None else 0)
         if best is None or rank > best[0]:
             best = (rank, key, rule)
     return (best[1], best[2]) if best else None
@@ -1340,9 +1368,11 @@ def import_patterns(path: str, libs: list[dict], csv_path: str = DEFAULT_PATTERN
         if not host_key or host_key.startswith("/") or "://" in host_key:
             problems.append(f"{where}: 열쇠는 호스트(또는 호스트/경로)여야 합니다 — {parts[2]}")
             continue
-        # 열쇠 뒤의 ?칸이름 은 「그 칸이 값과 함께 있는 검색 주소에만」이라는 조건입니다(서버와 같은 문법).
-        if "?" in host_key and not re.fullmatch(r"[A-Za-z_][\w.\-]*", host_key.partition("?")[2]):
-            problems.append(f"{where}: 열쇠의 ? 뒤에는 검색 주소의 칸 이름 하나가 와야 합니다 — {parts[2]}")
+        # 열쇠 뒤의 ?칸이름 은 「그 칸이 값과 함께 있는 검색 주소에만」, ?칸이름=값 은 「그 칸이 바로 그 값인
+        # 검색 주소에만」이라는 조건입니다(서버와 같은 문법).
+        if "?" in host_key and not KEY_CONDITION.fullmatch(host_key.partition("?")[2]):
+            problems.append(f"{where}: 열쇠의 ? 뒤에는 검색 주소의 칸 이름 하나(?칸이름)나 칸 이름과 값 하나"
+                            f"(?칸이름=값)가 와야 합니다 — {parts[2]}")
             continue
         # 남의 기관 호스트에 패턴을 다는 것은 규칙을 남의 도메인으로 보내는 것과 같은 자국입니다.
         if registrable_domain(host_key.partition("?")[0].split("/")[0]) != registrable_domain(key.split("/")[0]):
