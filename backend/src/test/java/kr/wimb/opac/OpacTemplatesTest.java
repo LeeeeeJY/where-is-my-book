@@ -379,11 +379,114 @@ class OpacTemplatesTest {
     }
 
     @Test
-    @DisplayName("열쇠의 ? 뒤에 칸 이름 하나가 아닌 것이 오면 뜰 때 걸린다")
+    @DisplayName("열쇠의 ? 뒤에 칸 이름 하나나 칸이름=값 하나가 아닌 것이 오면 뜰 때 걸린다")
     void rejectsMalformedRequiredParam() {
-        for (String key : List.of("lib.example.kr?a=1", "lib.example.kr?a&b", "lib.example.kr?")) {
+        // 조사 도구(test-opac-discover.py 의 「열쇠 조건의 문법」)와 같은 사례입니다. 한쪽을 고치면 다른 쪽도 고칩니다.
+        for (String key : List.of(
+                "lib.example.kr?a&b", "lib.example.kr?", "lib.example.kr?a=", "lib.example.kr?=MA",
+                "lib.example.kr?a=1&b=2", "lib.example.kr?a=1=2", "lib.example.kr?a=MA%2CMB",
+                "lib.example.kr?a=MA%2cMB", "lib.example.kr?a=M A", "lib.example.kr?a=%ZZ",
+                "lib.example.kr?a={title}", "lib.example.kr?1a", "lib.example.kr?a%5")) {
             assertThrows(IllegalStateException.class, () -> with(NOWON_LIKE, key + ",href=\"(/d/[^\"]+)\""), key);
         }
+        for (String key : List.of(
+                "lib.example.kr?a", "lib.example.kr?a=1", "lib.example.kr?manage_code%5B%5D",
+                "lib.example.kr?manage_code%5B%5D=MA", "lib.example.kr/path?searchLibraryArr=MB",
+                "lib.example.kr?lib.code-x=141137", "lib.example.kr?a=%EA%B0%80~1")) {
+            assertEquals(1, with(NOWON_LIKE, key + ",href=\"(/d/[^\"]+)\"").patternCount(), key);
+        }
+    }
+
+    @Test
+    @DisplayName("열쇠에 ?칸이름=값 이 붙으면 그 칸이 바로 그 값인 검색 주소에만 걸린다")
+    void keyWithRequiredValueOnlyCoversThatBranch() {
+        // 청주의 모양입니다(2026-11-23). 분관들이 호스트와 경로를 함께 쓰고 분관 부호의 값만 다릅니다.
+        // 프레임 주소에는 그 분관의 부호를 글자로 적어야 해서 분관마다 줄을 따로 겁니다.
+        // 조사 도구(test-opac-discover.py 의 「값까지 적은 열쇠」)와 같은 사례입니다.
+        String base = "https://library.cheongju.go.kr/lib/front/index.php?g_page=search&m_page=search01";
+        var templates = with(List.of(
+                "111111,TITLE_SEARCH,UTF-8," + base + "&manage_code%5B%5D=MA&search_txt={title}",
+                "222222,TITLE_SEARCH,UTF-8," + base + "&manage_code%5B%5D=MB&search_txt={title}",
+                "333333,TITLE_SEARCH,UTF-8," + base + "&manage_code%5B%5D=MC&search_txt={title}",
+                "444444,TITLE_SEARCH,UTF-8," + base + "&manage_code%5B%5D=MF&search_txt={title}",
+                "444444,ISBN_SEARCH,UTF-8," + base + "&search_isbn_issn={isbn13}&manage_code_detail=MF",
+                "555555,TITLE_SEARCH,UTF-8," + base + "&manage_code%5B%5D=MA&manage_code%5B%5D=MB&search_txt={title}",
+                "666666,TITLE_SEARCH,UTF-8," + base + "&manage_code%5B%5D=ma&search_txt={title}",
+                "777777,TITLE_SEARCH,UTF-8," + base + "&manage_code[]=MA&search_txt={title}"),
+                "library.cheongju.go.kr?manage_code_detail,class=\"book_name\">\\s*<a href=\"([^\"]*act=view)\"",
+                "library.cheongju.go.kr?manage_code%5B%5D=MA,@frame:" + base
+                        + "&search_isbn_issn={isbn13}&manage_code_detail=MA => @anchor:href=\"([^\"]*act=view)\"",
+                "library.cheongju.go.kr?manage_code%5B%5D=MB,@frame:" + base
+                        + "&search_isbn_issn={isbn13}&manage_code_detail=MB => @anchor:href=\"([^\"]*act=view)\"");
+
+        assertEquals(OpacLink.Kind.DETAIL_LOOKUP, templates.kindFor("111111"));
+        assertEquals("library.cheongju.go.kr?manage_code%5B%5D=MA",
+                templates.titleDetailPatternFor("111111").orElseThrow().key());
+        assertEquals("library.cheongju.go.kr?manage_code%5B%5D=MB",
+                templates.titleDetailPatternFor("222222").orElseThrow().key());
+        // 줄을 걸지 않은 분관은 제목 검색에 머뭅니다. 남의 분관의 프레임으로 가지 않습니다.
+        assertEquals(OpacLink.Kind.TITLE_SEARCH, templates.kindFor("333333"));
+        assertTrue(templates.titleDetailPatternFor("333333").isEmpty());
+        // ISBN 검색 줄이 이미 있는 분관은 그 줄의 열쇠(칸 이름만)를 그대로 씁니다.
+        assertEquals(OpacLink.Kind.DETAIL_LOOKUP, templates.kindFor("444444"));
+        assertEquals("library.cheongju.go.kr?manage_code_detail", templates.detailPatternFor(
+                base + "&search_isbn_issn=9788937473135&manage_code_detail=MF").orElseThrow().key());
+        assertTrue(templates.titleDetailPatternFor("444444").isEmpty());
+        // 그 값이 들어 있어도 칸이 두 번이면 좁힌 검색이 아닙니다.
+        assertEquals(OpacLink.Kind.TITLE_SEARCH, templates.kindFor("555555"));
+        // 값은 글자 그대로 견줍니다. 대소문자가 다르면 다른 값이고, 이름의 인코딩이 다르면 다른 칸입니다.
+        assertEquals(OpacLink.Kind.TITLE_SEARCH, templates.kindFor("666666"));
+        assertEquals(OpacLink.Kind.TITLE_SEARCH, templates.kindFor("777777"));
+
+        // 채운 주소(누를 때 서버가 받는 것)로 물어도 같습니다.
+        assertEquals("library.cheongju.go.kr?manage_code%5B%5D=MA", templates.detailPatternFor(
+                base + "&manage_code%5B%5D=MA&search_txt=%EB%8D%B0%EB%AF%B8%EC%95%88").orElseThrow().key());
+        assertTrue(templates.detailPatternFor(
+                base + "&manage_code%5B%5D=MC&search_txt=%EB%8D%B0%EB%AF%B8%EC%95%88").isEmpty());
+        // 값이 그 글자로 시작하기만 하는 것은 그 값이 아닙니다.
+        assertTrue(templates.detailPatternFor(base + "&manage_code%5B%5D=MAX&search_txt=1").isEmpty());
+    }
+
+    @Test
+    @DisplayName("차례는 경로가 긴 열쇠, 값까지 적은 열쇠, 칸 이름만 적은 열쇠, 조건 없는 열쇠다")
+    void keyOrderIsPathThenValueThenParamThenBare() {
+        // 조사 도구(test-opac-discover.py 의 「열쇠의 차례」)와 같은 사례입니다.
+        // 파일에 적힌 차례와 무관해야 하므로 좁은 것을 뒤에도 앞에도 둡니다.
+        var templates = with(List.of(),
+                "lib.example.kr,href=\"(/bare/[^\"]+)\"",
+                "lib.example.kr?lib,href=\"(/param/[^\"]+)\"",
+                "lib.example.kr?lib=MA,href=\"(/value/[^\"]+)\"",
+                "lib.example.kr/small?lib=MB,href=\"(/pathvalue/[^\"]+)\"",
+                "lib.example.kr/small,href=\"(/path/[^\"]+)\"");
+
+        assertEquals("lib.example.kr?lib=MA",
+                templates.detailPatternFor("https://lib.example.kr/s?lib=MA&q=1").orElseThrow().key());
+        assertEquals("lib.example.kr?lib",
+                templates.detailPatternFor("https://lib.example.kr/s?lib=MB&q=1").orElseThrow().key());
+        assertEquals("lib.example.kr",
+                templates.detailPatternFor("https://lib.example.kr/s?q=1").orElseThrow().key());
+        assertEquals("lib.example.kr",
+                templates.detailPatternFor("https://lib.example.kr/s?lib=MA&lib=MB&q=1").orElseThrow().key());
+        // 경로가 긴 열쇠는 조건이 없어도 호스트 열쇠의 값 조건을 이깁니다.
+        assertEquals("lib.example.kr/small",
+                templates.detailPatternFor("https://lib.example.kr/small/s?lib=MA&q=1").orElseThrow().key());
+        // 같은 경로 안에서는 값까지 적은 쪽이 이깁니다.
+        assertEquals("lib.example.kr/small?lib=MB",
+                templates.detailPatternFor("https://lib.example.kr/small/s?lib=MB&q=1").orElseThrow().key());
+    }
+
+    @Test
+    @DisplayName("hasParam 에 값을 주면 그 칸이 한 번만, 바로 그 값일 때만 참이다")
+    void hasParamWithValue() {
+        assertTrue(OpacTemplates.hasParam("https://x.kr/s?manageCode=MA&q={title}", "manageCode", "MA"));
+        assertFalse(OpacTemplates.hasParam("https://x.kr/s?manageCode=MB&q={title}", "manageCode", "MA"));
+        assertFalse(OpacTemplates.hasParam("https://x.kr/s?manageCode=MA&manageCode=MA&q={title}", "manageCode", "MA"));
+        assertFalse(OpacTemplates.hasParam("https://x.kr/s?manageCode=MA%2CMB", "manageCode", "MA%2CMB"));
+        assertFalse(OpacTemplates.hasParam("https://x.kr/s?manageCode=&q=1", "manageCode", ""));
+        assertFalse(OpacTemplates.hasParam("https://x.kr/s?xmanageCode=MA", "manageCode", "MA"));
+        assertFalse(OpacTemplates.hasParam("https://x.kr/s?q=1#manageCode=MA", "manageCode", "MA"));
+        // 값을 주지 않으면 예전과 같습니다.
+        assertTrue(OpacTemplates.hasParam("https://x.kr/s?manageCode=MB&q={title}", "manageCode", null));
     }
 
     @Test
