@@ -2,6 +2,7 @@ package kr.wimb.shelf;
 
 import kr.wimb.data4library.Data4LibraryClient;
 import kr.wimb.ingest.DailyCallLedger;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -13,7 +14,9 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneId;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -31,10 +34,27 @@ class ShelfServiceTest {
 
     private static final Kdc SUBJECT = Kdc.LITERATURE;
 
+    /** 이 시험이 만든 것들. 끝날 때 뒤에서 도는 일을 기다리려고 모아 둡니다. */
+    private final List<Fixture> fixtures = new CopyOnWriteArrayList<>();
+
+    /**
+     * <b>뒤에서 세우는 일이 끝난 뒤에 시험을 끝냅니다.</b>
+     *
+     * <p>낡은 서가를 들여다보면 갱신이 뒤에서 시작됩니다. 시험이 그것을 기다리지 않고 끝나면
+     * JUnit 이 임시 폴더를 지우는 동안 수집기가 그 폴더에 파일을 적고, 지우기가 실패해 시험이
+     * 실패로 찍힙니다. 실제로 이미지를 만드는 빌드가 그렇게 한 번 멈췄습니다(2026-11-23,
+     * 「기한이 지난 서가도 그대로 보여 주고 갱신은 뒤에서 한다」). 로컬에서는 거의 나지 않아
+     * 시험마다 기다림을 적어 두는 것으로는 빠뜨린 자리를 찾을 수 없습니다. 여기서 한 번에 기다립니다.
+     */
+    @AfterEach
+    void letBackgroundBuildsFinish() throws InterruptedException {
+        for (Fixture fixture : fixtures) fixture.awaitDone();
+    }
+
     @Test
     @DisplayName("아직 아무도 열지 않은 서가는 고장이 아니라 「없음」이다")
     void notBuiltYetIsANormalState(@TempDir Path dir) {
-        var fixture = new Fixture(dir);
+        var fixture = fixture(dir);
 
         var status = fixture.service.status("141321", SUBJECT);
 
@@ -45,7 +65,7 @@ class ShelfServiceTest {
     @Test
     @DisplayName("세워 둔 서가를 보는 데는 정보나루를 한 번도 부르지 않는다")
     void readingABuiltShelfCostsNothing(@TempDir Path dir) throws Exception {
-        var fixture = new Fixture(dir);
+        var fixture = fixture(dir);
         fixture.writeShelf("141321", "2026-09-20", "2026-09-20", 100);
         fixture.calls.set(0);
 
@@ -64,7 +84,7 @@ class ShelfServiceTest {
     @Test
     @DisplayName("기한이 지난 서가도 그대로 보여 주고 갱신은 뒤에서 한다")
     void staleShelvesAreStillServed(@TempDir Path dir) throws Exception {
-        var fixture = new Fixture(dir);
+        var fixture = fixture(dir);
         fixture.writeShelf("141321", "2026-08-01", "2026-08-01", 100);
 
         var status = fixture.service.status("141321", SUBJECT);
@@ -81,7 +101,7 @@ class ShelfServiceTest {
     @Test
     @DisplayName("같은 서가를 두 번 눌러도 한 번만 세운다")
     void buildsOnlyOnceForTheSameShelf(@TempDir Path dir) throws Exception {
-        var fixture = new Fixture(dir);
+        var fixture = fixture(dir);
         fixture.blockBuild();
 
         fixture.service.build("141321", SUBJECT);
@@ -104,7 +124,7 @@ class ShelfServiceTest {
     @Test
     @DisplayName("하루 몫이 얼마 남지 않으면 서가를 세우지 않는다")
     void doesNotBuildWhenTheDailyBudgetIsNearlyGone(@TempDir Path dir) {
-        var fixture = new Fixture(dir, 3_000);   // 남은 몫보다 큰 예비를 둡니다.
+        var fixture = fixture(dir, 3_000);   // 남은 몫보다 큰 예비를 둡니다.
 
         var status = fixture.service.build("141321", SUBJECT);
 
@@ -122,7 +142,7 @@ class ShelfServiceTest {
     @Test
     @DisplayName("권수가 그대로면 다시 세우지 않고 확인한 날만 올린다")
     void skipsRebuildWhenTheCountIsUnchanged(@TempDir Path dir) throws Exception {
-        var fixture = new Fixture(dir);
+        var fixture = fixture(dir);
         fixture.writeShelf("141321", "2026-08-01", "2026-08-01", 7);
         fixture.numFound.set(7);   // 그대로입니다.
         fixture.calls.set(0);
@@ -149,7 +169,7 @@ class ShelfServiceTest {
     @Test
     @DisplayName("순서 규칙이 바뀌면 권수가 그대로여도 다시 세운다")
     void rebuildsWhenTheOrderingRuleChanged(@TempDir Path dir) throws Exception {
-        var fixture = new Fixture(dir);
+        var fixture = fixture(dir);
         // 날짜는 오늘이라 기한으로는 낡지 않았고, 권수도 그대로입니다.
         fixture.writeShelf("141321", "2026-09-20", "2026-09-20", 3, ShelfSortKey.VERSION - 1);
         fixture.numFound.set(3);
@@ -173,7 +193,7 @@ class ShelfServiceTest {
     @Test
     @DisplayName("판 번호가 없는 옛 차림표도 다시 세운다")
     void rebuildsMetaWrittenBeforeTheVersionExisted(@TempDir Path dir) throws Exception {
-        var fixture = new Fixture(dir);
+        var fixture = fixture(dir);
         fixture.writeShelf("141321", "2026-09-20", "2026-09-20", 3, 0);
 
         assertTrue(fixture.service.status("141321", SUBJECT).stale());
@@ -190,7 +210,7 @@ class ShelfServiceTest {
     @Test
     @DisplayName("적는 모양이 바뀌면 권수가 그대로여도 다시 세운다")
     void rebuildsWhenTheWrittenShapeIsOlder(@TempDir Path dir) throws Exception {
-        var fixture = new Fixture(dir);
+        var fixture = fixture(dir);
         // 날짜도 오늘이고 순서 판 번호도 지금 것이고 권수도 그대로입니다. 모양만 예전 것입니다.
         fixture.writeShelfWithOlderShape("141321", "2026-09-20", 3);
         fixture.numFound.set(3);
@@ -217,7 +237,7 @@ class ShelfServiceTest {
     @Test
     @DisplayName("예전 이름으로 적힌 findable 을 판 번호로 옮겨 읽는다")
     void readsTheOldFindableFlagAsAShapeVersion(@TempDir Path dir) throws Exception {
-        var fixture = new Fixture(dir);
+        var fixture = fixture(dir);
         fixture.writeLegacyFindableShelf("141321", "2026-09-20", 3);
 
         // 갈래 구간이 없으니 낡은 것은 맞습니다. 다시 세우기는 합니다.
@@ -239,6 +259,16 @@ class ShelfServiceTest {
     private static final Clock NOON =
             Clock.fixed(Instant.parse("2026-09-20T03:00:00Z"), ZoneId.of("UTC"));
 
+    private Fixture fixture(Path dir) {
+        return fixture(dir, 0);
+    }
+
+    private Fixture fixture(Path dir, int reserve) {
+        var fixture = new Fixture(dir, reserve);
+        fixtures.add(fixture);
+        return fixture;
+    }
+
     private static final class Fixture {
         final AtomicInteger calls = new AtomicInteger();
         final AtomicInteger numFound = new AtomicInteger(3);
@@ -246,10 +276,6 @@ class ShelfServiceTest {
         final Path dir;
         final ShelfService service;
         final ShelfStore store;
-
-        Fixture(Path dir) {
-            this(dir, 0);
-        }
 
         Fixture(Path dir, int reserve) {
             this.dir = dir;
@@ -318,6 +344,19 @@ class ShelfServiceTest {
                 Thread.sleep(10);
             }
             fail("서가를 세우기 시작하지 않았습니다");
+        }
+
+        /**
+         * 붙들어 둔 것을 풀고, 뒤에서 세우는 일이 <b>전부 끝날 때까지</b> 기다립니다. 시험이 끝날
+         * 때 부릅니다. 호출 수가 멈췄는지로 보는 {@link #awaitIdle} 과 달리 서비스에 직접
+         * 물어보므로, 마지막 호출 뒤에 파일을 적는 동안에도 기다립니다.
+         */
+        void awaitDone() throws InterruptedException {
+            releaseBuild();
+            for (int i = 0; i < 1_000 && !service.idle(); i++) {
+                Thread.sleep(10);
+            }
+            if (!service.idle()) fail("뒤에서 세우는 일이 10초 안에 끝나지 않았습니다");
         }
 
         /** 뒤에서 도는 일이 끝나기를 기다립니다. */

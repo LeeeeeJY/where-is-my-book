@@ -79,6 +79,16 @@ public class ShelfService {
     private final Map<String, ShelfHarvester.Progress> building = new ConcurrentHashMap<>();
 
     /**
+     * 뒤에서 세우는 일이 하나도 없는지. <b>시험이 임시 폴더를 지우기 전에 기다리는 데 씁니다.</b>
+     *
+     * <p>{@link #status} 로는 이것을 알 수 없습니다. 낡은 서가를 들여다보면 그 자리에서 갱신이
+     * 다시 시작되므로, 「끝났나」를 물어보는 일이 새 일을 만듭니다.
+     */
+    boolean idle() {
+        return building.isEmpty();
+    }
+
+    /**
      * 세우는 일을 맡는 곳. <b>요청을 처리하는 스레드에서 세우지 않습니다.</b> 몇십 초가
      * 걸리는 일이라 그대로 두면 요청이 그만큼 잡혀 있고, 사람은 화면이 멈춘 것으로
      * 읽습니다. 시작만 하고 바로 답한 뒤 진행률을 따로 물어보게 합니다.
