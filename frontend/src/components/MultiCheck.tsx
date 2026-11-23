@@ -363,6 +363,12 @@ export function MultiCheck({
         </span>
       </header>
 
+      {/*
+        **세 단계가 세로 노선 하나에 역 셋으로 이어집니다**(`.flow`). 번호만 달았을 때보다
+        ① → ② → ③ 이 한 줄기라는 것이 눈에 먼저 들어옵니다. 선은 CSS 가 긋고, 여기서는
+        세 단계를 한 상자에 담기만 합니다.
+      */}
+      <div className="flow">
       <StepTitle
         no={1}
         title="목록 넣기"
@@ -505,6 +511,7 @@ export function MultiCheck({
           />
         </>
       )}
+      </div>
     </section>
   );
 }
@@ -614,6 +621,7 @@ function LineRow({
           <ChosenBook
             work={chosen}
             tag={row.status === 'AMBIGUOUS' ? (row.picked ? '직접 선택' : '자동 선택') : '확정'}
+            soft={row.status === 'AMBIGUOUS' && !row.picked}
             tagTitle={row.status === 'AMBIGUOUS'
               ? row.picked
                 ? '직접 고른 책입니다.'
@@ -732,7 +740,15 @@ function LineRow({
  *
  * <p>정보나루 책 정보 링크는 <b>책마다 여기 한 번만</b> 답니다. 도서관 링크는 ③ 에 있습니다.
  */
-function ChosenBook({ work, tag, tagTitle }: { work: WorkResult; tag: string; tagTitle: string }) {
+function ChosenBook({
+  work, tag, tagTitle, soft = false,
+}: {
+  work: WorkResult;
+  tag: string;
+  tagTitle: string;
+  /** 우리가 대신 고른 것. 사람이 고르거나 제목이 그대로 맞은 것보다 약하게 그립니다. */
+  soft?: boolean;
+}) {
   return (
     <div className="pick pick--on pick--chosen">
       <Cover url={work.coverUrl} />
@@ -747,7 +763,7 @@ function ChosenBook({ work, tag, tagTitle }: { work: WorkResult; tag: string; ta
           <span className="pick__meta muted">{editionLine(work.editionLabels)}</span>
         )}
       </span>
-      <span className="pick__tag" title={tagTitle}>✓ {tag}</span>
+      <span className={soft ? 'pick__tag pick__tag--soft' : 'pick__tag'} title={tagTitle}>✓ {tag}</span>
       {/*
         칩을 격자(.pick__body)에 바로 두면 칸 폭만큼 늘어나 카드 너비의 단추가 됩니다.
         한 권 검색과 같은 줄(.book__links)에 담아 제 크기로 둡니다.
@@ -858,9 +874,14 @@ function StatusBadge({
   /** 소장일 때 배지에 적을 말. 「3곳에 있음」처럼 숫자를 그 자리에서 보여 줍니다. */
   heldLabel: string;
 }) {
-  if (status === 'UNREADABLE') return <span className="badge badge--warn">읽지 못함</span>;
+  /*
+    **고쳐야 하는 줄은 점선이고, 확인하지 못한 줄만 노랑입니다.** 예전에는 셋 다 노란
+    표시였는데, 노랑은 「확인 불가」에만 쓰기로 한 색입니다. 읽지 못한 줄과 책을 찾지 못한
+    줄은 사용자가 줄을 고치면 낫는 것이라 행동이 다릅니다.
+  */
+  if (status === 'UNREADABLE') return <span className="badge badge--fix">읽지 못함</span>;
   if (status === 'LOOKUP_FAILED') return <span className="badge badge--warn">확인 불가</span>;
-  if (status === 'NOT_FOUND') return <span className="badge badge--warn">책을 찾지 못함</span>;
+  if (status === 'NOT_FOUND') return <span className="badge badge--fix">책을 찾지 못함</span>;
   /*
     **배지는 소장 상태를 말합니다.** 어느 판으로 보았는가는 바로 아래 카드의 「자동 선택」
     표시가 말하므로 여기서 다시 말하지 않습니다. 예전에는 도서관을 고르지 않았을 때도
@@ -869,7 +890,7 @@ function StatusBadge({
   if (state === 'pending') return <span className="badge">{pendingLabel}</span>;
   if (state === 'unknown') return <span className="badge badge--warn">확인 불가</span>;
   if (state === 'held') return <span className="badge badge--ok">{heldLabel}</span>;
-  if (state === 'none') return <span className="badge">없음</span>;
+  if (state === 'none') return <span className="badge badge--none">없음</span>;
   return <span className="badge">확인 전</span>;
 }
 
@@ -928,6 +949,13 @@ function LibrarySection({
           position={position}
         />
       </p>
+
+      <TripRoute
+        ranks={ranks}
+        plan={plan}
+        needsCheck={needsCheck}
+        selectedCount={selectedCount}
+      />
 
       {ranks.length > 0 && (
         <ul className="rank-list">
@@ -1017,6 +1045,43 @@ function LibrarySummary({
  * 도서관 한 줄. 머리는 이름, 「전부 있음」, 거리, 권수뿐이고 눌러서 펼칩니다. 펼치면
  * 있는 책, 없는 책, 대출 상태 확인, 홈페이지 링크가 나옵니다.
  */
+/**
+ * 여러 곳을 엮은 조합을 짧은 노선으로 그립니다. 도서관이 역이고 마지막 역이 「전부」입니다.
+ *
+ * <p><b>바로 위 문장과 같은 때에만 나옵니다.</b> 한 곳에 다 있는 도서관이 없고 엮을 곳이
+ * 둘 이상일 때입니다. 조건이 갈리면 문장은 없는데 그림만 남습니다.
+ *
+ * <p><b>링크를 달지 않고, 화면을 읽어 주는 쪽에는 감춥니다.</b> 같은 도서관이 바로 아래
+ * 목록에 있고, 같은 말을 위 문장이 이미 했습니다.
+ */
+function TripRoute({
+  ranks, plan, needsCheck, selectedCount,
+}: {
+  ranks: LibraryRank[];
+  plan: TripStep[];
+  needsCheck: boolean;
+  selectedCount: number;
+}) {
+  if (selectedCount === 0 || needsCheck || ranks.length === 0) return null;
+  if (ranks.some((rank) => rank.full) || plan.length < 2) return null;
+  const last = plan[plan.length - 1];
+  return (
+    <ol className="route" aria-hidden="true">
+      {plan.map((step, index) => (
+        <li key={step.name} className="route__stop">
+          <span className="route__name">{step.name}</span>
+          <span className="route__count muted">
+            {index === 0 ? `${step.added}권` : `${step.added}권 더`}
+          </span>
+        </li>
+      ))}
+      <li className="route__stop route__stop--end">
+        <span className="route__name">{last.cumulative}권 전부</span>
+      </li>
+    </ol>
+  );
+}
+
 function LibraryRow({
   rank, library, books, sweep, onSweep, open, onToggle, checking,
 }: {
