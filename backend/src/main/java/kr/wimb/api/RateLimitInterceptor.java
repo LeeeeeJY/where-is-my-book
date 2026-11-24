@@ -48,6 +48,8 @@ public final class RateLimitInterceptor implements HandlerInterceptor {
         if (path.startsWith("/api/shelf")) return "POST".equals(method) ? 120 : 1;
         // 진단은 열 때마다 정보나루를 한 번 씁니다. 자동으로 새로 고치면 안 되는 화면이라
         // 사람이 누르는 속도보다 빠르면 막습니다.
+        // 다만 호스트별 상세 집계는 서버가 세어 둔 것을 읽을 뿐이라 /api/status 와 같은 값입니다.
+        if (path.startsWith("/api/diagnose/opac/hosts")) return 1;
         if (path.startsWith("/api/diagnose")) return 5;
         // 도서관으로 넘기는 것은 정보나루를 부르지 않지만, 상세 패턴이 있는 도서관에서는
         // 그 도서관 OPAC 페이지를 한 번 받습니다. 남의 서버라 한 번으로 세지는 않습니다.
