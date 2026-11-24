@@ -182,10 +182,22 @@ public final class DetailResolver {
     private final AtomicLong missed = new AtomicLong();
     private final AtomicLong failed = new AtomicLong();
     private final AtomicLong cacheHits = new AtomicLong();
+    /**
+     * 호스트마다 따로 세는 것. 위의 합계는 어느 호스트에서 새는지 말해 주지 않습니다.
+     * <b>방문자의 길({@link #resolve})만 셉니다.</b> 진단({@link #probe})은 위의 합계에는 들지만
+     * 여기에는 들지 않습니다. 그래서 두 숫자의 합은 서로 맞지 않습니다.
+     */
+    private final OpacHostTally hostTally;
 
     public DetailResolver(Fetcher fetcher, Clock clock) {
         this.fetcher = fetcher;
         this.clock = clock;
+        this.hostTally = new OpacHostTally(clock, FETCH_TIMEOUT.toMillis());
+    }
+
+    /** 호스트별 집계. 저장하는 쪽과 진단이 씁니다. */
+    public OpacHostTally hostTally() {
+        return hostTally;
     }
 
     /** 정규식 하나짜리 규칙. {@link #resolve(String, DetailRule)} 의 줄임입니다. */
@@ -338,16 +350,21 @@ public final class DetailResolver {
             return Outcome.of(Status.FETCH_FAILED, "호스트가 없습니다: " + searchUrl);
         }
         String hostKey = host.toLowerCase(Locale.ROOT);
+        // 빗장을 지키는 길이 곧 방문자의 길입니다. 호스트별 집계는 그 길만 셉니다. 진단으로 잰 것이
+        // 섞이면 누르는 사람이 적은 호스트의 숫자가 운영자가 잰 것으로 채워집니다.
+        boolean tallied = honourBreaker;
         if (honourBreaker) {
             HostHealth h = health.get(hostKey);
             if (h != null && h.downUntil() != null && h.downUntil().isAfter(clock.instant())) {
                 skippedDown.incrementAndGet();
+                hostTally.record(hostKey, OpacHostTally.Event.SKIPPED_DOWN, null);
                 return Outcome.of(Status.FETCH_FAILED, "최근 " + DOWN_AFTER_FAILURES + "번 연속 닿지 않아 "
                         + "건너뜁니다 (" + h.downUntil() + " 까지)");
             }
         }
         if (disallowed(search)) {
             failed.incrementAndGet();
+            if (tallied) hostTally.record(hostKey, OpacHostTally.Event.BLOCKED_BY_ROBOTS, null);
             return Outcome.of(Status.BLOCKED_BY_ROBOTS, "robots.txt 가 막은 경로입니다");
         }
 
@@ -362,20 +379,32 @@ public final class DetailResolver {
         }
         if (!acquired) {
             failed.incrementAndGet();
+            if (tallied) hostTally.record(hostKey, OpacHostTally.Event.BUSY, null);
             return Outcome.of(Status.BUSY, "그 호스트로 이미 " + PER_HOST_IN_FLIGHT + "개가 나가 있습니다");
         }
+        long started = System.nanoTime();
         try {
             Page page = rule instanceof DetailRule.Json json
                     ? fetcher.fetch(search, json.method(), jsonBody, bodyTypeOf(jsonBody))
                     : fetcher.fetch(search);
+            // 본문까지 다 받는 데 걸린 시간입니다. 받기 제한은 응답 머리가 올 때까지만 걸리므로 이 값은
+            // 제한을 넘을 수 있고, 그동안 누른 사람은 기다립니다.
+            long took = elapsedMillis(started);
             health.remove(hostKey);                       // 답을 받았으면 닿는 것입니다. 상태 코드와 무관합니다.
             if (page.status() != 200) {
                 failed.incrementAndGet();
+                if (tallied) {
+                    hostTally.recordAnswered(hostKey, OpacHostTally.Event.HTTP_ERROR, took, "HTTP " + page.status());
+                }
                 return Outcome.of(Status.FETCH_FAILED, "HTTP " + page.status());
             }
             Outcome outcome = rule instanceof DetailRule.Json json
                     ? extractFromJson(page, json, search, context)
                     : extract(page, rule, search, context);
+            if (tallied) {
+                hostTally.recordAnswered(hostKey, outcome.status() == Status.RESOLVED
+                        ? OpacHostTally.Event.RESOLVED : OpacHostTally.Event.NO_MATCH, took, null);
+            }
             remember(cacheKey(searchUrl, stated, context), outcome);
             return outcome;
         } catch (InterruptedException e) {
@@ -387,11 +416,23 @@ public final class DetailResolver {
             // 검색 결과로만 보내게 되기 때문입니다. 다만 연속으로 닿지 않는 호스트는 빗장을 겁니다.
             failed.incrementAndGet();
             markUnreachable(hostKey);
-            return Outcome.of(Status.FETCH_FAILED, e.getClass().getSimpleName()
-                    + (e.getMessage() == null ? "" : ": " + e.getMessage()));
+            String note = e.getClass().getSimpleName() + (e.getMessage() == null ? "" : ": " + e.getMessage());
+            if (tallied) hostTally.record(hostKey, failureKind(e), note);
+            return Outcome.of(Status.FETCH_FAILED, note);
         } finally {
             permits.release();
         }
+    }
+
+    /**
+     * 받지 못한 까닭을 셋으로 가릅니다. 접속 시간 초과는 그 호스트가 이 서버의 IP 를 받지 않을 때의
+     * 모양이고(회선), 응답 시간 초과는 붙기는 했는데 OPAC 이 느린 것입니다. 사람이 할 일이 다릅니다.
+     * {@code HttpConnectTimeoutException} 이 {@code HttpTimeoutException} 의 하위라 먼저 봅니다.
+     */
+    static OpacHostTally.Event failureKind(Exception e) {
+        if (e instanceof java.net.http.HttpConnectTimeoutException) return OpacHostTally.Event.CONNECT_TIMEOUT;
+        if (e instanceof java.net.http.HttpTimeoutException) return OpacHostTally.Event.RESPONSE_TIMEOUT;
+        return OpacHostTally.Event.OTHER_FAILURE;
     }
 
     /**

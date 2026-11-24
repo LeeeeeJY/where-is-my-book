@@ -980,4 +980,135 @@ class DetailResolverTest {
         assertThrows(IllegalArgumentException.class, () -> DetailRule.parse("@anchor:@anchor:@onclick:f"));
         assertThrows(IllegalArgumentException.class, () -> DetailRule.parse("@anchor:"));
     }
+
+    // ── 호스트별 집계 ─────────────────────────────────────────────────────────
+
+    private static Map<String, Object> tallyOf(DetailResolver resolver, String host) {
+        return resolver.hostTally().snapshot().stream()
+                .filter(row -> host.equals(row.get("host"))).findFirst()
+                .orElseThrow(() -> new AssertionError(host + " 를 센 적이 없습니다"));
+    }
+
+    @Test
+    @DisplayName("방문자의 길에서 받아 본 결과를 호스트마다 센다")
+    void talliesVisitorAttemptsPerHost() {
+        var site = new FakeSite();
+        site.page("https://lib.a.kr/search?q=1", "<a href='/book/1'>코스모스</a>");
+        site.page("https://lib.a.kr/search?q=2", "<p>검색 결과가 없습니다</p>");
+        // 규칙 표의 주소가 호스트를 대문자로 적었어도 같은 호스트로 셉니다.
+        site.page("https://LIB.B.kr/search?q=1", "<a href='/book/7'>코스모스</a>");
+        var resolver = resolver(site);
+
+        resolver.resolve("https://lib.a.kr/search?q=1", BOOK_LINK);
+        resolver.resolve("https://lib.a.kr/search?q=2", BOOK_LINK);
+        resolver.resolve("https://lib.a.kr/search?q=3", BOOK_LINK);        // 가짜 서버가 404 를 줍니다
+        resolver.resolve("https://LIB.B.kr/search?q=1", BOOK_LINK);
+
+        var a = tallyOf(resolver, "lib.a.kr");
+        assertEquals(3L, a.get("attempts"));
+        assertEquals(1L, a.get("resolved"));
+        assertEquals(1L, a.get("noMatch"));
+        assertEquals(1L, a.get("httpError"));
+        assertEquals(3L, a.get("answered"), "404 도 답을 받은 것입니다");
+        assertEquals("HTTP 404", a.get("lastFailure"));
+        assertEquals(1L, tallyOf(resolver, "lib.b.kr").get("resolved"));
+    }
+
+    @Test
+    @DisplayName("기억해 둔 답으로 보낸 것과 진단으로 잰 것은 호스트별로 세지 않는다")
+    void doesNotTallyCacheHitsOrProbes() {
+        var site = new FakeSite();
+        site.page("https://lib.example.kr/search?q=1", "<a href='/book/1'>코스모스</a>");
+        var resolver = resolver(site);
+
+        resolver.resolve("https://lib.example.kr/search?q=1", BOOK_LINK);
+        assertTrue(resolver.resolve("https://lib.example.kr/search?q=1", BOOK_LINK).fromCache());
+        // 운영자가 배포한 뒤에 한 번씩 재는 것입니다. 섞이면 누르는 사람이 적은 호스트의 숫자가
+        // 운영자가 잰 것으로 채워집니다.
+        resolver.probe("https://lib.example.kr/search?q=1", BOOK_LINK);
+        resolver.probe("https://lib.example.kr/search?q=1", BOOK_LINK);
+
+        assertEquals(1L, tallyOf(resolver, "lib.example.kr").get("attempts"));
+        assertEquals(3L, resolver.stats().get("opacDetailResolved"), "합계는 예전대로 진단까지 셉니다");
+    }
+
+    @Test
+    @DisplayName("닿지 않는 호스트는 받지 못한 것과 빗장으로 건너뛴 것을 갈라 센다")
+    void talliesFailuresAndBreakerSkipsSeparately() {
+        var site = new FakeSite();
+        site.down = true;
+        var resolver = resolver(site);
+
+        for (int i = 0; i < DetailResolver.DOWN_AFTER_FAILURES + 2; i++) {
+            resolver.resolve("https://lib.example.kr/search?q=" + i, BOOK_LINK);
+        }
+
+        var row = tallyOf(resolver, "lib.example.kr");
+        assertEquals((long) DetailResolver.DOWN_AFTER_FAILURES, row.get("otherFailure"));
+        assertEquals(2L, row.get("skippedDown"), "빗장이 걸린 뒤로는 받아 보지 않았습니다");
+        assertEquals(0L, row.get("answered"));
+        assertEquals("IOException: connect timed out", row.get("lastFailure"));
+    }
+
+    @Test
+    @DisplayName("접속 시간 초과와 응답 시간 초과를 갈라 센다")
+    void tellsConnectTimeoutsFromSlowResponses() {
+        // 앞은 그 호스트가 이 서버의 IP 를 받지 않을 때의 모양이고, 뒤는 붙기는 했는데 OPAC 이 느린
+        // 것입니다. 사람이 할 일이 다릅니다.
+        assertEquals(OpacHostTally.Event.CONNECT_TIMEOUT, DetailResolver.failureKind(
+                new java.net.http.HttpConnectTimeoutException("HTTP connect timed out")));
+        assertEquals(OpacHostTally.Event.RESPONSE_TIMEOUT, DetailResolver.failureKind(
+                new java.net.http.HttpTimeoutException("request timed out")));
+        assertEquals(OpacHostTally.Event.OTHER_FAILURE, DetailResolver.failureKind(
+                new javax.net.ssl.SSLHandshakeException("PKIX path building failed")));
+
+        DetailResolver.Fetcher refusing = url -> {
+            if (url.getPath().equals("/robots.txt")) return new DetailResolver.Page(404, "", url);
+            throw url.getQuery().endsWith("slow")
+                    ? new java.net.http.HttpTimeoutException("request timed out")
+                    : new java.net.http.HttpConnectTimeoutException("HTTP connect timed out");
+        };
+        var resolver = new DetailResolver(refusing, Clock.systemUTC());
+        resolver.resolve("https://lib.example.kr/search?q=slow", BOOK_LINK);
+        resolver.resolve("https://lib.example.kr/search?q=blocked", BOOK_LINK);
+
+        var row = tallyOf(resolver, "lib.example.kr");
+        assertEquals(1L, row.get("responseTimeout"));
+        assertEquals(1L, row.get("connectTimeout"));
+    }
+
+    @Test
+    @DisplayName("robots.txt 가 막아 받아 보지 않은 것도 그 호스트의 것으로 센다")
+    void talliesRobotsBlocks() {
+        var site = new FakeSite();
+        site.page("https://lib.example.kr/robots.txt", "User-agent: *\nDisallow: /search\n");
+        var resolver = resolver(site);
+
+        resolver.resolve("https://lib.example.kr/search?q=1", BOOK_LINK);
+
+        var row = tallyOf(resolver, "lib.example.kr");
+        assertEquals(1L, row.get("blockedByRobots"));
+        assertEquals(1L, row.get("attempts"));
+        assertNull(row.get("lastFailure"), "받으려다 못 받은 것이 아니라 받지 않은 것입니다");
+    }
+
+    @Test
+    @DisplayName("다른 주소를 대신 받는 규칙은 실제로 받은 호스트의 것으로 센다")
+    void talliesTheHostActuallyFetched() {
+        var site = new FakeSite();
+        site.page("https://frame.example.kr/list?isbn=9788937473135",
+                "<a href='/book?isbn=9788937473135'>데미안</a>");
+        var rule = DetailRule.parse(
+                "@frame:https://frame.example.kr/list?isbn={isbn13} => @anchor:href=[\"'](/book[^\"']*)[\"']");
+
+        var resolver = resolver(site);
+
+        var outcome = resolver.resolve("https://www.example.kr/search?title=x", rule,
+                new DetailResolver.Context("9788937473135", "111111"));
+
+        assertEquals(DetailResolver.Status.RESOLVED, outcome.status(), outcome.note());
+        // 느리거나 닿지 않는 것은 검색 화면의 호스트가 아니라 서버가 실제로 두드린 호스트입니다.
+        assertEquals(1L, tallyOf(resolver, "frame.example.kr").get("resolved"));
+        assertEquals(1, resolver.hostTally().snapshot().size(), "검색 주소의 호스트로는 요청이 나가지 않았습니다");
+    }
 }

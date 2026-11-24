@@ -222,6 +222,11 @@ class RateLimitTest {
                 > RateLimitInterceptor.costOf("GET", "/api/status"));
         assertEquals(RateLimitInterceptor.costOf("GET", "/api/version"),
                 RateLimitInterceptor.costOf("GET", "/api/status"));
+        // 진단은 남의 서버를 한 번 두드리지만, 호스트별 집계는 세어 둔 것을 읽을 뿐입니다.
+        assertTrue(RateLimitInterceptor.costOf("GET", "/api/diagnose/opac")
+                > RateLimitInterceptor.costOf("GET", "/api/diagnose/opac/hosts"));
+        assertEquals(RateLimitInterceptor.costOf("GET", "/api/status"),
+                RateLimitInterceptor.costOf("GET", "/api/diagnose/opac/hosts"));
     }
 
     /**

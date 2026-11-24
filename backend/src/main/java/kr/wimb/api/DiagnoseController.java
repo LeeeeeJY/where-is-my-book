@@ -244,6 +244,28 @@ public class DiagnoseController {
         return out;
     }
 
+    /**
+     * 방문자가 눌렀을 때 서버가 OPAC 을 받아 본 결과를 <b>호스트마다</b> 센 것입니다.
+     *
+     * <p>{@code /api/status} 의 {@code opacDetailFailed} 는 합계라 어느 호스트에서 새는지 말해 주지
+     * 않고, {@code /api/diagnose/opac} 은 지금 한 번 재는 것이라 「얼마나 자주」를 말해 주지 않습니다.
+     * 이 목록이 그 사이를 메웁니다. 받지 못한 횟수가 많은 호스트가 앞에 옵니다.
+     *
+     * <p><b>이 호출은 어디로도 요청을 보내지 않습니다.</b> 서버가 세어 둔 것을 읽을 뿐입니다. 진단으로
+     * 잰 것과 기억해 둔 답으로 보낸 것은 들어 있지 않습니다({@link kr.wimb.opac.OpacHostTally}).
+     * {@code since} 는 세기 시작한 날이고, 서버가 다시 떠도 볼륨의 파일에서 이어받습니다.
+     */
+    @GetMapping("/diagnose/opac/hosts")
+    public Map<String, Object> opacHosts() {
+        var tally = detailResolver.hostTally();
+        var hosts = tally.snapshot();
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("since", tally.since() == null ? null : tally.since().toString());
+        out.put("hostCount", hosts.size());
+        out.put("hosts", hosts);
+        return out;
+    }
+
     /** 실패해도 진단 자체는 계속되어야 합니다. 못 알아낸 것과 오류를 구분해 적습니다. */
     private String egressIp() {
         try (HttpClient http = HttpClient.newBuilder().connectTimeout(TIMEOUT)

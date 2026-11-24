@@ -61,7 +61,10 @@ import java.lang.annotation.Target;
         // 서버를 띄운 적이 있으면 거기에 파일이 남아 있고, 그대로 두면 컨텍스트 테스트가 그
         // 기계에 무엇이 남아 있느냐에 따라 달라집니다. 스냅샷을 일부러 쥐여 주려는 테스트는
         // properties 에 wimb.test.catalog-path 를 적습니다.
-        "wimb.catalog.path=${wimb.test.catalog-path:build/tmp/context-test/library-catalog.tsv.gz}"})
+        "wimb.catalog.path=${wimb.test.catalog-path:build/tmp/context-test/library-catalog.tsv.gz}",
+        // 호스트별 상세 집계도 컨텍스트마다 새 이름입니다. 개발 기계의 backend/data 에 남은 진짜
+        // 집계를 이어받거나, 테스트가 누른 가짜 링크를 거기에 섞어 적지 않게 합니다.
+        "wimb.opac.host-tally-path=build/tmp/test-opac-host-tally-${random.uuid}.tsv"})
 @Import(RefusingTransport.Config.class)
 @TestExecutionListeners(
         listeners = NoData4LibraryCalls.class,
