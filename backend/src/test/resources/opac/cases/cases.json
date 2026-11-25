@@ -1,0 +1,704 @@
+{
+ "about": "서버(kr.wimb.opac)와 조사 도구(scripts/opac-title-probe.py)가 같은 화면에 같은 답을 내는지 보는 사례입니다. SharedPickCasesTest 와 test-opac-title-probe.py 가 이 파일을 함께 읽습니다. 사례를 더하면 양쪽이 함께 돕니다. HTML 은 같은 폴더의 파일이고, 받아 본 화면을 줄인 것인지 지어낸 것인지는 파일 머리의 주석에 적혀 있습니다.",
+ "detailSets": {
+  "yuseong": {
+   "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000004923523": "yuseong-detail-1.html",
+   "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000004907136": "yuseong-detail-2.html",
+   "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000004931307": "yuseong-detail-3.html",
+   "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000004970988": "yuseong-detail-4.html"
+  },
+  "hwamyeong": {
+   "https://www.bsbukgu.go.kr/hmlib/index.bsbukgu?menuCd=DOM_000001203001000000&mode=view&reg_no=AJA000145377&currentLibraryPath=hmlib&libraryPath=hmlib": "hwamyeong-detail-wrong.html",
+   "https://www.bsbukgu.go.kr/hmlib/index.bsbukgu?menuCd=DOM_000001203001000000&mode=view&reg_no=AJA000199336&currentLibraryPath=hmlib&libraryPath=hmlib": "hwamyeong-detail-right.html",
+   "https://www.bsbukgu.go.kr/hmlib/index.bsbukgu?menuCd=DOM_000001203001000000&mode=view&reg_no=AJA000142121&currentLibraryPath=hmlib&libraryPath=hmlib": "hwamyeong-detail-right.html"
+  },
+  "yuseong82": {
+   "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000003501019": "yuseong-detail-82-large.html",
+   "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000003227528": "yuseong-detail-82-plain.html"
+  },
+  "yuseong82-only-large": {
+   "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000003501019": "yuseong-detail-82-large.html",
+   "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000003227528": "yuseong-detail-1.html"
+  }
+ },
+ "visible": [
+  {
+   "name": "주석·스크립트·스타일은 통째로 버리고 속성값은 글자가 아니다",
+   "html": "<p>가<!-- 9788937473135 -->나<script>var isbn = \"9788937473135\";</script> 다<STYLE>.a{content:'9788937473135'}</STYLE><input type=\"hidden\" value=\"9788937473135\"> 라</p>",
+   "text": "가 나 다 라"
+  },
+  {
+   "name": "숫자 문자 참조는 글자로 되돌린다 (거창은 한글을 전부 이렇게 적습니다)",
+   "html": "82&#45380;&#49373; [&#53360;&#44544;&#51088; &#46020;&#49436;] &#xD070;",
+   "text": "82년생 [큰글자 도서] 큰"
+  },
+  {
+   "name": "되돌릴 수 없는 참조는 그대로 둔다",
+   "html": "a&#0;b&#55296;c&#99999999;d&amp;e",
+   "text": "a&#0;b&#55296;c&#99999999;d&amp;e"
+  },
+  {
+   "name": "태그를 버린 뒤에 되돌린다 (되돌린 글자가 태그를 만들지 않는다)",
+   "html": "&#60;b&#62;큰글자&#60;/b&#62;",
+   "text": "<b>큰글자</b>"
+  },
+  {
+   "name": "공백과 줄바꿈은 하나로 줄이고 양 끝은 뗀다",
+   "html": "\n\t <div>  ISBN \r\n 9791186560129</br>\t</div>\n",
+   "text": "ISBN 9791186560129"
+  },
+  {
+   "name": "빈 화면",
+   "html": "<div><img src=\"/x.png\"></div>",
+   "text": ""
+  }
+ ],
+ "mentions": [
+  {
+   "name": "유성: 13자리 그대로 글자로 적혀 있다",
+   "file": "yuseong-detail-3.html",
+   "isbn": "9791186560129",
+   "expect": true
+  },
+  {
+   "name": "유성: 다른 책의 ISBN 은 없다",
+   "file": "yuseong-detail-3.html",
+   "isbn": "9788996991342",
+   "expect": false
+  },
+  {
+   "name": "화명: 표지 그림의 주소에만 있는 ISBN 은 치지 않는다",
+   "file": "hwamyeong-detail-wrong.html",
+   "isbn": "9788996991342",
+   "expect": false
+  },
+  {
+   "name": "숨은 칸·링크·스크립트·주석에 되돌려 적힌 검색어는 치지 않는다",
+   "file": "echo-detail.html",
+   "isbn": "9788996991342",
+   "expect": false
+  },
+  {
+   "name": "글자로 적힌 ISBN 은 뒤에 부가기호가 붙어도 읽는다",
+   "file": "echo-detail.html",
+   "isbn": "9788979737691",
+   "expect": true
+  },
+  {
+   "name": "하이픈을 넣은 꼴은 보지 않는다",
+   "html": "<p>ISBN 978-89-374-7313-5</p>",
+   "isbn": "9788937473135",
+   "expect": false
+  },
+  {
+   "name": "10자리 꼴은 보지 않는다",
+   "html": "<p>ISBN 8937473135</p>",
+   "isbn": "9788937473135",
+   "expect": false
+  },
+  {
+   "name": "더 긴 숫자의 일부는 ISBN 이 아니다",
+   "html": "<p>바코드 19788937473135000</p>",
+   "isbn": "9788937473135",
+   "expect": false
+  },
+  {
+   "name": "ISBN-13 이 아닌 값으로는 찾지 않는다",
+   "html": "<p>미움받을 용기 8937473135</p>",
+   "isbn": "8937473135",
+   "expect": false
+  }
+ ],
+ "pickAll": [
+  {
+   "name": "남양주: 목록 앞의 ISBN 뒤로 다른 ISBN 이 없으면 줄 전부가 그 ISBN 의 줄이다",
+   "file": "nyj.html",
+   "regex": "onclick=\"javascript:fnSearchResultDetail\\(([^)]*)\\)",
+   "isbn": "9788937473135",
+   "linkFirst": false,
+   "expect": [
+    "165017235,165017237,'BO'",
+    "165017235,165017237,'BO'",
+    "202310687,202310690,'BO'",
+    "202310687,202310690,'BO'"
+   ]
+  },
+  {
+   "name": "청주: 링크 안에 그 ISBN 이 든 자리 전부",
+   "file": "cheongju.html",
+   "regex": "class=\"book_name\">\\s*<a href=\"(\\?g_page=search[^\"]*act=view)\"",
+   "isbn": "9788937473135",
+   "linkFirst": true,
+   "expect": [
+    "?g_page=search&m_page=search01&search_type=DETAIL&search_isbn_issn=9788937473135&manage_code_detail=ME&recKey=7857493&bookKey=7857494&act=view",
+    "?g_page=search&m_page=search01&search_type=DETAIL&search_isbn_issn=9788937473135&manage_code_detail=ME&recKey=95504387&bookKey=95504388&act=view"
+   ]
+  },
+  {
+   "name": "줄마다 ISBN 이 적힌 목록(링크가 앞): 같은 ISBN 의 줄이 둘이면 둘 다, 다른 책의 줄은 아니다",
+   "html": "<li><a href=\"/detail/1\">데미안 (큰글자책)</a><span>ISBN: 9788937460449</span></li><li><a href=\"/detail/2\">데미안</a><span>ISBN: 9788937460449</span></li><li><a href=\"/detail/3\">수레바퀴 아래서</a><span>ISBN: 9788937460500</span></li>",
+   "regex": "href=\"(/detail/\\d+)\"",
+   "isbn": "9788937460449",
+   "linkFirst": true,
+   "expect": [
+    "/detail/1",
+    "/detail/2"
+   ]
+  },
+  {
+   "name": "줄마다 ISBN 이 적힌 목록(링크가 뒤): 다음 줄의 ISBN 이 사이에 끼면 거기서 멈춘다",
+   "html": "<li><img data-isbn=\"9788937460449\"><a href=\"/detail/1\">데미안</a></li><li><img data-isbn=\"9788937460500\"><a href=\"/detail/2\">수레바퀴 아래서</a></li><li><img data-isbn=\"9788937460449\"><a href=\"/detail/3\">데미안 (큰글자책)</a></li>",
+   "regex": "href=\"(/detail/\\d+)\"",
+   "isbn": "9788937460449",
+   "linkFirst": false,
+   "expect": [
+    "/detail/1",
+    "/detail/3"
+   ]
+  },
+  {
+   "name": "결과에 그 ISBN 이 없으면 한 줄도 없다",
+   "file": "nyj.html",
+   "regex": "onclick=\"javascript:fnSearchResultDetail\\(([^)]*)\\)",
+   "isbn": "9788996991342",
+   "linkFirst": false,
+   "expect": []
+  }
+ ],
+ "rows": [
+  {
+   "name": "거창: 숫자 참조로 적힌 「큰글자 도서」를 읽고, 같은 상세로 가는 두 링크를 한 줄로 본다",
+   "file": "geochang.html",
+   "regex": "href=\"(bookdetail\\.asp\\?search_type=reckey&search_val=\\d+)\"",
+   "expect": [
+    {
+     "marked": true,
+     "has": "82년생 김지영 [큰글자 도서] : 조남주 장편소설"
+    },
+    {
+     "marked": false,
+     "has": "청구기호 : 813.7-조192팔"
+    }
+   ]
+  },
+  {
+   "name": "거창: 마지막 줄은 목록 뒤의 「큰글자책 안내」를 끌어오지 않는다",
+   "file": "geochang.html",
+   "regex": "href=\"(bookdetail\\.asp\\?search_type=reckey&search_val=\\d+)\"",
+   "expect": [
+    {
+     "marked": true,
+     "has": "큰글자책 813.7"
+    },
+    {
+     "marked": false,
+     "lacks": "안내"
+    }
+   ]
+  },
+  {
+   "name": "청주: 줄 머리의 체크 칸에서 잡으면 줄마다의 글자가 갈린다",
+   "file": "cheongju-large-between.html",
+   "regex": "name=\"bookCheck\"[\\s\\S]*?class=\"book_name\">\\s*<a href=\"(\\?g_page=search[^\"]*act=view)\"",
+   "expect": [
+    {
+     "marked": true,
+     "has": "채식주의자 : 큰글자책"
+    },
+    {
+     "marked": false,
+     "has": "채식주의자 : 한강 연작소설",
+     "lacks": "큰글자"
+    },
+    {
+     "marked": true,
+     "has": "큰 813.7-한12ㅊ=2"
+    }
+   ]
+  },
+  {
+   "name": "청주: 제목 링크에서 잡으면 다음 줄 머리의 「…큰글자책 선택」이 윗줄의 글자로 읽힌다 (그래서 화면을 보고 넣습니다)",
+   "file": "cheongju-large-between.html",
+   "regex": "class=\"book_name\">\\s*<a href=\"(\\?g_page=search[^\"]*act=view)\"",
+   "expect": [
+    {
+     "marked": true
+    },
+    {
+     "marked": true,
+     "has": "채식주의자:큰글자책 선택"
+    },
+    {
+     "marked": true
+    }
+   ]
+  },
+  {
+   "name": "남양주: 표제의 「대활자본」과 청구기호의 「큰글 808-」",
+   "file": "nyj.html",
+   "regex": "onclick=\"javascript:fnSearchResultDetail\\(([^)]*)\\)",
+   "expect": [
+    {
+     "marked": false,
+     "has": "1. 82년생 김지영"
+    },
+    {
+     "marked": true,
+     "has": "[대활자본] 82년생 김지영"
+    }
+   ]
+  },
+  {
+   "name": "청구기호 앞의 별치기호 「큰 813.7-」 꼴을 읽는다 (청주 오송은 표제에 아무 표시가 없습니다)",
+   "html": "<li><a href=\"/v/1\">채식주의자 : 한강 연작소설</a> 발행년 2011 청구기호 큰 813.7-한12ㅊ</li><li><a href=\"/v/2\">채식주의자 : 한강 연작소설</a> 발행년 2010 청구기호 813.7-한12ㅊ=2</li><li><a href=\"/v/3\">채식주의자</a> 청구기호: 큰글 808-민67오-13</li>",
+   "regex": "href=\"(/v/\\d+)\"",
+   "expect": [
+    {
+     "marked": true
+    },
+    {
+     "marked": false
+    },
+    {
+     "marked": true
+    }
+   ]
+  },
+  {
+   "name": "표지 링크와 제목 링크의 주소가 다르면 표지 링크가 글자 없는 줄로 선다",
+   "file": "cover-other-link.html",
+   "regex": "href=\"(/view\\?key=\\d+&from=\\w+)\"",
+   "expect": [
+    {
+     "marked": false,
+     "text": ""
+    },
+    {
+     "marked": true
+    },
+    {
+     "marked": false,
+     "text": ""
+    },
+    {
+     "marked": false
+    }
+   ]
+  },
+  {
+   "name": "제목 속의 「큰」은 별치기호가 아니다",
+   "html": "<li><a href=\"/v/1\">세상에서 가장 큰 100가지 이야기</a> 청구기호 031-세52ㄱ</li><li><a href=\"/v/2\">큰 300 원숭이</a> 청구기호 813.8-큰12ㅇ</li><li><a href=\"/v/3\">가장큰 813.7-가 아닌 것</a></li>",
+   "regex": "href=\"(/v/\\d+)\"",
+   "expect": [
+    {
+     "marked": false
+    },
+    {
+     "marked": false
+    },
+    {
+     "marked": false
+    }
+   ]
+  },
+  {
+   "name": "유성: 줄 머리의 체크 칸에서 잡으면 「…선택」 이름표가 제 줄에 들어간다",
+   "file": "yuseong-large-first.html",
+   "regex": "<input type=\"checkbox\" name=\"ctrlno\" value=\"(\\d+)\"",
+   "expect": [
+    {
+     "marked": true,
+     "has": "82년생 김지영 [큰글자 도서] : 조남주 장편소설 선택"
+    },
+    {
+     "marked": false,
+     "has": "청구기호 : 813.7 조637ㅍ 2"
+    }
+   ]
+  }
+ ],
+ "rules": [
+  {
+   "name": "유성: 셋째 줄의 상세 화면에 그 ISBN 이 적혀 있으면 셋째 줄이다 (첫 줄이 아니다)",
+   "file": "yuseong.html",
+   "url": "https://lib.yuseong.go.kr/web/program/searchResultList.do?vSrchText=%EB%AF%B8%EC%9B%80%EB%B0%9B%EC%9D%84+%EC%9A%A9%EA%B8%B0&vLmt2=H0000030",
+   "rule": "@verify:@onclick:fnDetail",
+   "isbns": [
+    "9791186560129"
+   ],
+   "details": "yuseong",
+   "expect": "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000004931307",
+   "fetched": [
+    "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000004923523",
+    "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000004907136",
+    "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000004931307"
+   ]
+  },
+  {
+   "name": "유성: 그 ISBN 이 적힌 후보를 만나면 더 받지 않는다",
+   "file": "yuseong.html",
+   "url": "https://lib.yuseong.go.kr/web/program/searchResultList.do?vSrchText=%EB%AF%B8%EC%9B%80%EB%B0%9B%EC%9D%84+%EC%9A%A9%EA%B8%B0&vLmt2=H0000030",
+   "rule": "@verify:@onclick:fnDetail",
+   "isbns": [
+    "9788952230645"
+   ],
+   "expect": "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000004907136",
+   "fetched": [
+    "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000004923523",
+    "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000004907136"
+   ],
+   "details": "yuseong"
+  },
+  {
+   "name": "유성: 넷째 줄은 보지 않는다 (받아 보는 후보는 앞의 셋까지)",
+   "file": "yuseong.html",
+   "url": "https://lib.yuseong.go.kr/web/program/searchResultList.do?vSrchText=%EB%AF%B8%EC%9B%80%EB%B0%9B%EC%9D%84+%EC%9A%A9%EA%B8%B0&vLmt2=H0000030",
+   "rule": "@verify:@onclick:fnDetail",
+   "isbns": [
+    "9788947547840"
+   ],
+   "expect": null,
+   "fetched": [
+    "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000004923523",
+    "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000004907136",
+    "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000004931307"
+   ],
+   "details": "yuseong"
+  },
+  {
+   "name": "유성: 어느 후보에도 없으면 첫 줄로 내려가지 않는다",
+   "file": "yuseong.html",
+   "url": "https://lib.yuseong.go.kr/web/program/searchResultList.do?vSrchText=%EB%AF%B8%EC%9B%80%EB%B0%9B%EC%9D%84+%EC%9A%A9%EA%B8%B0&vLmt2=H0000030",
+   "rule": "@verify:@onclick:fnDetail",
+   "isbns": [
+    "9788996991342"
+   ],
+   "expect": null,
+   "fetched": [
+    "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000004923523",
+    "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000004907136",
+    "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000004931307"
+   ],
+   "details": "yuseong"
+  },
+  {
+   "name": "유성: 그 도서관이 가진 판(앞의 ISBN)이 먼저다. 앞선 줄에 뒤의 ISBN 이 있어도 가진 판의 줄로 간다",
+   "file": "yuseong.html",
+   "url": "https://lib.yuseong.go.kr/web/program/searchResultList.do?vSrchText=%EB%AF%B8%EC%9B%80%EB%B0%9B%EC%9D%84+%EC%9A%A9%EA%B8%B0&vLmt2=H0000030",
+   "rule": "@verify:@onclick:fnDetail",
+   "isbns": [
+    "9791186560129",
+    "9788969520937"
+   ],
+   "expect": "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000004931307",
+   "fetched": [
+    "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000004923523",
+    "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000004907136",
+    "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000004931307"
+   ],
+   "details": "yuseong"
+  },
+  {
+   "name": "유성: 가진 판이 어느 후보에도 없으면 뒤의 ISBN 이 적힌 후보로 간다",
+   "file": "yuseong.html",
+   "url": "https://lib.yuseong.go.kr/web/program/searchResultList.do?vSrchText=%EB%AF%B8%EC%9B%80%EB%B0%9B%EC%9D%84+%EC%9A%A9%EA%B8%B0&vLmt2=H0000030",
+   "rule": "@verify:@onclick:fnDetail",
+   "isbns": [
+    "9788996991342",
+    "9788952230645"
+   ],
+   "expect": "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000004907136",
+   "fetched": [
+    "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000004923523",
+    "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000004907136",
+    "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000004931307"
+   ],
+   "details": "yuseong"
+  },
+  {
+   "name": "유성: 후보 하나를 받지 못하면 거기서 그만두고 그 뒤의 후보는 두드리지 않는다",
+   "file": "yuseong.html",
+   "url": "https://lib.yuseong.go.kr/web/program/searchResultList.do?vSrchText=%EB%AF%B8%EC%9B%80%EB%B0%9B%EC%9D%84+%EC%9A%A9%EA%B8%B0&vLmt2=H0000030",
+   "rule": "@verify:@onclick:fnDetail",
+   "isbns": [
+    "9791186560129"
+   ],
+   "missing": [
+    "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000004907136"
+   ],
+   "expect": null,
+   "fetched": [
+    "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000004923523",
+    "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000004907136"
+   ],
+   "details": "yuseong"
+  },
+  {
+   "name": "유성: 주소틀로 적은 규칙도 같은 줄을 고른다",
+   "file": "yuseong.html",
+   "url": "https://lib.yuseong.go.kr/web/program/searchResultList.do?vSrchText=%EB%AF%B8%EC%9B%80%EB%B0%9B%EC%9D%84+%EC%9A%A9%EA%B8%B0&vLmt2=H0000030",
+   "rule": "@verify:@template:onclick=\"fnDetail\\('(\\d+)'\\)  => /web/menu/10075/program/30005/searchResultDetail.do?vCtrl={1}",
+   "isbns": [
+    "9791186560129"
+   ],
+   "expect": "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000004931307",
+   "fetched": [
+    "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000004923523",
+    "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000004907136",
+    "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000004931307"
+   ],
+   "details": "yuseong"
+  },
+  {
+   "name": "화명: 상세 화면의 글자에 ISBN 이 없으면 어느 줄도 고르지 않는다 (이 장치로는 화명의 틀린 첫 줄을 가를 수 없습니다)",
+   "file": "hwamyeong.html",
+   "url": "https://www.bsbukgu.go.kr/hmlib/index.bsbukgu?menuCd=DOM_000001203001000000&mode=result&search_isbn_issn=9788996991342",
+   "rule": "@verify:@template:onclick=\"fn_view\\('([A-Z0-9]+)', '(\\w+)'\\);\" => index.bsbukgu?menuCd=DOM_000001203001000000&mode=view&reg_no={1}&currentLibraryPath={2}&libraryPath={2}",
+   "isbns": [
+    "9788996991342"
+   ],
+   "details": "hwamyeong",
+   "expect": null,
+   "fetched": [
+    "https://www.bsbukgu.go.kr/hmlib/index.bsbukgu?menuCd=DOM_000001203001000000&mode=view&reg_no=AJA000145377&currentLibraryPath=hmlib&libraryPath=hmlib",
+    "https://www.bsbukgu.go.kr/hmlib/index.bsbukgu?menuCd=DOM_000001203001000000&mode=view&reg_no=AJA000199336&currentLibraryPath=hmlib&libraryPath=hmlib",
+    "https://www.bsbukgu.go.kr/hmlib/index.bsbukgu?menuCd=DOM_000001203001000000&mode=view&reg_no=AJA000142121&currentLibraryPath=hmlib&libraryPath=hmlib"
+   ]
+  },
+  {
+   "name": "거창: 큰글자 도서가 첫 줄이면 보통 판의 줄로 간다",
+   "file": "geochang.html",
+   "url": "https://library.geochang.go.kr/2601/bookandnonbooksearch.asp?lib=MA&pageno=1&search_txt=9788937473135",
+   "rule": "@plain:href=\"(bookdetail\\.asp\\?search_type=reckey&search_val=\\d+)\"",
+   "isbns": [
+    "9788937473135"
+   ],
+   "expect": "https://library.geochang.go.kr/2601/bookdetail.asp?search_type=reckey&search_val=78388536",
+   "fetched": []
+  },
+  {
+   "name": "거창: @plain: 이 없으면 예전처럼 첫 줄(큰글자 도서)이다",
+   "file": "geochang.html",
+   "url": "https://library.geochang.go.kr/2601/bookandnonbooksearch.asp?lib=MA&pageno=1&search_txt=9788937473135",
+   "rule": "href=\"(bookdetail\\.asp\\?search_type=reckey&search_val=\\d+)\"",
+   "isbns": [
+    "9788937473135"
+   ],
+   "expect": "https://library.geochang.go.kr/2601/bookdetail.asp?search_type=reckey&search_val=109172621",
+   "fetched": []
+  },
+  {
+   "name": "김제: 함수 호출로 가는 줄에서도 보통 판의 줄을 고른다",
+   "file": "gimje.html",
+   "url": "https://gjl.gimje.go.kr/index.gimje?menuCd=DOM_000000101000000000&book_type=BOOK&manage_code=GG&search_txt=9788937473135",
+   "rule": "@plain:@onclick:viewDetail",
+   "isbns": [
+    "9788937473135"
+   ],
+   "expect": "https://gjl.gimje.go.kr/index.gimje?menuCd=DOM_000000101001000000&search_txt=9788937473135&pageno=1&mode=view&reckey=76720323&book_type=BOOK&manage_code=GG",
+   "fetched": []
+  },
+  {
+   "name": "청주: 보통 판이 첫 줄이면 그대로 첫 줄이다",
+   "file": "cheongju.html",
+   "url": "https://library.cheongju.go.kr/lib/front/index.php?g_page=search&m_page=search01&search_type=DETAIL&search_isbn_issn=9788937473135&manage_code_detail=ME",
+   "rule": "@plain:@anchor:name=\"bookCheck\"[\\s\\S]*?class=\"book_name\">\\s*<a href=\"(\\?g_page=search[^\"]*act=view)\"",
+   "isbns": [
+    "9788937473135"
+   ],
+   "expect": "https://library.cheongju.go.kr/lib/front/index.php?g_page=search&m_page=search01&search_type=DETAIL&search_isbn_issn=9788937473135&manage_code_detail=ME&recKey=7857493&bookKey=7857494&act=view",
+   "fetched": []
+  },
+  {
+   "name": "청주: 큰글자책 사이에 낀 보통 판을 고른다 (줄 머리에서 잡는 정규식)",
+   "file": "cheongju-large-between.html",
+   "url": "https://library.cheongju.go.kr/lib/front/index.php?g_page=search&m_page=search01&search_type=DETAIL&search_isbn_issn=9788936433598&manage_code_detail=MI",
+   "rule": "@plain:@anchor:name=\"bookCheck\"[\\s\\S]*?class=\"book_name\">\\s*<a href=\"(\\?g_page=search[^\"]*act=view)\"",
+   "isbns": [
+    "9788936433598"
+   ],
+   "expect": "https://library.cheongju.go.kr/lib/front/index.php?g_page=search&search_isbn_issn=9788936433598&manage_code_detail=MI&recKey=20&bookKey=21&act=view",
+   "fetched": []
+  },
+  {
+   "name": "청주: 제목 링크에서 잡는 정규식이면 줄이 전부 표기 있는 줄로 읽혀 첫 줄(큰글자책) 그대로다",
+   "file": "cheongju-large-between.html",
+   "url": "https://library.cheongju.go.kr/lib/front/index.php?g_page=search&m_page=search01&search_type=DETAIL&search_isbn_issn=9788936433598&manage_code_detail=MI",
+   "rule": "@plain:@anchor:class=\"book_name\">\\s*<a href=\"(\\?g_page=search[^\"]*act=view)\"",
+   "isbns": [
+    "9788936433598"
+   ],
+   "expect": "https://library.cheongju.go.kr/lib/front/index.php?g_page=search&search_isbn_issn=9788936433598&manage_code_detail=MI&recKey=10&bookKey=11&act=view",
+   "fetched": []
+  },
+  {
+   "name": "남양주: 대활자본이 둘째 줄이면 첫 줄 그대로다",
+   "file": "nyj.html",
+   "url": "https://lib.nyj.go.kr/toegyewon/plusSearchResultList.do?searchType=DETAIL&searchCategory=ALL&searchKey5=ISBN&searchKeyword5=9788937473135&searchLibrary=141401",
+   "rule": "@plain:@anchor-after:@onclick:fnSearchResultDetail",
+   "isbns": [
+    "9788937473135"
+   ],
+   "expect": "https://lib.nyj.go.kr/toegyewon/plusSearchResultDetail.do?searchType=DETAIL&searchKey5=ISBN&searchKeyword5=9788937473135&searchLibrary=141401&recKey=165017235&bookKey=165017237&publishFormCode=BO",
+   "fetched": []
+  },
+  {
+   "name": "남양주: 대활자본이 첫 줄이면 둘째 줄(보통 판)로 간다",
+   "file": "nyj-large-first.html",
+   "url": "https://lib.nyj.go.kr/toegyewon/plusSearchResultList.do?searchType=DETAIL&searchCategory=ALL&searchKey5=ISBN&searchKeyword5=9788937473135&searchLibrary=141401",
+   "rule": "@plain:@anchor-after:@onclick:fnSearchResultDetail",
+   "isbns": [
+    "9788937473135"
+   ],
+   "expect": "https://lib.nyj.go.kr/toegyewon/plusSearchResultDetail.do?searchType=DETAIL&searchKey5=ISBN&searchKeyword5=9788937473135&searchLibrary=141401&recKey=165017235&bookKey=165017237&publishFormCode=BO",
+   "fetched": []
+  },
+  {
+   "name": "남양주: @plain: 이 없으면 예전처럼 그 ISBN 뒤의 첫 줄(대활자본)이다",
+   "file": "nyj-large-first.html",
+   "url": "https://lib.nyj.go.kr/toegyewon/plusSearchResultList.do?searchType=DETAIL&searchCategory=ALL&searchKey5=ISBN&searchKeyword5=9788937473135&searchLibrary=141401",
+   "rule": "@anchor-after:@onclick:fnSearchResultDetail",
+   "isbns": [
+    "9788937473135"
+   ],
+   "expect": "https://lib.nyj.go.kr/toegyewon/plusSearchResultDetail.do?searchType=DETAIL&searchKey5=ISBN&searchKeyword5=9788937473135&searchLibrary=141401&recKey=202310687&bookKey=202310690&publishFormCode=BO",
+   "fetched": []
+  },
+  {
+   "name": "남양주: 결과에 그 ISBN 이 없으면 @plain: 도 아무것도 고르지 않는다",
+   "file": "nyj.html",
+   "url": "https://lib.nyj.go.kr/toegyewon/plusSearchResultList.do?searchType=DETAIL&searchCategory=ALL&searchKey5=ISBN&searchKeyword5=9788937473135&searchLibrary=141401",
+   "rule": "@plain:@anchor-after:@onclick:fnSearchResultDetail",
+   "isbns": [
+    "9788996991342"
+   ],
+   "expect": null,
+   "fetched": []
+  },
+  {
+   "name": "줄의 경계를 가를 수 없는 화면에서는 아무것도 바꾸지 않는다 (첫 줄 그대로)",
+   "file": "cover-other-link.html",
+   "url": "https://lib.example.kr/search?isbn=9788937473135",
+   "rule": "@plain:href=\"(/view\\?key=\\d+&from=\\w+)\"",
+   "isbns": [
+    "9788937473135"
+   ],
+   "expect": "https://lib.example.kr/view?key=100&from=cover",
+   "fetched": []
+  },
+  {
+   "name": "줄이 전부 큰글자책이면(큰글자판을 누른 경우) 첫 줄이다",
+   "html": "<li><a href=\"/v/1\">이방인 [큰글자책]</a> 청구기호 큰글자 863-카37ㅇ</li><li><a href=\"/v/2\">이방인 : 큰글자책</a> 청구기호 큰글자 863-카37ㅇ=2</li>",
+   "url": "https://lib.example.kr/search?isbn=9788937437021",
+   "rule": "@plain:href=\"(/v/\\d+)\"",
+   "isbns": [
+    "9788937437021"
+   ],
+   "expect": "https://lib.example.kr/v/1",
+   "fetched": []
+  },
+  {
+   "name": "줄이 하나뿐이면 그 줄이 큰글자책이어도 그 줄이다",
+   "html": "<li><a href=\"/v/1\">이방인 [큰글자책]</a> 청구기호 큰글자 863-카37ㅇ</li>",
+   "url": "https://lib.example.kr/search?isbn=9788937437021",
+   "rule": "@plain:href=\"(/v/\\d+)\"",
+   "isbns": [
+    "9788937437021"
+   ],
+   "expect": "https://lib.example.kr/v/1",
+   "fetched": []
+  },
+  {
+   "name": "점자책 석 줄 뒤의 보통 판을 고른다",
+   "html": "<li><a href=\"/v/1\">불편한 편의점 [점자]</a></li><li><a href=\"/v/2\">불편한 편의점 [점자]</a></li><li><a href=\"/v/3\">불편한 편의점 (점자도서)</a></li><li><a href=\"/v/4\">불편한 편의점</a> 청구기호 813.7-김95ㅂ</li><li><a href=\"/v/5\">불편한 편의점</a> 청구기호 813.7-김95ㅂ=2</li>",
+   "url": "https://lib.example.kr/search?isbn=9791161571188",
+   "rule": "@plain:href=\"(/v/\\d+)\"",
+   "isbns": [
+    "9791161571188"
+   ],
+   "expect": "https://lib.example.kr/v/4",
+   "fetched": []
+  },
+  {
+   "name": "제목으로 찾은 목록에서는 그 ISBN 의 줄만 견준다. 다른 책의 큰글자책 줄은 상관없다",
+   "html": "<li><a href=\"/v/1\">데미안 (큰글자책)</a><span>ISBN: 9788937460449</span></li><li><a href=\"/v/2\">데미안</a><span>ISBN: 9788937460449</span></li><li><a href=\"/v/3\">데미안 : 큰글씨책</a><span>ISBN: 9791190000000</span></li><li><a href=\"/v/4\">데미안</a><span>ISBN: 9788954615860</span></li>",
+   "url": "https://lib.example.kr/search?title=x",
+   "rule": "@plain:@anchor:href=\"(/v/\\d+)\"",
+   "isbns": [
+    "9788937460449"
+   ],
+   "expect": "https://lib.example.kr/v/2",
+   "fetched": []
+  },
+  {
+   "name": "청주 오송: 표제에 표시가 없어도 청구기호가 「큰 813.7-」인 줄을 건너뛴다",
+   "html": "<li><a href=\"/v/1\">채식주의자 : 한강 연작소설</a> 발행년 2011 청구기호 큰 813.7-한12ㅊ 소장기관 오송도서관</li><li><a href=\"/v/2\">채식주의자 : 한강 연작소설</a> 발행년 2010 청구기호 813.7-한12ㅊ=2 소장기관 오송도서관</li>",
+   "url": "https://lib.example.kr/search?isbn=9788936433598",
+   "rule": "@plain:href=\"(/v/\\d+)\"",
+   "isbns": [
+    "9788936433598"
+   ],
+   "expect": "https://lib.example.kr/v/2",
+   "fetched": []
+  },
+  {
+   "name": "유성도서관: 두 줄의 상세에 같은 ISBN 이 적혀 있으면 큰글자 도서 줄을 빼고 보통 판 줄로 간다 (@verify:@plain:)",
+   "file": "yuseong-large-first.html",
+   "url": "https://lib.yuseong.go.kr/web/program/searchResultList.do?vSrchText=82%EB%85%84%EC%83%9D+%EA%B9%80%EC%A7%80%EC%98%81&vLmt2=H0000016",
+   "rule": "@verify:@plain:@template:<input type=\"checkbox\" name=\"ctrlno\" value=\"(\\d+)\" => /web/menu/10075/program/30005/searchResultDetail.do?vCtrl={1}",
+   "isbns": [
+    "9788937473135"
+   ],
+   "details": "yuseong82",
+   "expect": "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000003227528",
+   "fetched": [
+    "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000003501019",
+    "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000003227528"
+   ]
+  },
+  {
+   "name": "유성도서관: @plain: 없이 적으면 그 ISBN 이 적힌 첫 후보(큰글자 도서)에서 멈춘다",
+   "file": "yuseong-large-first.html",
+   "url": "https://lib.yuseong.go.kr/web/program/searchResultList.do?vSrchText=82%EB%85%84%EC%83%9D+%EA%B9%80%EC%A7%80%EC%98%81&vLmt2=H0000016",
+   "rule": "@verify:@template:<input type=\"checkbox\" name=\"ctrlno\" value=\"(\\d+)\" => /web/menu/10075/program/30005/searchResultDetail.do?vCtrl={1}",
+   "isbns": [
+    "9788937473135"
+   ],
+   "details": "yuseong82",
+   "expect": "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000003501019",
+   "fetched": [
+    "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000003501019"
+   ]
+  },
+  {
+   "name": "유성도서관: 표기 없는 줄의 상세에 그 ISBN 이 없으면 큰글자 도서 줄이라도 그 책이다",
+   "file": "yuseong-large-first.html",
+   "url": "https://lib.yuseong.go.kr/web/program/searchResultList.do?vSrchText=82%EB%85%84%EC%83%9D+%EA%B9%80%EC%A7%80%EC%98%81&vLmt2=H0000016",
+   "rule": "@verify:@plain:@template:<input type=\"checkbox\" name=\"ctrlno\" value=\"(\\d+)\" => /web/menu/10075/program/30005/searchResultDetail.do?vCtrl={1}",
+   "isbns": [
+    "9788937473135"
+   ],
+   "details": "yuseong82-only-large",
+   "expect": "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000003501019",
+   "fetched": [
+    "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000003501019",
+    "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000003227528"
+   ]
+  },
+  {
+   "name": "유성: @verify:@plain: 도 표기 없는 줄에서는 그 ISBN 을 만나면 더 받지 않는다",
+   "file": "yuseong.html",
+   "url": "https://lib.yuseong.go.kr/web/program/searchResultList.do?vSrchText=%EB%AF%B8%EC%9B%80%EB%B0%9B%EC%9D%84+%EC%9A%A9%EA%B8%B0&vLmt2=H0000030",
+   "rule": "@verify:@plain:@onclick:fnDetail",
+   "isbns": [
+    "9788952230645"
+   ],
+   "details": "yuseong",
+   "expect": "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000004907136",
+   "fetched": [
+    "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000004923523",
+    "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000004907136"
+   ]
+  }
+ ]
+}

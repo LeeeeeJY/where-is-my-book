@@ -1,0 +1,37 @@
+<!-- nyj.html 과 같은 화면에서 줄의 차례만 바꾼 것입니다. 2026-11-17 에는 이 차례였습니다(대활자본이 첫 줄). -->
+<script>
+function fnSearchResultDetail(recKey, bookKey, publishFormCode){
+    var form = document.paramForm;
+    form.recKey.value = recKey;
+    form.bookKey.value = bookKey;
+    form.publishFormCode.value = publishFormCode;
+    form.action = "/toegyewon/plusSearchResultDetail.do";
+    form.submit();
+}
+</script>
+<form name="paramForm" id="paramForm" method="post">
+ <input type="hidden" name="searchType" value="DETAIL">
+ <input type="hidden" name="searchKey5" value="ISBN">
+ <input type="hidden" name="searchKeyword5" value="9788937473135">
+ <input type="hidden" name="searchLibrary" value="141401">
+ <input type="hidden" name="recKey" value="">
+ <input type="hidden" name="bookKey" value="">
+ <input type="hidden" name="publishFormCode" value="">
+</form>
+<p class="searchMsg">요청하신 <strong>'ISBN:9788937473135'</strong> 에 대한 자료 검색 결과이며 총 <strong>2</strong>건이 검색되었습니다.</p>
+<ul class="resultList imageType">
+<li>
+ <span class="chk"><input type="checkbox" name="check" title="[대활자본] 82년생 김지영 선택(대출가능)" value="202310687^202310690^BO"></span>
+ <div class="thumb"><a href="#link" onclick="javascript:fnSearchResultDetail(202310687,202310690,'BO'); return false;" class="cover"><em class="tag"><img alt="문학"></em></a></div>
+ <dl class="bookDataWrap"><dt class="tit"><span class="cate">도서</span><a href="#link" onclick="javascript:fnSearchResultDetail(202310687,202310690,'BO'); return false;">1. [대활자본] 82년생 김지영</a></dt>
+  <dd class="data"><span>발행년도: 2018</span><span>청구기호: 큰글 808-민67오-13</span></dd>
+  <dd class="site"><span>소장도서관: 퇴계원도서관</span></dd></dl>
+</li>
+<li>
+ <span class="chk"><input type="checkbox" name="check" title="82년생 김지영 선택(대출가능)" value="165017235^165017237^BO"></span>
+ <div class="thumb"><a href="#link" onclick="javascript:fnSearchResultDetail(165017235,165017237,'BO'); return false;" class="cover"><em class="tag"><img alt="문학"></em></a></div>
+ <dl class="bookDataWrap"><dt class="tit"><span class="cate">도서</span><a href="#link" onclick="javascript:fnSearchResultDetail(165017235,165017237,'BO'); return false;">2. 82년생 김지영</a></dt>
+  <dd class="data"><span>발행년도: 2016</span><span>청구기호: 808-민67오-13</span></dd>
+  <dd class="site"><span>소장도서관: 퇴계원도서관</span></dd></dl>
+</li>
+</ul>

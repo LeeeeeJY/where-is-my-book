@@ -513,6 +513,42 @@ class OpacTemplatesTest {
     }
 
     @Test
+    @DisplayName("상세 화면으로 확인하는 규칙(@verify:)도 분관으로 좁힌 제목 검색에만 걸린다")
+    void verifyRuleFollowsTheSameTitleSearchConditions() {
+        // 유성의 모양입니다. 분관마다 주소의 vLmt2 값이 다르고, 좁히지 않은 통합 검색을 쓰는 곳이 섞여 있다고 칩니다.
+        // 상세 화면이 소장본 단위인 시스템에서 통합 검색의 줄을 상세로 확인하면 남의 분관 소장본으로 갑니다.
+        var templates = with(List.of(
+                "111111,TITLE_SEARCH,UTF-8,https://lib.yuseong.go.kr/web/program/searchResultList.do?vSrchText={title}&vLmt2=H0000030",
+                "222222,TITLE_SEARCH,UTF-8,https://lib.yuseong.go.kr/web/program/searchResultList.do?vSrchText={title}",
+                "333333,TITLE_SEARCH,UTF-8,https://lib.yuseong.go.kr/small/searchResultList.do?vSrchText={title}&vLmt2=H01%2CH02",
+                "444444,TITLE_SEARCH,UTF-8,https://lib.yuseong.go.kr/both/searchResultList.do?vSrchText={title}&vLmt2=H0000099",
+                "555555,TITLE_SEARCH,UTF-8,https://lib.yuseong.go.kr/both/searchResultList.do?vSrchText={title}&vLmt2=H0000099"),
+                "lib.yuseong.go.kr?vLmt2,@verify:@onclick:fnDetail");
+
+        assertEquals(OpacLink.Kind.DETAIL_LOOKUP, templates.kindFor("111111"));
+        assertEquals("lib.yuseong.go.kr?vLmt2", templates.titleDetailPatternFor("111111").orElseThrow().key());
+        // 분관 칸이 없는 주소, 쉼표로 여럿을 늘어놓은 주소에는 걸리지 않습니다.
+        assertEquals(OpacLink.Kind.TITLE_SEARCH, templates.kindFor("222222"));
+        assertEquals(OpacLink.Kind.TITLE_SEARCH, templates.kindFor("333333"));
+        // 칸의 값이 하나여도 그 주소를 두 도서관이 함께 쓰면 한 분관의 검색이 아닙니다.
+        assertEquals(OpacLink.Kind.TITLE_SEARCH, templates.kindFor("444444"));
+        assertTrue(templates.titleDetailPatternFor("444444").isEmpty());
+
+        // 닻 없는 @plain: 은 ISBN 으로 줄을 고르는 규칙이 아니라 제목 검색에는 쓰이지 않습니다. 그 화면의 줄
+        // 전부를 그 책의 줄로 보는 규칙입니다.
+        var plain = with(List.of(
+                "111111,TITLE_SEARCH,UTF-8,https://lib.example.kr/s?lib=MA&q={title}",
+                "222222,ISBN_SEARCH,UTF-8,https://lib.example.kr/s?lib=MB&isbn={isbn13}"),
+                "lib.example.kr,@plain:href=\"(/v/[^\"]+)\"");
+        assertEquals(OpacLink.Kind.TITLE_SEARCH, plain.kindFor("111111"));
+        assertEquals(OpacLink.Kind.DETAIL_LOOKUP, plain.kindFor("222222"));
+        // 닻을 감싼 @plain: 은 제목 검색에 걸립니다.
+        var plainAnchored = with(List.of("111111,TITLE_SEARCH,UTF-8,https://lib.example.kr/s?lib=MA&q={title}"),
+                "lib.example.kr?lib,@plain:@anchor:href=\"(/v/[^\"]+)\"");
+        assertEquals(OpacLink.Kind.DETAIL_LOOKUP, plainAnchored.kindFor("111111"));
+    }
+
+    @Test
     @DisplayName("패턴이 없는 호스트의 도서관은 그대로 검색 단계다")
     void noPatternMeansSearch() {
         var templates = with(NOWON_LIKE, "public.seocholib.or.kr,href=\"(/bookDetail/[^\"]+)\"");

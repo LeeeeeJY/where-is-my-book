@@ -505,6 +505,8 @@ JSON_PREFIX = "@json:"
 ANCHOR_PREFIX = "@anchor:"
 ANCHOR_AFTER_PREFIX = "@anchor-after:"
 FRAME_PREFIX = "@frame:"
+VERIFY_PREFIX = "@verify:"
+PLAIN_PREFIX = "@plain:"
 TEMPLATE_SEPARATOR = "=>"
 
 # 서버의 DetailRule.FRAME_SHAPE 와 같은 모양입니다. 주소에는 공백이 없으므로 첫 「=>」가 경계입니다.
@@ -548,6 +550,9 @@ def pattern_problem(regex: str) -> str | None:
     (`{1}` `{2}` 가 그룹). 뒤의 둘은 2026-11-06 에 더했습니다(scripts/opac-onclick-probe.py).
     셋 다 앞에 **`@anchor:`**(또는 `@anchor-after:`)를 붙일 수 있습니다. 첫 링크가 아니라 그 ISBN 이
     적힌 항목의 링크를 고르라는 뜻이고, 제목 검색 규칙용입니다(scripts/opac-title-probe.py).
+    **`@verify:`** 는 목록에 ISBN 이 없는 화면에서 후보 줄의 상세 화면을 받아 그 ISBN 이 적힌 것만 보내라는
+    뜻이고(안쪽은 위의 셋), **`@plain:`** 은 그 ISBN 의 줄 가운데 큰글자책·점자책 표기가 없는 줄을 고르라는
+    뜻입니다(안쪽은 위의 셋이나 닻 규칙). 둘 다 2026-11-25 에 더했습니다.
     """
     if not regex:
         return "정규식이 비어 있습니다"
@@ -567,14 +572,32 @@ def pattern_problem(regex: str) -> str | None:
         if unknown:
             return f"@frame: 의 주소틀이 모르는 자리표를 씁니다 ({', '.join(sorted(unknown))})"
         if inner.lower().startswith((JSON_PREFIX, FRAME_PREFIX)):
-            return "@frame: 의 안쪽에는 정규식·@onclick:·@template:·@anchor: 규칙이 와야 합니다"
+            return "@frame: 의 안쪽에는 정규식·@onclick:·@template:·@anchor:·@verify:·@plain: 규칙이 와야 합니다"
+        return pattern_problem(inner)
+    wrappers = (JSON_PREFIX, ANCHOR_PREFIX, ANCHOR_AFTER_PREFIX, FRAME_PREFIX, VERIFY_PREFIX, PLAIN_PREFIX)
+    if regex.lower().startswith(VERIFY_PREFIX):
+        # @verify:규칙 — 후보 줄의 상세 화면을 받아 그 ISBN 이 적힌 것만 보냅니다(서버의 DetailRule.Verified).
+        # 목록에 ISBN 이 없는 화면을 위한 것이라 닻 규칙을 감싸지 않습니다. 안쪽은 정규식·@onclick:·@template: 입니다.
+        inner = regex[len(VERIFY_PREFIX):].strip()
+        # @plain: 은 감쌀 수 있습니다(닻 없는 것만). 같은 ISBN 이 적힌 후보 가운데 표기 없는 줄을 먼저 고릅니다.
+        if inner.lower().startswith(PLAIN_PREFIX):
+            inner = inner[len(PLAIN_PREFIX):].strip()
+        if inner.lower().startswith(wrappers):
+            return "@verify: 뒤에는 정규식·@onclick:·@template: 규칙이나, 그것을 감싼 @plain: 이 와야 합니다"
+        return pattern_problem(inner)
+    if regex.lower().startswith(PLAIN_PREFIX):
+        # @plain:규칙 — 그 ISBN 의 줄 가운데 큰글자책·점자책 표기가 없는 줄을 고릅니다(서버의 DetailRule.Plain).
+        # 안쪽은 정규식·@onclick:·@template:·@anchor: 입니다.
+        inner = regex[len(PLAIN_PREFIX):].strip()
+        if inner.lower().startswith((JSON_PREFIX, FRAME_PREFIX, VERIFY_PREFIX, PLAIN_PREFIX)):
+            return "@plain: 뒤에는 정규식·@onclick:·@template:·@anchor: 규칙이 와야 합니다"
         return pattern_problem(inner)
     for prefix in (ANCHOR_AFTER_PREFIX, ANCHOR_PREFIX):
         # @anchor:규칙 — 결과 목록에서 그 ISBN 이 적힌 항목의 링크를 고릅니다(서버의 DetailRule.Anchored).
         # 제목 검색 규칙은 이것이 붙어야 상세로 갑니다. 안쪽은 정규식·@onclick:·@template: 입니다.
         if regex.lower().startswith(prefix):
             inner = regex[len(prefix):].strip()
-            if inner.lower().startswith((JSON_PREFIX, ANCHOR_PREFIX, ANCHOR_AFTER_PREFIX, FRAME_PREFIX)):
+            if inner.lower().startswith(wrappers):
                 return f"{prefix} 뒤에는 정규식·@onclick:·@template: 규칙이 와야 합니다"
             return pattern_problem(inner)
     if regex.lower().startswith(ONCLICK_PREFIX):

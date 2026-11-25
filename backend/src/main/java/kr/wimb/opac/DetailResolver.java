@@ -74,6 +74,27 @@ public final class DetailResolver {
     static final int PER_HOST_IN_FLIGHT = 2;
     static final int MAX_BODY_BYTES = 1_500_000;
 
+    /**
+     * {@code @verify:} 규칙이 <b>한 번 누를 때</b> 받아 보는 후보 상세 화면의 수. 검색 화면을 다시 받아도
+     * (판을 바꾸거나 표제에서 권차를 떼고) 늘지 않습니다. {@link Budget} 이 누름 한 번에 하나입니다.
+     *
+     * <p>그래서 {@code @verify:} 규칙으로 한 번 누를 때 그 호스트로 나가는 요청은 <b>많아야 다섯 번</b>입니다.
+     * 검색 화면이 둘까지(부르는 쪽이 두 번까지만 찾습니다. {@code WimbController.MAX_DETAIL_ATTEMPTS}),
+     * 후보 상세가 이 값까지입니다. 그 밖에 하루에 한 번 받는 robots.txt 와, {@code @onclick:} 의 함수 본문이
+     * 화면 밖에 있을 때 하루에 한 번 받는 스크립트 파일이 있습니다.
+     */
+    static final int MAX_VERIFY_DETAILS = 3;
+
+    /**
+     * {@code @verify:} 규칙이 한 번 누를 때 쓰는 시간의 상한. 검색 화면과 후보 상세를 받는 시간을 전부
+     * 합친 것입니다. 넘기면 받던 것을 버리고 검색 화면으로 보냅니다.
+     *
+     * <p>다른 규칙의 받기 제한({@link #FETCH_TIMEOUT})은 응답 머리가 올 때까지만 걸려서 본문을 느리게 주는
+     * OPAC 에서는 상한이 없습니다({@code docs/가정과-검증상태.md} 2-41). 이 규칙은 받기가 네 번까지라 그
+     * 방식으로는 누른 사람이 얼마나 기다릴지 말할 수 없습니다. 그래서 본문까지 묶습니다.
+     */
+    static final Duration VERIFY_TIME_LIMIT = Duration.ofSeconds(8);
+
     public enum Status {
         /** 상세 링크를 찾았습니다. */
         RESOLVED,
@@ -108,6 +129,15 @@ public final class DetailResolver {
 
         /** 본문을 실어 보내는 요청({@code @json:POST}). 기본은 본문을 무시한 GET 이라 가짜 서버가 그대로 씁니다. */
         default Page fetch(URI url, String method, String body, String contentType) throws IOException, InterruptedException {
+            return fetch(url);
+        }
+
+        /**
+         * <b>본문까지</b> {@code within} 안에 받습니다. 넘기면 {@code HttpTimeoutException} 입니다.
+         * {@code @verify:} 규칙의 받기가 씁니다. 기본은 제한 없는 {@link #fetch(URI)} 라 가짜 서버가 그대로
+         * 쓰고, 해석기가 받은 뒤에 시계를 한 번 더 봅니다.
+         */
+        default Page fetch(URI url, Duration within) throws IOException, InterruptedException {
             return fetch(url);
         }
     }
@@ -170,8 +200,38 @@ public final class DetailResolver {
 
     private record Robots(List<String> disallows, Instant expiresAt) {}
 
+    /**
+     * 누름 한 번의 몫. {@code @verify:} 규칙만 씁니다. 다른 규칙은 이 몫을 보지도 쓰지도 않습니다.
+     *
+     * <p>부르는 쪽({@code /api/go})이 누름 한 번에 하나를 만들어, 그 누름에서 부르는 {@link #resolve} 에 전부
+     * 같은 것을 넘깁니다. 그래야 두 번째 찾기(다음 판, 권차를 뗀 표제)가 후보 상세를 처음부터 다시 세지
+     * 않습니다. 이미 받아 본 상세 화면은 여기에 들고 있어서, 두 번째 검색 화면이 같은 줄을 내도 다시 받지
+     * 않습니다. 요청 하나의 스레드만 쓰므로 잠그지 않습니다.
+     */
+    public final class Budget {
+        private int detailsLeft = MAX_VERIFY_DETAILS;
+        private final long deadline;
+        private final Map<String, String> pages = new java.util.HashMap<>();
+
+        private Budget(long deadline) {
+            this.deadline = deadline;
+        }
+
+        /** 시간의 상한까지 남은 시간. 다 썼으면 0 입니다. */
+        private Duration left() {
+            return Duration.ofNanos(Math.max(0, deadline - ticker.getAsLong()));
+        }
+    }
+
+    /** 누름 한 번의 몫을 새로 만듭니다. 시계는 여기서부터 돕니다. */
+    public Budget newBudget() {
+        return new Budget(ticker.getAsLong() + VERIFY_TIME_LIMIT.toNanos());
+    }
+
     private final Fetcher fetcher;
     private final Clock clock;
+    /** 걸린 시간을 재는 시계. 테스트가 느린 OPAC 을 흉내 낼 때 가짜를 끼웁니다. */
+    private final java.util.function.LongSupplier ticker;
     private final Map<String, Cached> cache = new ConcurrentHashMap<>();
     private final Map<String, Robots> robots = new ConcurrentHashMap<>();
     private final Map<String, Script> scripts = new ConcurrentHashMap<>();
@@ -190,8 +250,13 @@ public final class DetailResolver {
     private final OpacHostTally hostTally;
 
     public DetailResolver(Fetcher fetcher, Clock clock) {
+        this(fetcher, clock, System::nanoTime);
+    }
+
+    DetailResolver(Fetcher fetcher, Clock clock, java.util.function.LongSupplier ticker) {
         this.fetcher = fetcher;
         this.clock = clock;
+        this.ticker = ticker;
         this.hostTally = new OpacHostTally(clock, FETCH_TIMEOUT.toMillis());
     }
 
@@ -217,6 +282,14 @@ public final class DetailResolver {
 
     /** 누른 도서관과 책을 함께 넘기면 {@code @json:} 규칙이 그 분관의 소장본을 고릅니다. */
     public Outcome resolve(String searchUrl, DetailRule rule, Context context) {
+        return resolve(searchUrl, rule, context, newBudget());
+    }
+
+    /**
+     * 누름 한 번에서 여러 번 찾을 때 같은 몫을 넘깁니다({@link #newBudget()}). {@code @verify:} 규칙이 받아
+     * 보는 후보 상세의 수와 시간을 누름 한 번으로 묶습니다.
+     */
+    public Outcome resolve(String searchUrl, DetailRule rule, Context context, Budget budget) {
         Instant now = clock.instant();
         String cacheKey = cacheKey(searchUrl, rule, context);
         Cached hit = cache.get(cacheKey);
@@ -226,7 +299,7 @@ public final class DetailResolver {
                     ? new Outcome(Status.NO_MATCH, null, "기억해 둔 답: 링크 없음", true)
                     : new Outcome(Status.RESOLVED, hit.detailUrl(), "기억해 둔 답", true);
         }
-        return fetchAndRemember(searchUrl, rule, context, true);
+        return fetchAndRemember(searchUrl, rule, context, true, budget);
     }
 
     /** 같은 검색이라도 {@code @json:} 은 누른 도서관마다 다른 소장본으로 가므로 열쇠에 도서관을 넣습니다. */
@@ -249,7 +322,7 @@ public final class DetailResolver {
     }
 
     public Outcome probe(String searchUrl, DetailRule rule, Context context) {
-        return fetchAndRemember(searchUrl, rule, context, false);
+        return fetchAndRemember(searchUrl, rule, context, false, newBudget());
     }
 
     /**
@@ -278,7 +351,7 @@ public final class DetailResolver {
             return new Reach(url, false, 0, 0, "주소가 아닙니다");
         }
         String robotsUrl = target.getScheme() + "://" + target.getRawAuthority() + "/robots.txt";
-        long started = System.nanoTime();
+        long started = ticker.getAsLong();
         try {
             Page page = fetcher.fetch(URI.create(robotsUrl));
             return new Reach(robotsUrl, true, page.status(), elapsedMillis(started), null);
@@ -291,11 +364,12 @@ public final class DetailResolver {
         }
     }
 
-    private static long elapsedMillis(long startedNanos) {
-        return (System.nanoTime() - startedNanos) / 1_000_000;
+    private long elapsedMillis(long startedNanos) {
+        return (ticker.getAsLong() - startedNanos) / 1_000_000;
     }
 
-    private Outcome fetchAndRemember(String searchUrl, DetailRule stated, Context context, boolean honourBreaker) {
+    private Outcome fetchAndRemember(String searchUrl, DetailRule stated, Context context, boolean honourBreaker,
+                                     Budget budget) {
         // @frame: 은 「어느 주소를 받는가」만 바꿉니다. 받은 HTML 에 적용하는 것은 안쪽 규칙입니다.
         DetailRule rule = stated instanceof DetailRule.Frame frame ? frame.inner() : stated;
         URI search;
@@ -320,10 +394,12 @@ public final class DetailResolver {
             }
             jsonBody = json.body() == null ? null : fillRequest(json.body(), context);
         }
-        if (rule instanceof DetailRule.Anchored && context.anchors().isEmpty()) {
-            // 받아 보기 전에 끝냅니다. 닻이 없으면 고를 수 없는데 남의 서버만 두드리게 됩니다.
+        boolean verifying = rule instanceof DetailRule.Verified;
+        if (rule.anchored() && context.anchors().isEmpty()) {
+            // 받아 보기 전에 끝냅니다. 어느 책인지 모르면 고를 수 없는데 남의 서버만 두드리게 됩니다.
             missed.incrementAndGet();
-            return Outcome.of(Status.NO_MATCH, "@anchor: 규칙은 어느 책인지(ISBN) 알아야 합니다");
+            return Outcome.of(Status.NO_MATCH, (verifying ? DetailRule.VERIFY_PREFIX : DetailRule.ANCHOR_PREFIX)
+                    + " 규칙은 어느 책인지(ISBN) 알아야 합니다");
         }
         if (stated instanceof DetailRule.Frame frame) {
             // 검색 화면이 아니라 결과가 든 프레임을 받습니다. 검색 화면의 HTML 에는 책이 없습니다.
@@ -353,75 +429,367 @@ public final class DetailResolver {
         // 빗장을 지키는 길이 곧 방문자의 길입니다. 호스트별 집계는 그 길만 셉니다. 진단으로 잰 것이
         // 섞이면 누르는 사람이 적은 호스트의 숫자가 운영자가 잰 것으로 채워집니다.
         boolean tallied = honourBreaker;
+        if (verifying) {
+            // 받아 보기 전에 끝냅니다. 후보 상세를 볼 몫이나 시간이 없으면 검색 화면만 받고 버리게 됩니다.
+            // 받아 본 것이 없으므로 세지도 기억하지도 않습니다.
+            if (budget.detailsLeft == 0) {
+                return Outcome.of(Status.NO_MATCH, "이번 누름에서 받아 볼 후보 상세 화면 " + MAX_VERIFY_DETAILS
+                        + "개를 이미 다 받아 봤습니다");
+            }
+            if (budget.left().isZero()) return Outcome.of(Status.FETCH_FAILED, timeLimitNote());
+        }
+
+        long started = ticker.getAsLong();
+        Got got = verifying
+                ? gatedFetch(search, null, null, honourBreaker, true, shorter(FETCH_TIMEOUT, budget.left()))
+                : gatedFetch(search, rule instanceof DetailRule.Json json ? json : null, jsonBody, honourBreaker, true, null);
+        if (got.cutShort()) {
+            // 검색 화면을 받는 도중에 누름 한 번의 시간 상한에 닿았습니다(앞선 찾기가 시간을 거의 다 썼습니다).
+            failed.incrementAndGet();
+            if (tallied) hostTally.record(hostKey, OpacHostTally.Event.TIME_LIMIT, null);
+            return Outcome.of(Status.FETCH_FAILED, timeLimitNote());
+        }
+        if (got.page() == null) return got.failure();
+        Page page = got.page();
+
+        if (verifying) {
+            Verdict verdict = verify(page, (DetailRule.Verified) rule, search, context, honourBreaker, budget);
+            Outcome outcome = verdict.outcome();
+            (outcome.status() == Status.RESOLVED ? resolved : outcome.status() == Status.NO_MATCH ? missed : failed)
+                    .incrementAndGet();
+            if (tallied) {
+                // 끝은 찾기 한 번에 한 번 적고, 걸린 시간은 검색 화면과 후보 상세를 합친 것입니다. 그것이 누른
+                // 사람이 기다린 시간입니다. 받지 못한 후보 상세는 받을 때 그 호스트의 것으로 이미 적었습니다.
+                if (outcome.status() == Status.RESOLVED || outcome.status() == Status.NO_MATCH) {
+                    hostTally.recordAnswered(hostKey, outcome.status() == Status.RESOLVED
+                            ? OpacHostTally.Event.RESOLVED : OpacHostTally.Event.NO_MATCH, elapsedMillis(started), null);
+                } else if (verdict.timeUp()) {
+                    hostTally.record(hostKey, OpacHostTally.Event.TIME_LIMIT, null);
+                }
+            }
+            if (verdict.remember()) remember(cacheKey(searchUrl, stated, context), outcome);
+            return outcome;
+        }
+        Outcome outcome = rule instanceof DetailRule.Json json
+                ? extractFromJson(page, json, search, context)
+                : extract(page, rule, search, context);
+        if (tallied) {
+            hostTally.recordAnswered(hostKey, outcome.status() == Status.RESOLVED
+                    ? OpacHostTally.Event.RESOLVED : OpacHostTally.Event.NO_MATCH, got.millis(), null);
+        }
+        remember(cacheKey(searchUrl, stated, context), outcome);
+        return outcome;
+    }
+
+    private static Duration shorter(Duration a, Duration b) {
+        return a.compareTo(b) <= 0 ? a : b;
+    }
+
+    private static String timeLimitNote() {
+        return "상세 확인이 한 번 누를 때의 시간 상한(" + VERIFY_TIME_LIMIT.toSeconds() + "초)에 닿아 그만뒀습니다";
+    }
+
+    /**
+     * 받기 한 번의 끝. {@code page} 가 있으면 200 으로 받은 것이고, 없으면 {@code failure} 가 사유입니다.
+     * {@code cutShort} 는 그 호스트의 탓이 아니라 <b>누름 한 번의 시간 상한</b> 때문에 그만둔 것입니다.
+     */
+    private record Got(Page page, long millis, Outcome failure, boolean cutShort) {
+        static Got failed(Outcome failure) {
+            return new Got(null, 0, failure, false);
+        }
+    }
+
+    /**
+     * 그 호스트의 문을 지나 한 번 받습니다. 검색 화면도 {@code @verify:} 의 후보 상세도 이 문을 지납니다.
+     *
+     * <p>문은 넷입니다. 닿지 않는 호스트의 빗장, robots.txt, 같은 호스트에 한꺼번에
+     * {@value #PER_HOST_IN_FLIGHT}개까지라는 제한, 그리고 받은 뒤에 빗장과 호스트별 집계에 적는 일입니다.
+     * 호스트는 받는 주소의 것입니다. 후보 상세가 검색 화면과 다른 호스트에 있으면 그 호스트의 문을 지납니다.
+     *
+     * @param countFailure 받지 못한 것을 {@code /api/status} 의 합계에 세는지. 후보 상세는 세지 않습니다.
+     *                     그 찾기의 끝을 부르는 쪽이 한 번 셉니다.
+     * @param within       본문까지 이 시간 안에 받습니다. 없으면 평소대로 응답 머리까지만
+     *                     {@link #FETCH_TIMEOUT} 이 걸립니다.
+     */
+    private Got gatedFetch(URI url, DetailRule.Json json, String jsonBody, boolean honourBreaker,
+                           boolean countFailure, Duration within) {
+        String host = url.getHost();
+        if (host == null) {
+            if (countFailure) failed.incrementAndGet();
+            return Got.failed(Outcome.of(Status.FETCH_FAILED, "호스트가 없습니다: " + url));
+        }
+        String hostKey = host.toLowerCase(Locale.ROOT);
+        boolean tallied = honourBreaker;
         if (honourBreaker) {
             HostHealth h = health.get(hostKey);
             if (h != null && h.downUntil() != null && h.downUntil().isAfter(clock.instant())) {
                 skippedDown.incrementAndGet();
                 hostTally.record(hostKey, OpacHostTally.Event.SKIPPED_DOWN, null);
-                return Outcome.of(Status.FETCH_FAILED, "최근 " + DOWN_AFTER_FAILURES + "번 연속 닿지 않아 "
-                        + "건너뜁니다 (" + h.downUntil() + " 까지)");
+                return Got.failed(Outcome.of(Status.FETCH_FAILED, "최근 " + DOWN_AFTER_FAILURES + "번 연속 닿지 않아 "
+                        + "건너뜁니다 (" + h.downUntil() + " 까지)"));
             }
         }
-        if (disallowed(search)) {
-            failed.incrementAndGet();
+        if (disallowed(url)) {
+            if (countFailure) failed.incrementAndGet();
             if (tallied) hostTally.record(hostKey, OpacHostTally.Event.BLOCKED_BY_ROBOTS, null);
-            return Outcome.of(Status.BLOCKED_BY_ROBOTS, "robots.txt 가 막은 경로입니다");
+            return Got.failed(Outcome.of(Status.BLOCKED_BY_ROBOTS, "robots.txt 가 막은 경로입니다"));
         }
 
-        Semaphore permits = perHost.computeIfAbsent(host.toLowerCase(Locale.ROOT),
-                k -> new Semaphore(PER_HOST_IN_FLIGHT));
+        Semaphore permits = perHost.computeIfAbsent(hostKey, k -> new Semaphore(PER_HOST_IN_FLIGHT));
         boolean acquired;
         try {
             acquired = permits.tryAcquire(1, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            return Outcome.of(Status.BUSY, "중단되었습니다");
+            return Got.failed(Outcome.of(Status.BUSY, "중단되었습니다"));
         }
         if (!acquired) {
-            failed.incrementAndGet();
+            if (countFailure) failed.incrementAndGet();
             if (tallied) hostTally.record(hostKey, OpacHostTally.Event.BUSY, null);
-            return Outcome.of(Status.BUSY, "그 호스트로 이미 " + PER_HOST_IN_FLIGHT + "개가 나가 있습니다");
+            return Got.failed(Outcome.of(Status.BUSY, "그 호스트로 이미 " + PER_HOST_IN_FLIGHT + "개가 나가 있습니다"));
         }
-        long started = System.nanoTime();
+        long started = ticker.getAsLong();
         try {
-            Page page = rule instanceof DetailRule.Json json
-                    ? fetcher.fetch(search, json.method(), jsonBody, bodyTypeOf(jsonBody))
-                    : fetcher.fetch(search);
+            Page page = json != null ? fetcher.fetch(url, json.method(), jsonBody, bodyTypeOf(jsonBody))
+                    : within != null ? fetcher.fetch(url, within)
+                    : fetcher.fetch(url);
             // 본문까지 다 받는 데 걸린 시간입니다. 받기 제한은 응답 머리가 올 때까지만 걸리므로 이 값은
             // 제한을 넘을 수 있고, 그동안 누른 사람은 기다립니다.
             long took = elapsedMillis(started);
+            if (within != null && took > within.toMillis()) {
+                // 실제 받기는 그 시간에 끊깁니다. 여기에 오는 것은 시간을 지키지 않는 가짜 서버뿐이고, 같은
+                // 길로 보내 끝을 맞춥니다.
+                throw new java.net.http.HttpTimeoutException("받기가 " + within.toMillis() + "ms 안에 끝나지 않았습니다");
+            }
             health.remove(hostKey);                       // 답을 받았으면 닿는 것입니다. 상태 코드와 무관합니다.
             if (page.status() != 200) {
-                failed.incrementAndGet();
+                if (countFailure) failed.incrementAndGet();
                 if (tallied) {
                     hostTally.recordAnswered(hostKey, OpacHostTally.Event.HTTP_ERROR, took, "HTTP " + page.status());
                 }
-                return Outcome.of(Status.FETCH_FAILED, "HTTP " + page.status());
+                return Got.failed(Outcome.of(Status.FETCH_FAILED, "HTTP " + page.status()));
             }
-            Outcome outcome = rule instanceof DetailRule.Json json
-                    ? extractFromJson(page, json, search, context)
-                    : extract(page, rule, search, context);
-            if (tallied) {
-                hostTally.recordAnswered(hostKey, outcome.status() == Status.RESOLVED
-                        ? OpacHostTally.Event.RESOLVED : OpacHostTally.Event.NO_MATCH, took, null);
-            }
-            remember(cacheKey(searchUrl, stated, context), outcome);
-            return outcome;
+            return new Got(page, took, null, false);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            failed.incrementAndGet();
-            return Outcome.of(Status.FETCH_FAILED, "중단되었습니다");
+            if (countFailure) failed.incrementAndGet();
+            return Got.failed(Outcome.of(Status.FETCH_FAILED, "중단되었습니다"));
         } catch (Exception e) {
+            String note = e.getClass().getSimpleName() + (e.getMessage() == null ? "" : ": " + e.getMessage());
+            if (within != null && within.compareTo(FETCH_TIMEOUT) < 0
+                    && e instanceof java.net.http.HttpTimeoutException
+                    && !(e instanceof java.net.http.HttpConnectTimeoutException)) {
+                // 이 받기에 준 시간이 평소의 제한보다 짧았습니다. 누름 한 번의 시간이 얼마 남지 않아서입니다.
+                // 그 호스트가 느린 것인지는 알 수 없으므로 빗장에도 호스트별 집계에도 적지 않습니다. 부르는
+                // 쪽이 「시간 상한」으로 끝냅니다.
+                return new Got(null, elapsedMillis(started), Outcome.of(Status.FETCH_FAILED, note), true);
+            }
             // 시간 초과, 접속 거부, TLS. 답 자체는 기억하지 않습니다. 잠깐 흔들린 뒤에도 한동안
             // 검색 결과로만 보내게 되기 때문입니다. 다만 연속으로 닿지 않는 호스트는 빗장을 겁니다.
-            failed.incrementAndGet();
+            if (countFailure) failed.incrementAndGet();
             markUnreachable(hostKey);
-            String note = e.getClass().getSimpleName() + (e.getMessage() == null ? "" : ": " + e.getMessage());
             if (tallied) hostTally.record(hostKey, failureKind(e), note);
-            return Outcome.of(Status.FETCH_FAILED, note);
+            return Got.failed(Outcome.of(Status.FETCH_FAILED, note));
         } finally {
             permits.release();
         }
+    }
+
+    /** {@code @verify:} 의 끝. {@code remember} 가 거짓이면 그 답을 기억하지 않습니다. */
+    private record Verdict(Outcome outcome, boolean remember, boolean timeUp) {}
+
+    /**
+     * 검색 결과의 줄을 문서 순서대로 후보로 삼아, <b>후보의 상세 화면을 받아 보고</b> 그 ISBN 이 적힌 것으로
+     * 보냅니다({@code @verify:}). 판정은 {@link IsbnVerify} 에 있고 여기에는 받는 차례와 그만두는 자리가
+     * 있습니다.
+     *
+     * <ul>
+     *   <li>보는 것은 <b>앞의 {@value #MAX_VERIFY_DETAILS}줄</b>까지이고, 이번 누름에서 이미 받아 본 수까지
+     *       합쳐 그 수를 넘지 않습니다. 같은 누름에서 이미 받아 본 상세 화면은 다시 받지 않습니다.</li>
+     *   <li>그 도서관이 가진 판(닻의 첫 ISBN)이 적힌 후보를 만나면 더 받지 않습니다.</li>
+     *   <li><b>후보 하나를 받지 못하면 거기서 그만둡니다.</b> 닿지 않는 호스트를 후보마다 다시 기다리게 하지
+     *       않으려는 것입니다. 그 답은 「못 찾음」이 아니라 「받지 못함」이고 기억하지 않습니다. 받지 못한
+     *       후보가 그 책이었을 수 있습니다.</li>
+     *   <li>시간의 상한에 닿으면 받던 것을 버립니다. 이것도 기억하지 않습니다.</li>
+     *   <li>앞의 줄을 다 봤는데 어느 상세 화면에도 그 ISBN 이 없으면 「못 찾음」이고 한 시간 기억합니다.
+     *       <b>첫 줄로 내려가지 않습니다.</b></li>
+     * </ul>
+     * 합계와 호스트별 집계에 찾기의 끝을 적는 일은 부르는 쪽이 합니다.
+     */
+    private Verdict verify(Page page, DetailRule.Verified rule, URI search, Context context,
+                           boolean honourBreaker, Budget budget) {
+        String body = page.body() == null ? "" : page.body();
+        URI base = page.finalUri() != null ? page.finalUri() : search;
+        // @verify:@plain: 이면 목록의 줄에 큰글자책·점자책 표기가 있는지를 후보마다 함께 듭니다.
+        boolean plain = rule.inner() instanceof DetailRule.Plain;
+        Targets targets = targetsOf(body, base, search,
+                rule.inner() instanceof DetailRule.Plain p ? p.inner() : rule.inner(), plain);
+        if (targets.urls().isEmpty()) return new Verdict(Outcome.of(Status.NO_MATCH, targets.note()), true, false);
+
+        int limit = Math.min(MAX_VERIFY_DETAILS, targets.urls().size());
+        List<IsbnVerify.Seen<String>> seen = new ArrayList<>();
+        Outcome stopped = null;
+        boolean timeUp = false;
+        boolean outOfShare = false;
+        for (int i = 0; i < limit; i++) {
+            String url = targets.urls().get(i);
+            String html = budget.pages.get(url);
+            if (html == null) {
+                if (budget.detailsLeft == 0) { outOfShare = true; break; }
+                Duration left = budget.left();
+                if (left.isZero()) { timeUp = true; break; }
+                budget.detailsLeft--;
+                Got got = gatedFetch(URI.create(url), null, null, honourBreaker, false, shorter(FETCH_TIMEOUT, left));
+                if (got.cutShort()) { timeUp = true; break; }
+                if (got.page() == null) { stopped = got.failure(); break; }
+                html = got.page().body() == null ? "" : got.page().body();
+                budget.pages.put(url, html);
+            }
+            boolean marked = targets.marked().contains(url);
+            seen.add(new IsbnVerify.Seen<>(url, html, marked));
+            // 그 도서관이 가진 판입니다. 다만 큰글자책·점자책 줄이면 같은 ISBN 의 보통 판 줄이 뒤에 있을 수 있어
+            // 남은 후보를 마저 봅니다.
+            if (!marked && IsbnVerify.mentions(html, context.anchors().get(0))) break;
+        }
+        String looked = "검색 결과의 줄 " + targets.urls().size() + "개 가운데 " + seen.size() + "개의 상세 화면을 봤습니다";
+        IsbnAnchor.Pick<String> pick = IsbnVerify.pick(seen, context.anchors());
+        if (pick.found()) {
+            // 후보를 다 보지 못하고 그만둔 답은 기억하지 않습니다. 본 것 가운데 그 ISBN 이 적힌 것으로 보내되,
+            // 보지 못한 줄이 더 맞는 줄일 수 있습니다(큰글자책 줄을 본 뒤 보통 판 줄을 받지 못한 경우, 뒤의
+            // ISBN 이 적힌 줄을 본 뒤 가진 판의 줄을 받지 못한 경우). 이레 동안 그 답을 되풀이하지 않습니다.
+            boolean sawEnough = stopped == null && !timeUp && !outOfShare;
+            return new Verdict(new Outcome(Status.RESOLVED, pick.payload(), pick.how() + " (" + looked + ")", false),
+                    sawEnough, false);
+        }
+        if (timeUp) return new Verdict(Outcome.of(Status.FETCH_FAILED, timeLimitNote() + " (" + looked + ")"), false, true);
+        if (stopped != null && stopped.status() == Status.BLOCKED_BY_ROBOTS) {
+            // 그 경로가 막혀 있으면 다른 후보도 같습니다. 「링크 없음」처럼 한 시간 기억해, 누를 때마다 검색
+            // 화면만 받고 버리지 않게 합니다.
+            return new Verdict(Outcome.of(Status.BLOCKED_BY_ROBOTS,
+                    "robots.txt 가 상세 화면의 경로를 막아 그 ISBN 이 적혀 있는지 볼 수 없습니다"), true, false);
+        }
+        if (stopped != null) {
+            return new Verdict(Outcome.of(stopped.status(), "후보의 상세 화면을 받지 못했습니다: " + stopped.note()
+                    + " (" + looked + ")"), false, false);
+        }
+        if (outOfShare) {
+            return new Verdict(Outcome.of(Status.NO_MATCH, pick.how() + ". 이번 누름에서 받아 볼 " + MAX_VERIFY_DETAILS
+                    + "개를 다 써서 나머지 줄은 보지 못했습니다"), false, false);
+        }
+        return new Verdict(Outcome.of(Status.NO_MATCH, pick.how() + " (" + looked + ")"), true, false);
+    }
+
+    /**
+     * {@code @verify:} 의 후보들. {@code urls} 가 비어 있으면 {@code note} 가 사유입니다. {@code marked} 는 그
+     * 가운데 목록의 줄에 큰글자책·점자책 표기가 있는 것이고, {@code @verify:@plain:} 일 때만 채웁니다.
+     */
+    private record Targets(List<String> urls, String note, java.util.Set<String> marked) {}
+
+    /**
+     * 후보의 줄에 판 표기가 있는지를 주소마다. 줄의 글자는 {@link PlainRows#rows} 가 가릅니다. <b>글자 없는
+     * 줄이 하나라도 있으면 아무것도 표기 있는 줄로 보지 않습니다.</b> 줄의 경계를 가르지 못한 화면입니다.
+     */
+    private static <T> java.util.Set<String> markedTargets(String body, List<IsbnAnchor.Span<T>> spans,
+                                                           Map<T, String> urlOf) {
+        java.util.Set<String> marked = new java.util.HashSet<>();
+        for (PlainRows.Row<T> row : PlainRows.rows(body, spans)) {
+            String url = urlOf.get(row.span().payload());
+            if (url == null) continue;
+            if (row.text().isEmpty()) return java.util.Set.of();
+            if (row.marked()) marked.add(url);
+        }
+        return marked;
+    }
+
+    /**
+     * 안쪽 규칙이 잡는 줄들의 상세 주소. 문서 순서이고 같은 주소는 한 번만 셉니다(한 줄에 표지 링크와 제목
+     * 링크가 같은 상세로 가는 목록이 흔합니다). 주소로 만들지 못한 줄은 빼고 첫 사유를 적어 둡니다.
+     */
+    private Targets targetsOf(String body, URI base, URI search, DetailRule inner, boolean plain) {
+        java.util.LinkedHashSet<String> urls = new java.util.LinkedHashSet<>();
+        java.util.Set<String> marked = java.util.Set.of();
+        String problem = null;
+        if (inner instanceof DetailRule.Href || inner instanceof DetailRule.Template) {
+            Pattern regex = inner instanceof DetailRule.Href href ? href.regex() : ((DetailRule.Template) inner).regex();
+            String template = inner instanceof DetailRule.Template t ? t.urlTemplate() : null;
+            List<IsbnAnchor.Span<String>> spans = new ArrayList<>();
+            Map<String, String> urlOf = new java.util.HashMap<>();
+            Matcher m = regex.matcher(body);
+            while (m.find()) {
+                // 줄을 가르는 열쇠는 잡힌 글자 그대로입니다. 주소틀에 끼운 것이든 href 든 한 줄에 하나입니다.
+                String payload = template == null ? m.group(1) : fillTemplate(template, m);
+                spans.add(new IsbnAnchor.Span<>(m.start(), m.end(), payload));
+                if (urlOf.containsKey(payload)) continue;
+                Target target = target(template == null ? unescape(payload).strip() : payload, base, search);
+                if (target.uri() != null) {
+                    urlOf.put(payload, target.uri().toString());
+                    urls.add(target.uri().toString());
+                } else if (problem == null) {
+                    problem = target.problem();
+                }
+            }
+            if (urls.isEmpty() && problem == null) {
+                problem = template == null ? "패턴에 맞는 링크가 없습니다" : "패턴에 맞는 자리가 없습니다";
+            }
+            if (plain) marked = markedTargets(body, spans, urlOf);
+        } else if (inner instanceof DetailRule.OnclickForm(String function)) {
+            List<IsbnAnchor.Span<OnclickFormReader.Call>> all = OnclickFormReader.allCalls(body, function);
+            List<IsbnAnchor.Span<OnclickFormReader.Call>> calls = IsbnVerify.distinct(all);
+            if (calls.isEmpty()) return new Targets(List.of(), function + "( 호출이 없습니다", marked);
+            Optional<OnclickFormReader.Function> fn = OnclickFormReader.findFunction(body, function);
+            if (fn.isEmpty()) fn = functionFromScripts(body, base, function);
+            if (fn.isEmpty()) {
+                return new Targets(List.of(), "함수 " + function + " 의 본문을 페이지와 스크립트에서 찾지 못했습니다", marked);
+            }
+            Map<OnclickFormReader.Call, String> urlOf = new java.util.HashMap<>();
+            for (IsbnAnchor.Span<OnclickFormReader.Call> call : calls) {
+                OnclickFormReader.Built built = OnclickFormReader.build(body, base, call.payload(), fn.get());
+                if (!built.ok()) {
+                    if (problem == null) problem = built.note();
+                    continue;
+                }
+                Target target = target(built.url(), base, search);
+                if (target.uri() != null) {
+                    urlOf.put(call.payload(), target.uri().toString());
+                    urls.add(target.uri().toString());
+                } else if (problem == null) {
+                    problem = target.problem();
+                }
+            }
+            if (plain) marked = markedTargets(body, all, urlOf);
+        } else {
+            throw new IllegalStateException("@verify: 의 안쪽 규칙이 아닙니다: " + inner);
+        }
+        return new Targets(List.copyOf(urls), problem, marked);
+    }
+
+    /** 뽑은 링크를 보낼 수 있는 절대 주소로. 못 만들면 {@code problem} 이 사유입니다. */
+    private record Target(URI uri, String problem) {}
+
+    private static Target target(String href, URI base, URI search) {
+        String lower = href.toLowerCase(Locale.ROOT);
+        if (href.isEmpty() || lower.startsWith("javascript:") || lower.startsWith("mailto:")
+                || href.startsWith("#")) {
+            return new Target(null, "링크가 주소가 아닙니다: " + href);
+        }
+        URI target;
+        try {
+            target = resolve(base, href.replace(" ", "%20"));
+        } catch (IllegalArgumentException e) {
+            return new Target(null, "링크를 주소로 만들지 못했습니다: " + href);
+        }
+        String scheme = target.getScheme() == null ? "" : target.getScheme().toLowerCase(Locale.ROOT);
+        if (!scheme.equals("http") && !scheme.equals("https") || target.getHost() == null) {
+            return new Target(null, "http 주소가 아닙니다: " + target);
+        }
+        if (!sameOrganisation(target.getHost(), base.getHost())) {
+            // 패턴이 배너나 외부 링크를 잡은 것입니다. 남의 사이트로 보내지 않습니다.
+            return new Target(null, "다른 기관의 주소입니다: " + target.getHost());
+        }
+        if (target.toString().equals(search.toString())) {
+            return new Target(null, "검색 결과 자기 주소입니다");
+        }
+        return new Target(target, null);
     }
 
     /**
@@ -441,22 +809,28 @@ public final class DetailResolver {
      * <p>보통 규칙은 <b>첫 번째로 잡히는 것</b>을 씁니다. ISBN 으로 검색한 결과라 첫 줄이 그 책입니다.
      * {@code @anchor:} 규칙은 잡히는 것을 전부 모아 <b>그 ISBN 이 적힌 항목의 것</b>을 고릅니다
      * ({@link IsbnAnchor}). 제목으로 검색한 결과는 첫 줄이 그 책이라는 보장이 없습니다.
+     * {@code @plain:} 규칙은 그렇게 고른 줄이 여럿일 때 큰글자책·점자책 표기가 없는 줄을 고릅니다
+     * ({@link PlainRows}).
      */
     private Outcome extract(Page page, DetailRule rule, URI search, Context context) {
         String body = page.body() == null ? "" : page.body();
         URI base = page.finalUri() != null ? page.finalUri() : search;
-        boolean anchored = rule instanceof DetailRule.Anchored;
-        boolean linkFirst = rule instanceof DetailRule.Anchored a && a.linkBeforeIsbn();
-        DetailRule inner = rule instanceof DetailRule.Anchored a ? a.inner() : rule;
+        boolean plain = rule instanceof DetailRule.Plain;
+        DetailRule shaped = rule instanceof DetailRule.Plain p ? p.inner() : rule;
+        boolean anchored = shaped instanceof DetailRule.Anchored;
+        boolean linkFirst = shaped instanceof DetailRule.Anchored a && a.linkBeforeIsbn();
+        DetailRule inner = shaped instanceof DetailRule.Anchored a ? a.inner() : shaped;
         String href;
         String how = "찾았습니다";
         if (inner instanceof DetailRule.Href(Pattern regex)) {
             Matcher m = regex.matcher(body);
             String found;
-            if (anchored) {
+            if (anchored || plain) {
                 List<IsbnAnchor.Span<String>> spans = new ArrayList<>();
                 while (m.find()) spans.add(new IsbnAnchor.Span<>(m.start(), m.end(), m.group(1)));
-                IsbnAnchor.Pick<String> pick = pickNear(body, spans, context.anchors(), linkFirst);
+                IsbnAnchor.Pick<String> pick = plain
+                        ? pickPlain(body, spans, context.anchors(), anchored, linkFirst, "패턴에 맞는 링크가 없습니다")
+                        : pickNear(body, spans, context.anchors(), linkFirst);
                 if (!pick.found()) {
                     missed.incrementAndGet();
                     return Outcome.of(Status.NO_MATCH, pick.how());
@@ -473,10 +847,12 @@ public final class DetailResolver {
             href = unescape(found).strip();
         } else if (inner instanceof DetailRule.Template(Pattern regex, String template)) {
             Matcher m = regex.matcher(body);
-            if (anchored) {
+            if (anchored || plain) {
                 List<IsbnAnchor.Span<String>> spans = new ArrayList<>();
                 while (m.find()) spans.add(new IsbnAnchor.Span<>(m.start(), m.end(), fillTemplate(template, m)));
-                IsbnAnchor.Pick<String> pick = pickNear(body, spans, context.anchors(), linkFirst);
+                IsbnAnchor.Pick<String> pick = plain
+                        ? pickPlain(body, spans, context.anchors(), anchored, linkFirst, "패턴에 맞는 자리가 없습니다")
+                        : pickNear(body, spans, context.anchors(), linkFirst);
                 if (!pick.found()) {
                     missed.incrementAndGet();
                     return Outcome.of(Status.NO_MATCH, pick.how());
@@ -494,9 +870,11 @@ public final class DetailResolver {
         } else if (inner instanceof DetailRule.OnclickForm(String function)) {
             Optional<OnclickFormReader.Call> call;
             String picked = null;
-            if (anchored) {
-                IsbnAnchor.Pick<OnclickFormReader.Call> pick =
-                        pickNear(body, OnclickFormReader.allCalls(body, function), context.anchors(), linkFirst);
+            if (anchored || plain) {
+                List<IsbnAnchor.Span<OnclickFormReader.Call>> calls = OnclickFormReader.allCalls(body, function);
+                IsbnAnchor.Pick<OnclickFormReader.Call> pick = plain
+                        ? pickPlain(body, calls, context.anchors(), anchored, linkFirst, function + "( 호출이 없습니다")
+                        : pickNear(body, calls, context.anchors(), linkFirst);
                 if (!pick.found()) {
                     missed.incrementAndGet();
                     return Outcome.of(Status.NO_MATCH, pick.how());
@@ -526,35 +904,13 @@ public final class DetailResolver {
         } else {
             throw new IllegalStateException("이 규칙은 여기서 다루지 않습니다: " + rule);
         }
-        String lower = href.toLowerCase(Locale.ROOT);
-        if (href.isEmpty() || lower.startsWith("javascript:") || lower.startsWith("mailto:")
-                || href.startsWith("#")) {
+        Target target = target(href, base, search);
+        if (target.uri() == null) {
             missed.incrementAndGet();
-            return Outcome.of(Status.NO_MATCH, "링크가 주소가 아닙니다: " + href);
-        }
-        URI target;
-        try {
-            target = resolve(base, href.replace(" ", "%20"));
-        } catch (IllegalArgumentException e) {
-            missed.incrementAndGet();
-            return Outcome.of(Status.NO_MATCH, "링크를 주소로 만들지 못했습니다: " + href);
-        }
-        String scheme = target.getScheme() == null ? "" : target.getScheme().toLowerCase(Locale.ROOT);
-        if (!scheme.equals("http") && !scheme.equals("https") || target.getHost() == null) {
-            missed.incrementAndGet();
-            return Outcome.of(Status.NO_MATCH, "http 주소가 아닙니다: " + target);
-        }
-        if (!sameOrganisation(target.getHost(), base.getHost())) {
-            // 패턴이 배너나 외부 링크를 잡은 것입니다. 남의 사이트로 보내지 않습니다.
-            missed.incrementAndGet();
-            return Outcome.of(Status.NO_MATCH, "다른 기관의 주소입니다: " + target.getHost());
-        }
-        if (target.toString().equals(search.toString())) {
-            missed.incrementAndGet();
-            return Outcome.of(Status.NO_MATCH, "검색 결과 자기 주소입니다");
+            return Outcome.of(Status.NO_MATCH, target.problem());
         }
         resolved.incrementAndGet();
-        return new Outcome(Status.RESOLVED, target.toString(), how, false);
+        return new Outcome(Status.RESOLVED, target.uri().toString(), how, false);
     }
 
     /**
@@ -655,6 +1011,28 @@ public final class DetailResolver {
             if (first == null) first = pick;
         }
         return first != null ? first : new IsbnAnchor.Pick<>(null, "닻으로 삼을 ISBN 이 없습니다");
+    }
+
+    /**
+     * {@code @plain:} 의 고르기. 그 ISBN 의 줄들을 모아 {@link PlainRows} 에 맡깁니다.
+     *
+     * <p>안쪽이 닻 규칙이면 그 ISBN 의 줄({@link IsbnAnchor#pickAll})이고, 닻의 ISBN 은 {@link #pickNear} 처럼
+     * 앞의 것부터 해 봅니다. 닻 규칙이 아니면 화면의 줄 전부입니다. ISBN 으로 검색한 결과라 전부 그 책의
+     * 줄입니다.
+     */
+    private static <T> IsbnAnchor.Pick<T> pickPlain(String body, List<IsbnAnchor.Span<T>> spans, List<String> anchors,
+                                                    boolean anchored, boolean linkBeforeIsbn, String emptyNote) {
+        if (!anchored) {
+            if (spans.isEmpty()) return new IsbnAnchor.Pick<>(null, emptyNote);
+            return PlainRows.choose(body, spans, spans, "ISBN 으로 찾은 결과의 줄입니다");
+        }
+        IsbnAnchor.Picks<T> first = null;
+        for (String isbn : anchors) {
+            IsbnAnchor.Picks<T> picks = IsbnAnchor.pickAll(body, spans, isbn, linkBeforeIsbn);
+            if (picks.found()) return PlainRows.choose(body, spans, picks.spans(), picks.how());
+            if (first == null) first = picks;
+        }
+        return new IsbnAnchor.Pick<>(null, first != null ? first.how() : "닻으로 삼을 ISBN 이 없습니다");
     }
 
     /** {@code @template:} 의 주소틀에 정규식의 그룹을 끼웁니다. */
@@ -824,7 +1202,9 @@ public final class DetailResolver {
         Instant now = clock.instant();
         if (outcome.status() == Status.RESOLVED) {
             cache.put(searchUrl, new Cached(outcome.detailUrl(), now, now.plus(RESOLVED_TTL)));
-        } else if (outcome.status() == Status.NO_MATCH) {
+        } else if (outcome.status() == Status.NO_MATCH || outcome.status() == Status.BLOCKED_BY_ROBOTS) {
+            // BLOCKED_BY_ROBOTS 가 여기까지 오는 것은 @verify: 의 후보 상세가 막혀 있을 때뿐입니다. 검색 화면이
+            // 막혀 있으면 받아 보지도 않고 끝나 여기에 오지 않습니다.
             cache.put(searchUrl, new Cached(null, now, now.plus(NO_MATCH_TTL)));
         } else {
             return;
@@ -989,14 +1369,40 @@ public final class DetailResolver {
                 return fetch(url, "GET", null, null);
             }
 
+            @Override public Page fetch(URI url, Duration within) throws IOException, InterruptedException {
+                // 응답 머리의 제한도 그 시간으로 줄이고, 본문까지는 아래의 get 이 묶습니다.
+                HttpRequest request = request(url, "GET", null, null, shorter(FETCH_TIMEOUT, within));
+                var pending = clientFor(url).sendAsync(request, HttpResponse.BodyHandlers.ofByteArray());
+                try {
+                    return page(pending.get(Math.max(1, within.toMillis()), TimeUnit.MILLISECONDS));
+                } catch (java.util.concurrent.TimeoutException e) {
+                    pending.cancel(true);                    // 받던 것을 버립니다. 연결도 놓습니다.
+                    throw new java.net.http.HttpTimeoutException("받기가 " + within.toMillis() + "ms 안에 끝나지 않았습니다");
+                } catch (java.util.concurrent.ExecutionException e) {
+                    // 예외의 종류를 그대로 올립니다. 접속 시간 초과와 응답 시간 초과를 부르는 쪽이 갈라 셉니다.
+                    if (e.getCause() instanceof IOException io) throw io;
+                    throw new IOException(e.getCause());
+                }
+            }
+
             @Override public Page fetch(URI url, String method, String body, String contentType)
                     throws IOException, InterruptedException {
+                return page(clientFor(url).send(request(url, method, body, contentType, FETCH_TIMEOUT),
+                        HttpResponse.BodyHandlers.ofByteArray()));
+            }
+
+            private HttpClient clientFor(URI url) {
+                return LegacyTls.isLegacyHost(url.getHost()) ? legacy
+                        : IntermediateCerts.isChainHost(url.getHost()) ? chain : strict;
+            }
+
+            private HttpRequest request(URI url, String method, String body, String contentType, Duration timeout) {
                 // JSON 검색은 GET 이어도 Accept 가 JSON 이어야 합니다. 시흥의 Pyxis 는 text/html 을
                 // 받겠다고 하면 406 을 돌려주었습니다(2026-11-06 배포 서버 진단).
                 // contentType 이 있으면 @json: 규칙입니다. 본문이 폼이어도(수원) 받는 것은 JSON 입니다.
                 boolean wantsJson = contentType != null;
                 HttpRequest.Builder builder = HttpRequest.newBuilder(url)
-                        .timeout(FETCH_TIMEOUT)
+                        .timeout(timeout)
                         .header("User-Agent", USER_AGENT)
                         .header("Accept", wantsJson ? "application/json" : "text/html,application/xhtml+xml")
                         .header("Accept-Language", "ko");
@@ -1006,9 +1412,10 @@ public final class DetailResolver {
                 } else {
                     builder.GET();
                 }
-                HttpClient http = LegacyTls.isLegacyHost(url.getHost()) ? legacy
-                        : IntermediateCerts.isChainHost(url.getHost()) ? chain : strict;
-                HttpResponse<byte[]> response = http.send(builder.build(), HttpResponse.BodyHandlers.ofByteArray());
+                return builder.build();
+            }
+
+            private Page page(HttpResponse<byte[]> response) {
                 byte[] raw = response.body();
                 if (raw.length > MAX_BODY_BYTES) raw = java.util.Arrays.copyOf(raw, MAX_BODY_BYTES);
                 String ct = response.headers().firstValue("Content-Type").orElse("");

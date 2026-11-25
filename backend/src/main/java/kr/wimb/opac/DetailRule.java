@@ -19,8 +19,8 @@ import java.util.regex.PatternSyntaxException;
  * 주소와 같습니다. 실측으로 화성·군산·서대문·은평·고양·김제·전주·울산 중구·울산 남구 아홉 시스템이
  * 이 한 가지 읽기로 상세 페이지를 돌려주었습니다.
  *
- * <p>종류는 아래와 같습니다. 뒤의 셋({@link Json}, {@link Anchored}, {@link Frame})은 나중에 더했고
- * 각자의 설명에 사정이 적혀 있습니다.
+ * <p>종류는 아래와 같습니다. 뒤의 다섯({@link Json}, {@link Anchored}, {@link Frame}, {@link Verified},
+ * {@link Plain})은 나중에 더했고 각자의 설명에 사정이 적혀 있습니다.
  * <ul>
  *   <li>{@link Href} — 정규식. 잡을 그룹이 하나이고 그것이 href 값입니다. 예전부터 있던 것입니다.</li>
  *   <li>{@link OnclickForm} — {@code @onclick:함수이름}. 그 함수의 첫 호출 인자를 함수 본문이 채우는
@@ -38,7 +38,7 @@ import java.util.regex.PatternSyntaxException;
  */
 public sealed interface DetailRule
         permits DetailRule.Href, DetailRule.OnclickForm, DetailRule.Template, DetailRule.Json, DetailRule.Anchored,
-                DetailRule.Frame {
+                DetailRule.Frame, DetailRule.Verified, DetailRule.Plain {
 
     /** 정규식 하나. 그룹 하나가 href 입니다. */
     record Href(Pattern regex) implements DetailRule {
@@ -121,8 +121,9 @@ public sealed interface DetailRule
      *       0건입니다. 공백은 {@code %20} 으로 보냅니다.</li>
      *   <li>{@code manageCode}·{@code siteId} 처럼 기관마다 다른 값은 주소틀에 글자 그대로 적습니다.
      *       그래서 호스트마다 한 줄입니다.</li>
-     *   <li>안쪽 규칙은 정규식·{@code @onclick:}·{@code @template:}·{@code @anchor:} 입니다. 제목으로
-     *       찾는 프레임이면 {@code @anchor:} 여야 상세로 갑니다(제목 검색은 첫 줄이 그 책이 아닙니다).</li>
+     *   <li>안쪽 규칙은 정규식·{@code @onclick:}·{@code @template:}·{@code @anchor:}·{@code @verify:}·
+     *       {@code @plain:} 입니다. 제목으로 찾는 프레임이면 ISBN 으로 줄을 고르는 규칙({@code @anchor:},
+     *       {@code @verify:})이어야 상세로 갑니다(제목 검색은 첫 줄이 그 책이 아닙니다).</li>
      *   <li>상대 링크는 <b>프레임 주소 기준으로</b> 풉니다. robots.txt 도 프레임의 출처(포트까지)의
      *       것을 봅니다. 검색 화면의 출처와 다른 출처입니다.</li>
      * </ul>
@@ -138,6 +139,60 @@ public sealed interface DetailRule
         @Override public boolean anchored() { return inner.anchored(); }
     }
 
+    /**
+     * {@code @verify:규칙} — 규칙이 잡는 링크를 문서 순서대로 후보로 삼아, <b>후보의 상세 화면을 받아 보고</b>
+     * 그 ISBN 이 적힌 첫 후보로 보냅니다. 안쪽 규칙은 정규식·{@code @onclick:}·{@code @template:} 가운데
+     * 하나입니다.
+     *
+     * <p>결과 목록에 ISBN 이 어떤 모양으로도 없는 OPAC 을 위한 것입니다(유성. 줄에는 제어번호와 청구기호뿐이고
+     * 상세 화면에는 ISBN 이 글자로 적혀 있습니다). {@code @anchor:} 가 목록의 글자로 하는 일을 상세 화면의
+     * 글자로 합니다. 판정은 {@link IsbnVerify} 에 있습니다. 13자리 숫자 그대로, 화면의 글자에 있을 때만입니다.
+     *
+     * <ul>
+     *   <li><b>받기가 여러 번입니다.</b> 한 번 누를 때 받아 보는 후보 상세는 셋까지이고
+     *       ({@code DetailResolver.MAX_VERIFY_DETAILS}), 검색 화면까지 합친 시간에도 상한이 있습니다
+     *       ({@code DetailResolver.VERIFY_TIME_LIMIT}). 넘기면 검색 화면으로 보냅니다.</li>
+     *   <li><b>어느 후보에도 없으면 첫 후보로 내려가지 않습니다.</b> 「못 찾음」입니다.</li>
+     *   <li>제목 검색 규칙에 걸 수 있습니다({@link #anchored()} 가 참입니다). 그때의 조건은 닻 규칙과
+     *       같습니다. 그 검색 주소를 한 도서관만 쓰고, 열쇠의 칸 조건으로 분관을 좁힌 검색에만 걸려야
+     *       합니다. 여러 분관이 함께 쓰는 검색에서 상세가 소장본 단위면 남의 분관으로 갑니다.</li>
+     *   <li><b>그 도서관이 레코드에 ISBN 을 틀리게 적었으면 틀린 책이 통과합니다.</b> 이 규칙이 찾는 것은
+     *       「그 도서관이 그 ISBN 으로 등록한 책」입니다.</li>
+     *   <li>{@code @verify:@plain:규칙} 으로 적으면 <b>그 ISBN 이 적힌 후보가 여럿일 때 큰글자책·점자책 표기가
+     *       없는 줄</b>을 고릅니다. 큰글자판을 보통 판의 ISBN 으로 등록해 둔 도서관에서는 두 줄의 상세 화면에
+     *       같은 ISBN 이 적혀 있습니다(유성도서관). 표기 있는 줄에서 그 ISBN 을 만나면 거기서 멈추지 않고
+     *       남은 후보를 마저 봅니다.</li>
+     * </ul>
+     */
+    record Verified(DetailRule inner) implements DetailRule {
+        @Override public String describe() { return VERIFY_PREFIX + inner.describe(); }
+
+        @Override public boolean anchored() { return true; }
+    }
+
+    /**
+     * {@code @plain:규칙} — 그 ISBN 의 줄이 여럿이면 <b>큰글자책·점자책 표기가 없는 줄</b>을 고릅니다. 안쪽
+     * 규칙은 정규식·{@code @onclick:}·{@code @template:}·{@code @anchor:}(또는 {@code @anchor-after:})입니다.
+     *
+     * <p>도서관이 큰글자판을 보통 판의 ISBN 으로 등록해 두면 그 ISBN 의 첫 줄이 큰글자책일 수 있습니다.
+     * ISBN 으로는 가를 수 없지만 줄의 글자에는 「큰글자」「대활자」 같은 표시가 있습니다. 표기가 있는 줄과
+     * 없는 줄이 섞여 있을 때만 표기 없는 첫 줄을 고르고, 그 밖에는 안쪽 규칙이 고르던 줄 그대로입니다.
+     * 판정은 {@link PlainRows} 에 있습니다.
+     *
+     * <p>안쪽이 닻 규칙이 아니면 화면의 줄 전부를 그 ISBN 의 줄로 봅니다. <b>ISBN 으로 검색한 결과에만
+     * 쓰세요.</b> 닻 규칙이면 그 ISBN 의 줄({@link IsbnAnchor#pickAll})만 봅니다.
+     *
+     * <p><b>화면을 보고 넣어야 합니다.</b> 줄의 글자를 「규칙이 잡은 자리에서 다음 줄의 자리 앞까지」로 보므로,
+     * 규칙이 줄의 맨 앞에서 잡히지 않으면 줄 머리의 표기가 윗줄의 것으로 읽힙니다.
+     */
+    record Plain(DetailRule inner) implements DetailRule {
+        @Override public String describe() { return PLAIN_PREFIX + inner.describe(); }
+
+        @Override public boolean anchored() { return inner.anchored(); }
+    }
+
+    String VERIFY_PREFIX = "@verify:";
+    String PLAIN_PREFIX = "@plain:";
     String FRAME_PREFIX = "@frame:";
     Pattern FRAME_SHAPE = Pattern.compile("^(?:(\\S+)\\s+)?(https?://\\S+)\\s+=>\\s*(.+)$", Pattern.DOTALL);
     String ANCHOR_PREFIX = "@anchor:";
@@ -154,8 +209,9 @@ public sealed interface DetailRule
     String describe();
 
     /**
-     * 결과 목록에서 <b>그 ISBN 이 적힌 항목</b>을 골라 가는 규칙인지. 제목 검색 규칙은 이것이 참일 때만
-     * 상세로 갑니다. {@link Anchored} 자신과, 안쪽이 그런 {@link Frame} 이 참입니다.
+     * <b>그 ISBN 으로 줄을 골라</b> 가는 규칙인지. 제목 검색 규칙은 이것이 참일 때만 상세로 갑니다. 목록에
+     * 적힌 ISBN 으로 고르는 {@link Anchored}, 상세 화면에 적힌 ISBN 으로 고르는 {@link Verified}, 그리고
+     * 안쪽이 그런 {@link Frame} 과 {@link Plain} 이 참입니다.
      */
     default boolean anchored() { return false; }
 
@@ -169,11 +225,31 @@ public sealed interface DetailRule
         if (value.isEmpty()) throw new IllegalArgumentException("규칙이 비어 있습니다");
         String lowered = value.toLowerCase(Locale.ROOT);
         if (lowered.startsWith(FRAME_PREFIX)) return parseFrame(value.substring(FRAME_PREFIX.length()).strip(), text);
+        if (lowered.startsWith(VERIFY_PREFIX)) {
+            DetailRule inner = parse(value.substring(VERIFY_PREFIX.length()));
+            // 닻 규칙을 감싸지 않습니다. 닻은 목록의 ISBN 으로 이미 한 줄을 골랐고, 이 규칙은 목록에 ISBN 이
+            // 없는 화면을 위한 것입니다. 둘을 겹치면 어느 쪽이 줄을 골랐는지 읽을 수 없습니다.
+            // @plain: 은 감쌀 수 있습니다(닻 없는 것만). 같은 ISBN 이 적힌 후보 가운데 표기 없는 줄을 먼저 고릅니다.
+            DetailRule base = inner instanceof Plain plain ? plain.inner() : inner;
+            if (!(base instanceof Href || base instanceof OnclickForm || base instanceof Template)) {
+                throw new IllegalArgumentException(VERIFY_PREFIX + " 뒤에는 정규식·@onclick:·@template: 규칙이나, 그것을 감싼 "
+                        + PLAIN_PREFIX + " 이 와야 합니다 — " + text);
+            }
+            return new Verified(inner);
+        }
+        if (lowered.startsWith(PLAIN_PREFIX)) {
+            DetailRule inner = parse(value.substring(PLAIN_PREFIX.length()));
+            if (!(inner instanceof Href || inner instanceof OnclickForm || inner instanceof Template
+                    || inner instanceof Anchored)) {
+                throw new IllegalArgumentException(PLAIN_PREFIX + " 뒤에는 정규식·@onclick:·@template:·@anchor: 규칙이 와야 합니다 — " + text);
+            }
+            return new Plain(inner);
+        }
         // 긴 쪽을 먼저 봅니다. "@anchor-after:" 는 "@anchor:" 로 시작하지 않지만 차례를 못박아 둡니다.
         for (String prefix : new String[] {ANCHOR_AFTER_PREFIX, ANCHOR_PREFIX}) {
             if (!lowered.startsWith(prefix)) continue;
             DetailRule inner = parse(value.substring(prefix.length()));
-            if (inner instanceof Json || inner instanceof Anchored || inner instanceof Frame) {
+            if (!(inner instanceof Href || inner instanceof OnclickForm || inner instanceof Template)) {
                 throw new IllegalArgumentException(prefix + " 뒤에는 정규식·@onclick:·@template: 규칙이 와야 합니다 — " + text);
             }
             return new Anchored(inner, prefix.equals(ANCHOR_PREFIX));
@@ -284,7 +360,7 @@ public sealed interface DetailRule
         }
         DetailRule inner = parse(shape.group(3));
         if (inner instanceof Json || inner instanceof Frame) {
-            throw new IllegalArgumentException("@frame: 의 안쪽에는 정규식·@onclick:·@template:·@anchor: 규칙이 와야 합니다 — " + text);
+            throw new IllegalArgumentException("@frame: 의 안쪽에는 정규식·@onclick:·@template:·@anchor:·@verify:·@plain: 규칙이 와야 합니다 — " + text);
         }
         return new Frame(encoding, url, inner);
     }
