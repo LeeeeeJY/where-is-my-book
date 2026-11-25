@@ -102,7 +102,9 @@ public sealed interface DetailRule
     }
 
     /**
-     * {@code @frame:[인코딩 ]프레임주소틀 => 안쪽 규칙} — 결과를 <b>다른 주소의 프레임</b>으로 보여 주는 OPAC.
+     * {@code @frame:[인코딩 ][COOKIE ][POST ]주소틀[ 본문틀] => 안쪽 규칙} — 결과를 <b>검색 화면이 아닌 다른
+     * 주소</b>에서 받아야 하는 OPAC. 「어느 주소를 어떻게 받는가」만 바꾸고, 받은 HTML 에는 안쪽 규칙을
+     * 적용합니다.
      *
      * <p>충북교육청 계열(14곳)의 검색 화면({@code /srch/smart2.do?…&searchKeyword=…})은 서버가 받는
      * HTML 에 결과가 없고, 결과는 같은 호스트의 다른 포트에 있는 프레임
@@ -113,7 +115,7 @@ public sealed interface DetailRule
      * 받는 것과 같은 구조입니다.
      *
      * <ul>
-     *   <li>프레임주소틀에는 {@code {title}}(검색에 넣은 표제), {@code {isbn13}}, {@code {libCode}} 를 쓸
+     *   <li>주소틀과 본문틀에는 {@code {title}}(검색에 넣은 표제), {@code {isbn13}}, {@code {libCode}} 를 쓸
      *       수 있고 {@code {title}} 이나 {@code {isbn13}} 가운데 하나는 있어야 합니다. 자리표가 없으면
      *       어느 책을 눌러도 같은 화면을 받습니다.</li>
      *   <li>인코딩은 {@code {title}} 을 퍼센트 부호로 바꿀 때 쓰는 글자 집합이고 적지 않으면 UTF-8
@@ -124,16 +126,43 @@ public sealed interface DetailRule
      *   <li>안쪽 규칙은 정규식·{@code @onclick:}·{@code @template:}·{@code @anchor:}·{@code @verify:}·
      *       {@code @plain:} 입니다. 제목으로 찾는 프레임이면 ISBN 으로 줄을 고르는 규칙({@code @anchor:},
      *       {@code @verify:})이어야 상세로 갑니다(제목 검색은 첫 줄이 그 책이 아닙니다).</li>
-     *   <li>상대 링크는 <b>프레임 주소 기준으로</b> 풉니다. robots.txt 도 프레임의 출처(포트까지)의
+     *   <li>상대 링크는 <b>받은 주소 기준으로</b> 풉니다. robots.txt 도 그 주소의 출처(포트까지)의
      *       것을 봅니다. 검색 화면의 출처와 다른 출처입니다.</li>
      * </ul>
      *
+     * <p><b>{@code POST} — 목록을 POST 로 받는 화면</b>(2026-11-25). 부산교육청({@code home.pen.go.kr})은 화면이
+     * {@code POST /<사이트>/library/searchListAjax.do} 로 목록의 HTML 조각을 받아 끼웁니다. {@code POST} 를
+     * 적으면 주소 뒤의 한 덩이(공백 없는 글자)가 본문틀이고, 서버가 그것을 채워 POST 로 보냅니다. 본문은
+     * {@code a=1&b=2} 모양의 폼으로 보내고 받는 것은 HTML 입니다({@link Json} 의 POST 는 JSON 을 받습니다).
+     * {@code _csrf}·{@code csrfToken} 같은 토큰 칸은 적지 않습니다. 그 세션에만 맞는 값입니다.
+     *
+     * <p><b>{@code COOKIE} — 응답 머리로 온 쿠키를 들고 한 번 더 받는 화면</b>(2026-11-25). 대전 서구의 결과
+     * 프레임은 쿠키 없이 받으면 새로 고치라는 스크립트만 주고 응답 머리로 세션 쿠키를 줍니다. {@code COOKIE}
+     * 를 적은 줄만, 그 주소의 출처에 한해, 한 번 누르는 동안 그 쿠키를 듭니다. <b>{@code cookie-hosts.txt}
+     * 에 적힌 호스트에만 적을 수 있습니다.</b> 운영자가 허용한 호스트의 목록이고, 다른 호스트로 넓히는 것은
+     * 운영자가 정할 일입니다. 지키는 범위는 {@link SessionCookies} 에 있습니다.
+     *
      * <p><b>못 찾으면 예전처럼 검색 화면으로 보냅니다.</b> 거기에는 프레임 안에 결과가 보입니다.
      */
-    record Frame(Charset encoding, String urlTemplate, DetailRule inner) implements DetailRule {
+    record Frame(Charset encoding, String urlTemplate, DetailRule inner, String bodyTemplate, boolean carriesCookies)
+            implements DetailRule {
+
+        /** 쿠키 없이 GET 으로 받는 프레임. */
+        public Frame(Charset encoding, String urlTemplate, DetailRule inner) {
+            this(encoding, urlTemplate, inner, null, false);
+        }
+
+        /** 본문틀이 있으면 POST 입니다. */
+        public String method() {
+            return bodyTemplate == null ? "GET" : "POST";
+        }
+
         @Override public String describe() {
             return FRAME_PREFIX + (encoding.equals(StandardCharsets.UTF_8) ? "" : encoding.name() + " ")
-                    + urlTemplate + TEMPLATE_SEPARATOR + inner.describe();
+                    + (carriesCookies ? FRAME_COOKIE + " " : "")
+                    + (bodyTemplate == null ? "" : FRAME_POST + " ")
+                    + urlTemplate + (bodyTemplate == null ? "" : " " + bodyTemplate)
+                    + TEMPLATE_SEPARATOR + inner.describe();
         }
 
         @Override public boolean anchored() { return inner.anchored(); }
@@ -194,7 +223,14 @@ public sealed interface DetailRule
     String VERIFY_PREFIX = "@verify:";
     String PLAIN_PREFIX = "@plain:";
     String FRAME_PREFIX = "@frame:";
-    Pattern FRAME_SHAPE = Pattern.compile("^(?:(\\S+)\\s+)?(https?://\\S+)\\s+=>\\s*(.+)$", Pattern.DOTALL);
+    /**
+     * 주소 앞의 낱말들(인코딩·{@code COOKIE}·{@code POST}), 주소틀, 있으면 본문틀, 그리고 안쪽 규칙. 주소와
+     * 본문에는 공백이 없으므로 첫 {@code =>} 가 경계입니다.
+     */
+    Pattern FRAME_SHAPE = Pattern.compile(
+            "^((?:\\S+\\s+)*?)(https?://\\S+)(?:\\s+(?!=>)(\\S+))?\\s+=>\\s*(.+)$", Pattern.DOTALL);
+    String FRAME_POST = "POST";
+    String FRAME_COOKIE = "COOKIE";
     String ANCHOR_PREFIX = "@anchor:";
     String ANCHOR_AFTER_PREFIX = "@anchor-after:";
     String JSON_PREFIX = "@json:";
@@ -329,40 +365,82 @@ public sealed interface DetailRule
     }
 
     /**
-     * {@code [인코딩 ]프레임주소틀 => 안쪽 규칙}. 주소에는 공백이 없으므로 첫 {@code =>} 가 경계입니다.
-     * 안쪽 규칙에 {@code =>} 가 또 있어도({@code @template:}) 그것은 안쪽의 것입니다.
+     * {@code [인코딩 ][COOKIE ][POST ]주소틀[ 본문틀] => 안쪽 규칙}. 주소와 본문에는 공백이 없으므로 첫
+     * {@code =>} 가 경계입니다. 안쪽 규칙에 {@code =>} 가 또 있어도({@code @template:}) 그것은 안쪽의 것입니다.
      */
     private static DetailRule parseFrame(String rest, String text) {
         Matcher shape = FRAME_SHAPE.matcher(rest);
         if (!shape.matches()) {
-            throw new IllegalArgumentException("@frame: 은 「[인코딩 ]http(s)://프레임주소틀 => 안쪽 규칙」이어야 합니다 — " + text);
+            throw new IllegalArgumentException("@frame: 은 「[인코딩 ][COOKIE ][POST ]http(s)://주소틀[ 본문틀] => 안쪽 규칙」"
+                    + "이어야 합니다 — " + text);
         }
-        Charset encoding = StandardCharsets.UTF_8;
-        if (shape.group(1) != null) {
-            try {
-                encoding = Charset.forName(shape.group(1));
-            } catch (IllegalArgumentException e) {
-                throw new IllegalArgumentException("@frame: 의 인코딩을 모릅니다(" + shape.group(1) + ") — " + text);
+        Charset encoding = null;
+        boolean post = false;
+        boolean cookie = false;
+        for (String word : shape.group(1).strip().split("\\s+")) {
+            if (word.isEmpty()) continue;
+            if (word.equalsIgnoreCase(FRAME_POST)) {
+                if (post) throw new IllegalArgumentException("@frame: 에 POST 를 두 번 적었습니다 — " + text);
+                post = true;
+            } else if (word.equalsIgnoreCase(FRAME_COOKIE)) {
+                if (cookie) throw new IllegalArgumentException("@frame: 에 COOKIE 를 두 번 적었습니다 — " + text);
+                cookie = true;
+            } else {
+                if (encoding != null) {
+                    throw new IllegalArgumentException("@frame: 의 주소 앞에는 인코딩·COOKIE·POST 가 하나씩만 올 수 "
+                            + "있습니다(" + word + ") — " + text);
+                }
+                try {
+                    encoding = Charset.forName(word);
+                } catch (IllegalArgumentException e) {
+                    throw new IllegalArgumentException("@frame: 의 인코딩을 모릅니다(" + word + ") — " + text);
+                }
             }
         }
+        if (encoding == null) encoding = StandardCharsets.UTF_8;
         String url = shape.group(2);
-        if (!url.contains("{title}") && !url.contains("{isbn13}")) {
+        String body = shape.group(3);
+        if (post && body == null) {
+            throw new IllegalArgumentException("@frame: POST 에는 주소 뒤에 본문틀이 있어야 합니다 — " + text);
+        }
+        if (!post && body != null) {
+            // 주소에 공백이 섞였거나 POST 를 빠뜨린 줄입니다. 조용히 넘기면 본문 없이 GET 으로 받습니다.
+            throw new IllegalArgumentException("@frame: 의 본문틀은 POST 일 때만 적습니다 — " + text);
+        }
+        String filled = body == null ? url : url + " " + body;
+        if (!filled.contains("{title}") && !filled.contains("{isbn13}")) {
             // 자리표가 없으면 어느 책을 눌러도 같은 화면을 받습니다. 조용히 엉뚱한 책으로 보내느니
             // 뜰 때 실패하는 편이 낫습니다. templates.csv 의 자리표 규칙과 같습니다.
-            throw new IllegalArgumentException("@frame: 의 주소틀에 {title} 이나 {isbn13} 자리표가 있어야 합니다 — " + text);
+            throw new IllegalArgumentException("@frame: 의 주소틀이나 본문틀에 {title} 이나 {isbn13} 자리표가 있어야 합니다 — " + text);
         }
-        Matcher placeholder = FIELD_PLACEHOLDER.matcher(url);
+        Matcher placeholder = FIELD_PLACEHOLDER.matcher(filled);
         while (placeholder.find()) {
             String name = placeholder.group(1);
             if (!name.equals("title") && !name.equals("isbn13") && !name.equals("libCode")) {
                 throw new IllegalArgumentException("@frame: 의 주소틀이 모르는 자리표를 씁니다({" + name + "}) — " + text);
             }
         }
-        DetailRule inner = parse(shape.group(3));
+        if (cookie && !SessionCookies.isCookieHost(hostOf(url))) {
+            // 쿠키를 드는 호스트는 운영자가 허용한 곳뿐입니다. 규칙 줄만 고쳐서는 넓어지지 않게 합니다.
+            throw new IllegalArgumentException("@frame: 의 COOKIE 는 cookie-hosts.txt 에 적힌 호스트에만 적을 수 있습니다("
+                    + hostOf(url) + "). 호스트를 더하는 것은 운영자가 정할 일입니다 — " + text);
+        }
+        DetailRule inner = parse(shape.group(4));
         if (inner instanceof Json || inner instanceof Frame) {
             throw new IllegalArgumentException("@frame: 의 안쪽에는 정규식·@onclick:·@template:·@anchor:·@verify:·@plain: 규칙이 와야 합니다 — " + text);
         }
-        return new Frame(encoding, url, inner);
+        return new Frame(encoding, url, inner, body, cookie);
+    }
+
+    /** 주소틀의 호스트. 자리표가 든 주소라 URI 로 읽지 않고 글자로 자릅니다. 포트는 뗍니다. */
+    private static String hostOf(String url) {
+        String rest = url.substring(url.indexOf("://") + 3);
+        int end = rest.length();
+        for (char stop : new char[] {'/', '?', '#', ':'}) {
+            int at = rest.indexOf(stop);
+            if (at >= 0 && at < end) end = at;
+        }
+        return rest.substring(0, end).toLowerCase(Locale.ROOT);
     }
 
     private static Pattern compile(String regex) {

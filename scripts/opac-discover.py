@@ -62,6 +62,7 @@
 from __future__ import annotations
 
 import argparse
+import collections
 import html
 import json
 import os
@@ -96,6 +97,12 @@ CHAIN_CERTS_FILE = os.path.join(_OPAC_RESOURCES, "chain-certs.pem")
 _CHAIN_HOSTS = None
 _CHAIN_CONTEXT = None
 
+# 서버가 응답 머리로 온 쿠키를 들고 한 번 더 받아도 되는 호스트. **서버가 읽는 바로 그 파일입니다**
+# (kr.wimb.opac.SessionCookies). 운영자가 허용한 호스트만 적혀 있고, `@frame:COOKIE` 는 여기 적힌 호스트에만
+# 적을 수 있습니다. 호스트를 더하는 것은 운영자가 정할 일입니다.
+COOKIE_HOSTS_FILE = os.path.join(_OPAC_RESOURCES, "cookie-hosts.txt")
+_COOKIE_HOSTS = None
+
 
 def read_chain_hosts(path: str = None) -> frozenset:
     """chain-hosts.txt 의 호스트. `#` 뒤는 주석입니다. 서버의 parseHosts 와 같은 읽기입니다."""
@@ -116,6 +123,14 @@ def chain_hosts() -> frozenset:
     if _CHAIN_HOSTS is None:
         _CHAIN_HOSTS = read_chain_hosts()
     return _CHAIN_HOSTS
+
+
+def cookie_hosts() -> frozenset:
+    """cookie-hosts.txt 의 호스트. 읽는 법은 chain-hosts.txt 와 같습니다."""
+    global _COOKIE_HOSTS
+    if _COOKIE_HOSTS is None:
+        _COOKIE_HOSTS = read_chain_hosts(COOKIE_HOSTS_FILE)
+    return _COOKIE_HOSTS
 
 
 def chain_context(pem: str, roots: str = None):
@@ -271,6 +286,61 @@ def fetch(url: str, pacer: Pacer, timeout: float = 20.0) -> tuple[int, str, str]
             return e.code, decode(raw, headers), url
         except Exception as e:                       # 타임아웃, TLS, DNS 등
             return 0, f"{type(e).__name__}: {e}", url
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+
+def body_type_of(body: str | None) -> str:
+    """본문이 JSON 인지 폼인지. 서버의 `DetailResolver.bodyTypeOf` 와 같습니다."""
+    head = (body or "").lstrip()
+    return "application/json" if not body or head.startswith(("{", "[")) else "application/x-www-form-urlencoded"
+
+
+def fetch_page(url: str, pacer: Pacer, timeout: float = 20.0, method: str = "GET", body: str | None = None,
+               cookie: str | None = None, session: bool = False) -> tuple[int, str, str, list[str]]:
+    """(상태코드, 본문, 최종주소, Set-Cookie 머리들). `fetch` 에 서버의 새 받기 방식 둘을 더한 것입니다.
+
+    - `method="POST"` 면 `body` 를 폼(또는 JSON)으로 보내고 HTML 을 받습니다(`@frame:POST`).
+    - `session=True` 면 쿠키를 드는 규칙(`@frame:COOKIE`)의 요청입니다. `cookie` 가 있으면 `Cookie` 머리로
+      싣고, 응답의 `Set-Cookie` 를 넷째 값으로 돌려줍니다. **넘겨 주는 응답(3xx)을 따라가지 않습니다.**
+      따라가면 실은 쿠키가 다른 호스트로 실려 갑니다. 서버(`DetailResolver.httpFetcher`)와 같습니다.
+
+    `session` 이 아니면 쿠키를 싣지도 읽지도 않습니다(넷째 값은 늘 빈 목록입니다). 실패하면 상태코드가 0 이고
+    본문이 오류 문구입니다.
+    """
+    host = urllib.parse.urlparse(url).netloc
+    with pacer.lock_for(host):
+        pacer.wait(host)
+        try:
+            headers = {"User-Agent": UA, "Accept": "text/html,application/xhtml+xml", "Accept-Language": "ko"}
+            data = None
+            if method.upper() == "POST":
+                data = (body or "").encode("utf-8")
+                headers["Content-Type"] = body_type_of(body)
+            if session and cookie:
+                headers["Cookie"] = cookie
+            req = urllib.request.Request(url, data=data, method=method.upper(), headers=headers)
+            handlers = []
+            ctx = tls_context(url)
+            handlers.append(urllib.request.HTTPSHandler(context=ctx) if ctx is not None else urllib.request.HTTPSHandler())
+            if session:
+                handlers.append(_NoRedirect())
+            with urllib.request.build_opener(*handlers).open(req, timeout=timeout) as resp:
+                raw = resp.read(1_500_000)
+                cookies = resp.headers.get_all("Set-Cookie") or [] if session else []
+                return resp.status, decode(raw, resp.headers.get("Content-Type", "")), resp.url, list(cookies)
+        except urllib.error.HTTPError as e:
+            try:
+                raw = e.read(200_000)
+            except Exception:
+                raw = b""
+            content_type = e.headers.get("Content-Type", "") if e.headers else ""
+            return e.code, decode(raw, content_type), url, []
+        except Exception as e:                       # 타임아웃, TLS, DNS 등
+            return 0, f"{type(e).__name__}: {e}", url, []
 
 
 def decode(raw: bytes, content_type: str) -> str:
@@ -509,31 +579,78 @@ VERIFY_PREFIX = "@verify:"
 PLAIN_PREFIX = "@plain:"
 TEMPLATE_SEPARATOR = "=>"
 
-# 서버의 DetailRule.FRAME_SHAPE 와 같은 모양입니다. 주소에는 공백이 없으므로 첫 「=>」가 경계입니다.
-FRAME_SHAPE = re.compile(r"^(?:(\S+)\s+)?(https?://\S+)\s+=>\s*(.+)$", re.S)
+# 서버의 DetailRule.FRAME_SHAPE 와 같은 모양입니다. 주소 앞의 낱말들(인코딩·COOKIE·POST), 주소틀, 있으면
+# 본문틀, 그리고 안쪽 규칙입니다. 주소와 본문에는 공백이 없으므로 첫 「=>」가 경계입니다.
+FRAME_SHAPE = re.compile(r"^((?:\S+\s+)*?)(https?://\S+)(?:\s+(?!=>)(\S+))?\s+=>\s*(.+)$", re.S)
 FRAME_PLACEHOLDERS = {"title", "isbn13", "libCode"}
+FRAME_POST = "POST"
+FRAME_COOKIE = "COOKIE"
+
+FrameRule = collections.namedtuple("FrameRule", "encoding template inner body cookie")
 
 
-def split_frame(rule: str) -> tuple[str, str, str] | None:
-    """`@frame:[인코딩 ]프레임주소틀 => 안쪽 규칙` → (인코딩, 주소틀, 안쪽 규칙). 프레임 규칙이 아니면 None.
+def parse_frame(rule: str) -> FrameRule | None:
+    """`@frame:[인코딩 ][COOKIE ][POST ]주소틀[ 본문틀] => 안쪽 규칙` 을 읽습니다. 프레임 규칙이 아니면 None.
 
-    결과를 **다른 주소의 프레임**으로 보여 주는 OPAC 을 위한 규칙입니다(충북교육청 계열). 서버는 검색
-    화면 대신 그 프레임을 받아 안쪽 규칙을 적용합니다. 인코딩을 적지 않으면 UTF-8 입니다.
-    모양이 틀리면 ValueError 입니다.
+    결과를 **검색 화면이 아닌 다른 주소**에서 받아야 하는 OPAC 을 위한 규칙입니다. 서버는 검색 화면 대신 그
+    주소를 받아 안쪽 규칙을 적용합니다. 인코딩을 적지 않으면 UTF-8 입니다.
+
+    - `POST` 를 적으면 주소 뒤의 한 덩이가 본문틀이고 그것을 채워 POST 로 보냅니다(부산교육청).
+      `body` 가 None 이 아니면 POST 입니다.
+    - `COOKIE` 를 적으면 응답 머리로 온 쿠키를 들고 한 번 더 받을 수 있습니다(대전 서구). cookie-hosts.txt 에
+      적힌 호스트에만 적을 수 있습니다.
+
+    모양이 틀리면 ValueError 입니다. 서버의 `DetailRule.parseFrame` 과 같은 것을 거릅니다.
     """
     if not rule.lower().startswith(FRAME_PREFIX):
         return None
     m = FRAME_SHAPE.match(rule[len(FRAME_PREFIX):].strip())
     if not m:
-        raise ValueError("@frame: 은 「[인코딩 ]http(s)://프레임주소틀 => 안쪽 규칙」이어야 합니다")
-    return (m.group(1) or "UTF-8"), m.group(2), m.group(3).strip()
+        raise ValueError("@frame: 은 「[인코딩 ][COOKIE ][POST ]http(s)://주소틀[ 본문틀] => 안쪽 규칙」이어야 합니다")
+    encoding, post, cookie = None, False, False
+    for word in m.group(1).split():
+        if word.upper() == FRAME_POST:
+            if post:
+                raise ValueError("@frame: 에 POST 를 두 번 적었습니다")
+            post = True
+        elif word.upper() == FRAME_COOKIE:
+            if cookie:
+                raise ValueError("@frame: 에 COOKIE 를 두 번 적었습니다")
+            cookie = True
+        else:
+            if encoding is not None:
+                raise ValueError(f"@frame: 의 주소 앞에는 인코딩·COOKIE·POST 가 하나씩만 올 수 있습니다 ({word})")
+            encoding = word
+    template, body = m.group(2), m.group(3)
+    if post and body is None:
+        raise ValueError("@frame: POST 에는 주소 뒤에 본문틀이 있어야 합니다")
+    if not post and body is not None:
+        raise ValueError("@frame: 의 본문틀은 POST 일 때만 적습니다")
+    return FrameRule(encoding or "UTF-8", template, m.group(4).strip(), body, cookie)
+
+
+def split_frame(rule: str) -> tuple[str, str, str] | None:
+    """`@frame:…` → (인코딩, 주소틀, 안쪽 규칙). 프레임 규칙이 아니면 None. `parse_frame` 의 앞 세 칸입니다.
+
+    POST 본문과 COOKIE 까지 봐야 하는 자리는 `parse_frame` 을 쓰세요.
+    """
+    framed = parse_frame(rule)
+    return None if framed is None else (framed.encoding, framed.template, framed.inner)
+
+
+def frame_host(template: str) -> str:
+    """주소틀의 호스트. 자리표가 든 주소라 글자로 자릅니다. 포트는 뗍니다. 서버의 `DetailRule.hostOf` 와 같습니다."""
+    rest = template.split("://", 1)[1]
+    end = min([i for i in (rest.find(c) for c in "/?#:") if i >= 0] or [len(rest)])
+    return rest[:end].lower()
 
 
 def fill_frame(template: str, encoding: str, title: str = "", isbn13: str = "", lib_code: str = "") -> str:
     """프레임 주소틀을 채웁니다. **서버의 `DetailResolver.fillFrame` 과 같은 글자를 냅니다.**
 
     표제는 규칙이 적은 글자 집합으로 퍼센트 부호를 쓰고 공백은 `%20` 입니다. 한쪽을 고치면 다른 쪽도
-    고치세요. 확인한 주소와 서버가 내보내는 주소가 달라집니다.
+    고치세요. 확인한 주소와 서버가 내보내는 주소가 달라집니다. `@frame:POST` 의 본문틀도 이 함수로
+    채웁니다(서버의 `fillFrameBody` 가 같은 글자를 냅니다).
     """
     raw = title.strip().encode(encoding)
     # 자바의 URLEncoder 가 그대로 두는 글자는 영문·숫자와 「.-*_」 입니다. 파이썬은 「~」도 그대로
@@ -557,23 +674,28 @@ def pattern_problem(regex: str) -> str | None:
     if not regex:
         return "정규식이 비어 있습니다"
     if regex.lower().startswith(FRAME_PREFIX):
-        # @frame:[인코딩 ]프레임주소틀 => 안쪽 규칙 (서버의 DetailRule.Frame 과 같은 조건)
+        # @frame:[인코딩 ][COOKIE ][POST ]주소틀[ 본문틀] => 안쪽 규칙 (서버의 DetailRule.Frame 과 같은 조건)
         try:
-            encoding, template, inner = split_frame(regex)
+            framed = parse_frame(regex)
         except ValueError as e:
             return str(e)
         try:
-            "".encode(encoding)
+            "".encode(framed.encoding)
         except LookupError:
-            return f"@frame: 의 인코딩을 모릅니다 ({encoding})"
-        if "{title}" not in template and "{isbn13}" not in template:
-            return "@frame: 의 주소틀에 {title} 이나 {isbn13} 자리표가 있어야 합니다"
-        unknown = set(re.findall(r"\{([A-Za-z_]\w*)}", template)) - FRAME_PLACEHOLDERS
+            return f"@frame: 의 인코딩을 모릅니다 ({framed.encoding})"
+        filled = framed.template if framed.body is None else framed.template + " " + framed.body
+        if "{title}" not in filled and "{isbn13}" not in filled:
+            return "@frame: 의 주소틀이나 본문틀에 {title} 이나 {isbn13} 자리표가 있어야 합니다"
+        unknown = set(re.findall(r"\{([A-Za-z_]\w*)}", filled)) - FRAME_PLACEHOLDERS
         if unknown:
             return f"@frame: 의 주소틀이 모르는 자리표를 씁니다 ({', '.join(sorted(unknown))})"
-        if inner.lower().startswith((JSON_PREFIX, FRAME_PREFIX)):
+        if framed.cookie and frame_host(framed.template) not in cookie_hosts():
+            # 쿠키를 드는 호스트는 운영자가 허용한 곳뿐입니다. 규칙 줄만 고쳐서는 넓어지지 않습니다.
+            return (f"@frame: 의 COOKIE 는 cookie-hosts.txt 에 적힌 호스트에만 적을 수 있습니다 "
+                    f"({frame_host(framed.template)}). 호스트를 더하는 것은 운영자가 정할 일입니다")
+        if framed.inner.lower().startswith((JSON_PREFIX, FRAME_PREFIX)):
             return "@frame: 의 안쪽에는 정규식·@onclick:·@template:·@anchor:·@verify:·@plain: 규칙이 와야 합니다"
-        return pattern_problem(inner)
+        return pattern_problem(framed.inner)
     wrappers = (JSON_PREFIX, ANCHOR_PREFIX, ANCHOR_AFTER_PREFIX, FRAME_PREFIX, VERIFY_PREFIX, PLAIN_PREFIX)
     if regex.lower().startswith(VERIFY_PREFIX):
         # @verify:규칙 — 후보 줄의 상세 화면을 받아 그 ISBN 이 적힌 것만 보냅니다(서버의 DetailRule.Verified).

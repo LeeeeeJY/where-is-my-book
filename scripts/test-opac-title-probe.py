@@ -51,8 +51,9 @@ def regex_spans(page: str, regex: str):
 def shared_cases(check) -> None:
     """서버의 SharedPickCasesTest 와 같은 사례를 도구의 함수로 돌립니다."""
     cases = json.loads(case_file("cases.json"))
-    for kind in ("visible", "mentions", "pickAll", "rows", "rules"):
-        check(f"사례 파일에 {kind} 사례가 있다", len(cases[kind]) >= 5, True)
+    for kind in ("visible", "mentions", "pickAll", "rows", "rules",
+                 "frames", "frameProblems", "cookies", "scriptOnly", "sites"):
+        check(f"사례 파일에 {kind} 사례가 있다", len(cases.get(kind, [])) >= 5, True)
 
     print("\n화면의 글자 (서버의 RowText)")
     for c in cases["visible"]:
@@ -97,6 +98,53 @@ def shared_cases(check) -> None:
         url, how = tp.run_rule(case_page(c), c["url"], c["rule"], c["isbns"], 5, {}, fetch_detail, c["url"])
         check(c["name"], (url, fetched), (c["expect"], c["fetched"]))
         check(c["name"] + " — 서버가 받아 주는 규칙이다", tp.od.pattern_problem(c["rule"]), None)
+
+    # ── 받기 방식 둘: @frame:POST, @frame:COOKIE ──────────────────────────────
+
+    print("\n프레임 규칙이 받는 요청 (서버의 frameUrlFor·frameBodyFor)")
+    for c in cases["frames"]:
+        request = tp.frame_request(c["rule"], c["title"], c["isbn"], c["libCode"])
+        got = {k: request[k] for k in ("method", "url", "body", "contentType", "cookie")}
+        check(c["name"], got, c["expect"])
+        check(c["name"] + " — 서버가 받아 주는 규칙이다", tp.od.pattern_problem(c["rule"]), None)
+        check(c["name"] + " — 되돌려 말한 한 줄", tp.frame_rule_of(tp.od.parse_frame(c["rule"])), c["describe"])
+
+    print("\n받아 주지 않는 프레임 규칙 (서버는 뜨지 않고, 도구는 넣지 않습니다)")
+    for c in cases["frameProblems"]:
+        check(c["name"], tp.od.pattern_problem(c["rule"]) is not None, True)
+
+    print("\n응답 머리의 쿠키를 담고 싣기 (서버의 SessionCookies)")
+    for c in cases["cookies"]:
+        jar: dict = {}
+        changed = [tp.cookie_store(jar, step) for step in c["steps"]]
+        check(c["name"], (changed, tp.cookie_header(jar)), (c["changed"], c["header"]))
+
+    print("\n글자 없이 스크립트만 있는 화면인가 (서버의 SessionCookies.scriptOnly)")
+    for c in cases["scriptOnly"]:
+        check(c["name"], tp.script_only(case_page(c)), c["expect"])
+
+    print("\n가짜 사이트에 대고 프레임 규칙 한 줄을 통째로: 요청의 차례와 끝 (서버의 DetailResolver)")
+    for c in cases["sites"]:
+        requests: list[str] = []
+
+        def send(url, method, body, cookie, session, site=c["site"], requests=requests):
+            """사례에 적힌 가짜 사이트. 서버 테스트의 FakeSite 와 같은 답을 냅니다."""
+            requests.append(f"{method} {url}" + (f" body={body}" if body is not None else "")
+                            + (f" cookie={cookie}" if cookie is not None else ""))
+            need = site.get("cookie")
+            if need and need["need"] not in (cookie or "").split("; "):
+                return 200, need["stub"], url, (list(need["set"]) if session else [])
+            for page in site["pages"]:
+                if page["method"] == method and page["url"] == url and page.get("body") == body:
+                    return 200, case_file(page["file"]), url, []
+            return 404, "", url, []
+
+        url, how, status = tp.run_frame(c["rule"], c["title"], c["isbns"], c["libCode"], send, c["searchUrl"])
+        check(c["name"], (requests, status, url), (c["requests"], c["expect"]["status"], c["expect"]["url"]))
+        # 규칙 줄에 이미 적힌 글자(thisLib 의 값이 locaInfo 쿠키의 값과 같습니다)는 쿠키에서 온 것이 아닙니다.
+        values = [h.split(";")[0].split("=", 1)[1] for h in (c["site"].get("cookie") or {}).get("set", [])]
+        check(c["name"] + " — 사유에 쿠키의 값을 적지 않는다",
+              [v for v in values if len(v) > 1 and v not in c["rule"] and v in how], [])
 
 
 def links(page):
@@ -252,6 +300,109 @@ def probe_framed(site: FakeFramedOpac, frame=None):
     return tp.probe_host("127.0.0.1", members, {"143013": list(BOOKS)}, tp.od.Pacer(0), 5, frame)
 
 
+class CookieSite:
+    """쿠키가 있어야 화면을 주는 가짜 사이트를 이 기계에 띄웁니다. 받은 요청을 한 줄씩 적어 둡니다.
+
+    `/frame` 은 쿠키 없이 받으면 `<script>location.reload();</script>` 와 `Set-Cookie` 를 주고(대전 서구가 준
+    모양입니다), 그 쿠키를 실은 요청에 목록을 줍니다. `/list.do` 는 POST 로 받은 본문을 되돌려 적고,
+    `/redirect` 는 다른 주소로 넘겨 줍니다. **HTML 은 지어낸 것입니다.**
+    """
+
+    def __init__(self):
+        site = self
+        self.seen: list[str] = []
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def _answer(self):
+                length = int(self.headers.get("Content-Length") or 0)
+                body = self.rfile.read(length).decode("utf-8") if length else ""
+                site.seen.append(f"{self.command} {self.path} | type={self.headers.get('Content-Type')} | "
+                                 f"accept={self.headers.get('Accept')} | cookie={self.headers.get('Cookie')} | body={body}")
+                path = self.path.split("?")[0]
+                if path == "/redirect":
+                    self.send_response(302)
+                    self.send_header("Set-Cookie", "moved=1; Path=/")
+                    self.send_header("Location", "/elsewhere")
+                    self.end_headers()
+                    return
+                carried = "PHPSESSID=local1" in (self.headers.get("Cookie") or "").split("; ")
+                if path == "/frame" and not carried:
+                    page = "<script>location.reload();</script>"
+                elif path == "/frame":
+                    page = '<ol><li><a href="/detail?c=1">책</a> ISBN 9788937473135</li></ol>'
+                else:
+                    page = f"<p>{path} {body}</p>"
+                raw = page.encode("utf-8")
+                self.send_response(200)
+                if path == "/frame" and not carried:
+                    self.send_header("Set-Cookie", "PHPSESSID=local1; path=/")
+                    self.send_header("Set-Cookie", "skin=default")
+                self.send_header("Content-Type", "text/html; charset=UTF-8")
+                self.send_header("Content-Length", str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+
+            do_GET = do_POST = _answer
+
+            def log_message(self, *args):
+                pass
+
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def url(self, path: str) -> str:
+        return f"http://127.0.0.1:{self.server.server_address[1]}{path}"
+
+    def close(self):
+        self.server.shutdown()
+
+
+def real_fetch_cases(check) -> None:
+    """도구의 실제 받기(`od.fetch_page`)가 서버의 실제 받기와 같은 요청을 내는지. 서버 쪽은 `FrameFetchTest`."""
+    print("\n실제 받기: POST 본문과 쿠키 (이 기계에 띄운 가짜 사이트)")
+    site = CookieSite()
+    pacer = tp.od.Pacer(0)
+    try:
+        status, page, _, cookies = tp.od.fetch_page(site.url("/list.do"), pacer, 5, "POST",
+                                                    "manageCode=AG&searchIsbnIssn=9788937473135")
+        check("POST 는 폼 본문과 HTML 을 받겠다는 머리로 나가고 쿠키는 싣지 않는다",
+              (status, page, cookies, site.seen),
+              (200, "<p>/list.do manageCode=AG&searchIsbnIssn=9788937473135</p>", [],
+               ["POST /list.do | type=application/x-www-form-urlencoded | accept=text/html,application/xhtml+xml | "
+                "cookie=None | body=manageCode=AG&searchIsbnIssn=9788937473135"]))
+
+        site.seen.clear()
+
+        def send(url, method, body, cookie, session):
+            return tp.od.fetch_page(url, pacer, 5, method, body, cookie, session)
+
+        press = tp.Press()
+        origin = tp.origin_of(site.url("/frame"))
+        page, final, why = tp.fetch_carrying(send, site.url("/frame"), "GET", None, origin, press)
+        check("쿠키 없이 받은 화면이 스크립트뿐이면 응답 머리의 쿠키를 들고 한 번 다시 받는다",
+              (page, why, [line.split(" | ")[3] for line in site.seen], press.refetches_left),
+              ('<ol><li><a href="/detail?c=1">책</a> ISBN 9788937473135</li></ol>', "",
+               ["cookie=None", "cookie=PHPSESSID=local1; skin=default"], 0))
+
+        site.seen.clear()
+        page, _, why = tp.fetch_carrying(send, site.url("/frame"), "GET", None, None, tp.Press())
+        check("쿠키를 드는 규칙이 아니면 한 번만 받고 응답의 쿠키를 읽지 않는다",
+              (tp.script_only(page), [line.split(" | ")[3] for line in site.seen]), (True, ["cookie=None"]))
+
+        site.seen.clear()
+        status, _, _, cookies = tp.od.fetch_page(site.url("/redirect"), pacer, 5, "GET", None, "PHPSESSID=local1", True)
+        check("쿠키를 드는 요청은 넘겨 주는 응답(3xx)을 따라가지 않는다",
+              (status, [line.split(" | ")[0] for line in site.seen]), (302, ["GET /redirect"]))
+
+        site.seen.clear()
+        status, page, _, cookies = tp.od.fetch_page(site.url("/redirect"), pacer, 5)
+        check("나머지 요청은 예전처럼 따라가고, 쿠키를 싣지도 읽지도 않는다",
+              (status, page, cookies, [line.split(" | ")[0] + " " + line.split(" | ")[3] for line in site.seen]),
+              (200, "<p>/elsewhere </p>", [], ["GET /redirect cookie=None", "GET /elsewhere cookie=None"]))
+    finally:
+        site.close()
+
+
 def main() -> int:
     failures = []
 
@@ -285,6 +436,7 @@ def main() -> int:
         check(f"링크 안에 ISBN 이 있으면 방향과 무관 ({'앞' if link_first else '뒤'})", got and got[0], "22")
 
     shared_cases(check)
+    real_fetch_cases(check)
 
     print("\n받아 본 후보 가운데 고르기 (서버의 IsbnVerify.pick)")
     ours, other = "<p>ISBN 9788937473135</p>", "<p>ISBN 9788996991342</p>"

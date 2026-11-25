@@ -1229,7 +1229,7 @@
 111182,ISBN_SEARCH,UTF-8,https://www.gblib.or.kr/suyu/search/total.do?wherefrom=out#a_qf=I&a_rq=&a_lib=ME&a_q={isbn13}
 111465,ISBN_SEARCH,UTF-8,https://www.gblib.or.kr/kids/search/total.do?wherefrom=out#a_qf=I&a_rq=&a_lib=MH&a_q={isbn13}
 145036,TITLE_SEARCH,UTF-8,https://lib.jbe.go.kr/gec/intro/search/index.do?menu_idx=218&booktype=BOOK&search_type=L_TITLE&search_text={title}
-144028,ISBN_SEARCH,UTF-8,https://www.brcn.go.kr/lib/front/index.php?g_page=search&m_page=search01&search_type=DETAIL&search_isbn_issn={isbn13}
+144028,ISBN_SEARCH,UTF-8,https://www.brcn.go.kr/lib/front/index.php?g_page=search&m_page=search01&search_type=DETAIL&search_isbn_issn={isbn13}&manage_code_detail=MA
 145047,ISBN_SEARCH,UTF-8,https://lib.jeongeup.go.kr:31824/search/keyword/{isbn13}
 145032,ISBN_SEARCH,UTF-8,https://lib.jeongeup.go.kr:31824/search/keyword/{isbn13}
 145020,ISBN_SEARCH,UTF-8,https://lib.jeongeup.go.kr:31824/search/keyword/{isbn13}

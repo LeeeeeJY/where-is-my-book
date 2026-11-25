@@ -235,5 +235,8 @@ class IntermediateCertsTest {
         String resolver = Files.readString(Path.of("src/main/java/kr/wimb/opac/DetailResolver.java"));
         assertTrue(resolver.contains("IntermediateCerts.isChainHost(url.getHost()) ? chain : strict"),
                 "그 클라이언트로 가는 요청을 호스트로 가르는 자리가 사라졌습니다");
+        // 쿠키를 드는 규칙의 요청은 넘겨 주는 응답을 따라가지 않는 클라이언트로 나갑니다. 그쪽도 같은 호스트로 가릅니다.
+        assertTrue(resolver.contains("IntermediateCerts.isChainHost(url.getHost()) ? chainStay : strictStay"),
+                "넘겨 주는 응답을 따라가지 않는 클라이언트를 호스트로 가르는 자리가 사라졌습니다");
     }
 }
