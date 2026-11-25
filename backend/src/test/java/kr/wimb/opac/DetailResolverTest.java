@@ -1111,4 +1111,62 @@ class DetailResolverTest {
         assertEquals(1L, tallyOf(resolver, "frame.example.kr").get("resolved"));
         assertEquals(1, resolver.hostTally().snapshot().size(), "검색 주소의 호스트로는 요청이 나가지 않았습니다");
     }
+
+    // ── 받은 화면을 읽다가 난 예외 ────────────────────────────────────────────
+
+    /**
+     * 주소틀이 정규식에 없는 그룹을 가리켜, 화면을 읽는 도중에 예외가 납니다. 규칙 표를 읽을 때는 걸러지는
+     * 꼴이라 레코드를 직접 만듭니다. 실제로 일어날 일은 「읽는 코드가 본 적 없는 모양의 화면」이고, 이것은 그
+     * 자리에서 예외가 나게 하는 가장 짧은 길입니다.
+     */
+    private static final DetailRule READS_BADLY = new DetailRule.Template(
+            Pattern.compile("data-key=\"(\\d+)\""), "/view?key={2}");
+
+    private static long searches(FakeSite site) {
+        return site.asked.stream().filter(url -> url.contains("/search")).count();
+    }
+
+    @Test
+    @DisplayName("받은 화면을 읽다가 예외가 나도 던지지 않고 받지 못한 것으로 답한다")
+    void readingFailureDoesNotEscape() {
+        var site = new FakeSite();
+        site.page("https://lib.a.kr/search?q=1", "<li data-key=\"7\">코스모스</li>");
+        var resolver = resolver(site);
+
+        // 던지면 /api/go 가 500 으로 끝납니다. 누른 사람에게는 검색 결과 화면이 그보다 낫습니다.
+        var outcome = resolver.resolve("https://lib.a.kr/search?q=1", READS_BADLY, DetailResolver.Context.NONE);
+        assertEquals(DetailResolver.Status.FETCH_FAILED, outcome.status());
+        assertNull(outcome.detailUrl());
+        assertTrue(outcome.note().contains("읽다가"), outcome.note());
+
+        // 기억하지 않습니다. 그리고 그 호스트는 답을 했으므로 빗장에 세지 않습니다. 네 번을 눌러도 네 번 다 받아 봅니다.
+        for (int i = 0; i < 3; i++) {
+            resolver.resolve("https://lib.a.kr/search?q=1", READS_BADLY, DetailResolver.Context.NONE);
+        }
+        assertEquals(4, searches(site));
+
+        var tally = tallyOf(resolver, "lib.a.kr");
+        assertEquals(4L, tally.get("attempts"));
+        assertEquals(4L, tally.get("otherFailure"));
+        assertEquals(0L, tally.get("skippedDown"));
+        // 집계는 인증 없이 열립니다. 예외의 메시지에는 받은 화면의 글자가 섞일 수 있어 이름만 적습니다.
+        assertEquals("화면을 읽다가 IndexOutOfBoundsException", tally.get("lastFailure"));
+    }
+
+    @Test
+    @DisplayName("상세 확인 규칙도 화면을 읽다가 난 예외를 던지지 않는다")
+    void verifyReadingFailureDoesNotEscape() {
+        var site = new FakeSite();
+        site.page("https://lib.a.kr/search?q=cosmos", "<li data-key=\"7\">코스모스</li>");
+        var resolver = resolver(site);
+        var context = new DetailResolver.Context("9788983711892", "111111", List.of("9788983711892"));
+
+        var outcome = resolver.resolve("https://lib.a.kr/search?q=cosmos", new DetailRule.Verified(READS_BADLY), context);
+        assertEquals(DetailResolver.Status.FETCH_FAILED, outcome.status());
+        assertTrue(outcome.note().contains("읽다가"), outcome.note());
+
+        resolver.resolve("https://lib.a.kr/search?q=cosmos", new DetailRule.Verified(READS_BADLY), context);
+        assertEquals(2, searches(site), "기억하지 않습니다");
+        assertEquals(2L, tallyOf(resolver, "lib.a.kr").get("otherFailure"));
+    }
 }

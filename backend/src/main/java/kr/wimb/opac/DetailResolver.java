@@ -453,7 +453,12 @@ public final class DetailResolver {
         Page page = got.page();
 
         if (verifying) {
-            Verdict verdict = verify(page, (DetailRule.Verified) rule, search, context, honourBreaker, budget);
+            Verdict verdict;
+            try {
+                verdict = verify(page, (DetailRule.Verified) rule, search, context, honourBreaker, budget);
+            } catch (RuntimeException e) {
+                return couldNotRead(hostKey, tallied, e);
+            }
             Outcome outcome = verdict.outcome();
             (outcome.status() == Status.RESOLVED ? resolved : outcome.status() == Status.NO_MATCH ? missed : failed)
                     .incrementAndGet();
@@ -470,15 +475,46 @@ public final class DetailResolver {
             if (verdict.remember()) remember(cacheKey(searchUrl, stated, context), outcome);
             return outcome;
         }
-        Outcome outcome = rule instanceof DetailRule.Json json
-                ? extractFromJson(page, json, search, context)
-                : extract(page, rule, search, context);
+        Outcome outcome;
+        try {
+            outcome = rule instanceof DetailRule.Json json
+                    ? extractFromJson(page, json, search, context)
+                    : extract(page, rule, search, context);
+        } catch (RuntimeException e) {
+            return couldNotRead(hostKey, tallied, e);
+        }
         if (tallied) {
             hostTally.recordAnswered(hostKey, outcome.status() == Status.RESOLVED
                     ? OpacHostTally.Event.RESOLVED : OpacHostTally.Event.NO_MATCH, got.millis(), null);
         }
         remember(cacheKey(searchUrl, stated, context), outcome);
         return outcome;
+    }
+
+    /**
+     * 화면은 받았는데 <b>읽다가 예외가 났습니다.</b> 던지지 않고 「받지 못함」으로 끝냅니다.
+     *
+     * <p>읽는 것은 남의 서버가 준 HTML 과 JSON 이고, 읽는 코드는 본 적 있는 모양에 맞춰 쓴 것입니다. 본 적 없는
+     * 모양에서 예외가 나서 그대로 던지면 {@code /api/go} 가 500 으로 끝납니다. 누른 사람에게는 오류 화면보다
+     * 검색 결과 화면이 낫고, 「받지 못함」이면 부르는 쪽이 그리로 보냅니다. 받기와 읽기가 한 {@code try} 안에
+     * 있던 때에는 그 {@code catch} 가 이 일을 함께 했는데, 받기를 {@link #gatedFetch} 로 떼어 내면서 읽기가 그
+     * 밖으로 나왔습니다(2026-11-25).
+     *
+     * <ul>
+     *   <li><b>그 호스트의 빗장에는 세지 않습니다.</b> 호스트는 답을 했습니다. 고장 난 것은 우리가 읽는 쪽입니다.</li>
+     *   <li>기억하지 않습니다. 화면이 달라지거나 읽는 코드를 고치면 바로 낫습니다.</li>
+     *   <li>호스트별 집계에는 {@code otherFailure} 로 적고 사유에 <b>예외의 이름만</b> 남깁니다. 그 주소는 인증 없이
+     *       열리는데 예외의 메시지에는 받은 화면의 글자(책 제목)가 섞일 수 있습니다. 메시지는 이 답의
+     *       {@code note} 에만 싣습니다. 그것을 보는 것은 어느 책으로 물었는지 이미 아는 진단뿐입니다.</li>
+     * </ul>
+     * 이 숫자가 쌓이는 호스트가 있으면 회선이 아니라 코드를 봅니다.
+     */
+    private Outcome couldNotRead(String hostKey, boolean tallied, RuntimeException e) {
+        failed.incrementAndGet();
+        String kind = e.getClass().getSimpleName();
+        if (tallied) hostTally.record(hostKey, OpacHostTally.Event.OTHER_FAILURE, "화면을 읽다가 " + kind);
+        return Outcome.of(Status.FETCH_FAILED, "받은 화면을 읽다가 예외가 났습니다: " + kind
+                + (e.getMessage() == null ? "" : ": " + e.getMessage()));
     }
 
     private static Duration shorter(Duration a, Duration b) {
