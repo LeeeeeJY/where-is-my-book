@@ -1,0 +1,41 @@
+<!-- 김제(gjl.gimje.go.kr)의 분관 ISBN 검색 결과를 줄인 것입니다(금구, 2026-11-25). 줄의 링크는 함수 호출이고
+     그 함수는 숨은 폼을 채워 보냅니다. 첫 줄이 같은 ISBN 으로 등록된 큰글자 도서입니다. -->
+<script>
+function viewDetail(pageno, reckey, book_type, manage_code){
+    document.detailView.pageno.value=pageno;
+    document.detailView.reckey.value=reckey;
+    document.detailView.book_type.value=book_type;
+    document.detailView.manage_code.value=manage_code;
+    document.detailView.submit();
+}
+</script>
+<ul class="book_list">
+<li>
+ <a href="#" onclick="viewDetail('1','79005675','BOOK','GG'); return false">
+  <img src="https://image.example/L1" alt="82년생 김지영[큰글자 도서]" class="img"/>
+  <strong>82년생 김지영[큰글자 도서]</strong>
+  저자 : 조남주 지음<br>출판사 : 민음사<span class="div">|</span>발행년 : 2018<br>
+  소장기관 : <em>금구도서관</em><span class="div">|</span>청구기호 : 큰 813.7-조211
+ </a>
+ <a href="/index.gimje?contentsSid=69&amp;manage_code=GG&amp;reckey=79005675&amp;book_type=BOOK" class="book_print">청구기호 출력</a>
+</li>
+<li>
+ <a href="#" onclick="viewDetail('1','76720323','BOOK','GG'); return false">
+  <img src="https://image.example/L2" alt="82년생 김지영 : 조남주 장편소설" class="img"/>
+  <strong>82년생 김지영 : 조남주 장편소설</strong>
+  저자 : 조남주 지음<br>출판사 : 민음사<span class="div">|</span>발행년 : 2016<br>
+  소장기관 : <em>금구도서관</em><span class="div">|</span>청구기호 : 813.7-조211ㅍ
+ </a>
+ <a href="/index.gimje?contentsSid=69&amp;manage_code=GG&amp;reckey=76720323&amp;book_type=BOOK" class="book_print">청구기호 출력</a>
+</li>
+</ul>
+<p class='bbs_page'><span class='on'><a>1</a></span></p>
+<form name="detailView" method="get" action="/index.gimje">
+ <input type="hidden" name="menuCd" value="DOM_000000101001000000"/>
+ <input type="hidden" name="search_txt" value="9788937473135"/>
+ <input type="hidden" name="pageno"/>
+ <input type="hidden" name="mode" value="view"/>
+ <input type="hidden" name="reckey"/>
+ <input type="hidden" name="book_type"/>
+ <input type="hidden" name="manage_code"/>
+</form>

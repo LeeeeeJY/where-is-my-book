@@ -63,7 +63,13 @@ public final class OpacHostTally {
         /** robots.txt 가 그 경로를 막아 받아 보지 않았습니다. */
         BLOCKED_BY_ROBOTS("blockedByRobots"),
         /** 그 호스트로 이미 요청이 나가 있어 기다리지 않았습니다. */
-        BUSY("busy");
+        BUSY("busy"),
+        /**
+         * 상세 확인 규칙({@code @verify:})이 한 번 누를 때의 시간 상한에 닿아 그만뒀습니다. 그 규칙은 검색
+         * 화면과 후보 상세를 여러 번 받는데, 하나하나는 받기 제한 안이어도 합치면 상한을 넘을 수 있습니다.
+         * 이 숫자가 쌓이는 호스트는 그 규칙으로 얻는 것보다 기다리게 하는 것이 많은 호스트입니다.
+         */
+        TIME_LIMIT("timeLimit");
 
         private final String field;
 

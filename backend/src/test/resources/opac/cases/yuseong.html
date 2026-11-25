@@ -1,0 +1,48 @@
+<!-- 유성(lib.yuseong.go.kr)의 분관 제목 검색 결과를 줄인 것입니다(관평, 「미움받을 용기」, 2026-11-25). 줄에 ISBN 이 어떤
+     모양으로도 없습니다. 표지는 ISBN 이 아닌 번호이고, 줄마다 같은 제어번호의 호출이 둘(표지, 제목)입니다. -->
+<script>
+function fnList(currentPageNo){
+	var form = document.paramForm;
+	form.currentPageNo.value = currentPageNo;
+	form.action = "/web/menu/10075/program/30005/searchResultList.do";
+	form.submit();
+}
+
+function fnDetail(vCtrl){
+	var form = document.detailForm;
+	form.vCtrl.value = vCtrl;
+	form.action = "/web/menu/10075/program/30005/searchResultDetail.do";
+	form.submit();
+}
+</script>
+<form id="paramForm" name="paramForm" method="post">
+	<input type="hidden" name="csrfToken" value="00000000-0000-0000-0000-000000000000">
+	<input type="hidden" name="currentPageNo" value="1">
+	<input type="hidden" name="vLmt2" value="H0000030">
+	<input type="hidden" name="vSrchList[0].vSrchText" value="미움받을 용기">
+</form>
+<form name="detailForm" id="detailForm" method="post">
+	<input type="hidden" name="vCtrl" value="">
+</form>
+<div class="bookList cardViewStyle">
+<div class="book-item"><div class="inner card">
+ <div class="chkBox"><input type="checkbox" name="ctrlno" value="000004923523" id="chk1"><label for="chk1">작가의 문장수업 :미움받을 용기 고가 후미타케 선택</label></div>
+ <a href="#link" onclick="fnDetail('000004923523'); return false;" class="bookImg"><img src="http://t1.daumcdn.net/lbook/image/949019?timestamp=20251111110809" alt="작가의 문장수업 :미움받을 용기 고가 후미타케 표지"></a>
+ <div class="bookData"><a href="#link" onclick="fnDetail('000004923523'); return false;" class="bookName"><b class="bookKind">단행본</b> 작가의 문장수업 :<span class="highlight">미움받을 용기 </span>고가 후미타케</a>
+  <p>출판사 : 경향BP(경향비피)</p><p>청구기호 : 802 고288ㅈ</p><p>소장처 : 관평도서관</p></div></div></div>
+<div class="book-item"><div class="inner card">
+ <div class="chkBox"><input type="checkbox" name="ctrlno" value="000004907136" id="chk2"><label for="chk2">아들러 심리학을 읽는 밤 선택</label></div>
+ <a href="#link" onclick="fnDetail('000004907136'); return false;" class="bookImg"><img src="http://t1.daumcdn.net/lbook/image/635470" alt="아들러 심리학을 읽는 밤 표지"></a>
+ <div class="bookData"><a href="#link" onclick="fnDetail('000004907136'); return false;" class="bookName"><b class="bookKind">단행본</b> 아들러 심리학을 읽는 밤 :『<span class="highlight">미움받을 용기</span>』 기시미 이치로의 아들러 심리학 입문</a>
+  <p>출판사 : 살림출판사</p><p>청구기호 : 189 기941ㅇ</p><p>소장처 : 관평도서관</p></div></div></div>
+<div class="book-item"><div class="inner card">
+ <div class="chkBox"><input type="checkbox" name="ctrlno" value="000004931307" id="chk3"><label for="chk3">미움받을 용기 :사랑과 진정한 자립에 대한 아들러의 가르침 .2 선택</label></div>
+ <a href="#link" onclick="fnDetail('000004931307'); return false;" class="bookImg"><img src="http://t1.daumcdn.net/lbook/image/1467038" alt="미움받을 용기 표지"></a>
+ <div class="bookData"><a href="#link" onclick="fnDetail('000004931307'); return false;" class="bookName"><b class="bookKind">단행본</b> <span class="highlight">미움받을 용기 </span>:사랑과 진정한 자립에 대한 아들러의 가르침 .2</a>
+  <p>출판사 : 인플루엔셜</p><p>청구기호 : 189 기941ㅁ v.2</p><p>소장처 : 관평도서관</p></div></div></div>
+<div class="book-item"><div class="inner card">
+ <div class="chkBox"><input type="checkbox" name="ctrlno" value="000004970988" id="chk4"><label for="chk4">아직 긴 인생이 남았습니다 선택</label></div>
+ <a href="#link" onclick="fnDetail('000004970988'); return false;" class="bookImg"><img src="http://t1.daumcdn.net/lbook/image/5996811" alt="아직 긴 인생이 남았습니다 표지"></a>
+ <div class="bookData"><a href="#link" onclick="fnDetail('000004970988'); return false;" class="bookName"><b class="bookKind">단행본</b> 아직 긴 인생이 남았습니다 : <span class="highlight">미움받을 용기</span>, 기시미 이치로의 정년 철학론</a>
+  <p>출판사 : 한국경제신문</p><p>청구기호 : 199.7 기941ㅇ</p><p>소장처 : 관평도서관</p></div></div></div>
+</div>

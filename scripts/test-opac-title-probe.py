@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
-"""opac-title-probe.py 의 고르기가 **서버(IsbnAnchor)와 같은 답**을 내는지 봅니다.
+"""opac-title-probe.py 의 고르기가 **서버(IsbnAnchor·IsbnVerify·PlainRows)와 같은 답**을 내는지 봅니다.
 
     python3 scripts/test-opac-title-probe.py
 
 여기서 쓰는 목록은 `IsbnAnchorTest` 와 `DetailResolverTest` 의 것과 같습니다. 조사 도구와 서버가
 서로 다른 줄을 고르면, 도구가 확인한 규칙이 서버에서는 다른 책으로 갑니다.
+
+상세 화면의 ISBN 으로 고르는 것(`@verify:`)과 큰글자책 줄을 건너뛰는 것(`@plain:`)은 **서버 테스트와 같은
+파일**을 읽습니다(`backend/src/test/resources/opac/cases/cases.json`, 서버 쪽은 `SharedPickCasesTest`). 따로
+적은 사례는 한쪽만 고쳐도 둘 다 통과합니다. 화면의 글자를 읽는 규칙까지 맞아야 하는 것이라 한 파일로
+묶었습니다.
 
 결과를 **다른 주소의 프레임**으로 보여 주는 OPAC(`@frame:`)은 이 기계에 가짜 사이트를 띄워 봅니다.
 검색 화면과 프레임을 서로 다른 포트에 두어, 포트가 다르면 robots.txt 를 따로 지키는지까지 봅니다.
@@ -13,6 +18,7 @@
 """
 import http.server
 import importlib.util
+import json
 import os
 import re
 import sys
@@ -25,6 +31,72 @@ tp = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(tp)
 
 LINK = re.compile(r'href="(/detail/\d+)"')
+CASES_DIR = os.path.join(HERE, os.pardir, "backend", "src", "test", "resources", "opac", "cases")
+
+
+def case_file(name: str) -> str:
+    with open(os.path.join(CASES_DIR, name), encoding="utf-8") as f:
+        return f.read()
+
+
+def case_page(case: dict) -> str:
+    """사례가 화면을 파일로 가리키면 그 파일, 아니면 사례에 적힌 HTML."""
+    return case_file(case["file"]) if "file" in case else case["html"]
+
+
+def regex_spans(page: str, regex: str):
+    return [(m.start(), m.end(), m.group(1)) for m in re.finditer(regex, page)]
+
+
+def shared_cases(check) -> None:
+    """서버의 SharedPickCasesTest 와 같은 사례를 도구의 함수로 돌립니다."""
+    cases = json.loads(case_file("cases.json"))
+    for kind in ("visible", "mentions", "pickAll", "rows", "rules"):
+        check(f"사례 파일에 {kind} 사례가 있다", len(cases[kind]) >= 5, True)
+
+    print("\n화면의 글자 (서버의 RowText)")
+    for c in cases["visible"]:
+        check(c["name"], tp.visible_text(c["html"]), c["text"])
+
+    print("\n상세 화면에 그 ISBN 이 적혀 있는가 (서버의 IsbnVerify.mentions)")
+    for c in cases["mentions"]:
+        check(c["name"], tp.mentions(case_page(c), c["isbn"]), c["expect"])
+
+    print("\n그 ISBN 의 줄 전부 (서버의 IsbnAnchor.pickAll)")
+    for c in cases["pickAll"]:
+        page = case_page(c)
+        spans = regex_spans(page, c["regex"])
+        found, _ = tp.pick_all(page, spans, c["isbn"], c["linkFirst"])
+        check(c["name"], [s[2] for s in found], c["expect"])
+        # 첫 자리는 닻 규칙이 고르는 줄과 같아야 합니다.
+        check(c["name"] + " — 첫 자리가 pick 과 같다",
+              tp.pick(page, spans, c["isbn"], c["linkFirst"])[0], c["expect"][0] if c["expect"] else None)
+
+    print("\n줄마다의 글자와 판 표기 (서버의 PlainRows.rows)")
+    for c in cases["rows"]:
+        page = case_page(c)
+        rows = tp.plain_rows(page, regex_spans(page, c["regex"]))
+        ok = len(rows) == len(c["expect"])
+        for (span, text, marked), want in zip(rows, c["expect"]):
+            ok = ok and marked == want["marked"]
+            ok = ok and ("has" not in want or want["has"] in text)
+            ok = ok and ("lacks" not in want or want["lacks"] not in text)
+            ok = ok and ("text" not in want or want["text"] == text)
+        check(c["name"], ok or [(t, m) for _, t, m in rows], True)
+
+    print("\n규칙 한 줄을 통째로 (서버의 DetailResolver, 도구의 run_rule)")
+    for c in cases["rules"]:
+        details = {url: case_file(name) for url, name in cases["detailSets"].get(c.get("details"), {}).items()}
+        missing = set(c.get("missing", []))
+        fetched: list[str] = []
+
+        def fetch_detail(url, details=details, missing=missing, fetched=fetched):
+            fetched.append(url)
+            return None if url in missing else details.get(url)
+
+        url, how = tp.run_rule(case_page(c), c["url"], c["rule"], c["isbns"], 5, {}, fetch_detail, c["url"])
+        check(c["name"], (url, fetched), (c["expect"], c["fetched"]))
+        check(c["name"] + " — 서버가 받아 주는 규칙이다", tp.od.pattern_problem(c["rule"]), None)
 
 
 def links(page):
@@ -211,6 +283,54 @@ def main() -> int:
     for link_first in (True, False):
         got = tp.pick(carried, tp.calls(carried, "fnDetail"), "9791186560136", link_first)[0]
         check(f"링크 안에 ISBN 이 있으면 방향과 무관 ({'앞' if link_first else '뒤'})", got and got[0], "22")
+
+    shared_cases(check)
+
+    print("\n받아 본 후보 가운데 고르기 (서버의 IsbnVerify.pick)")
+    ours, other = "<p>ISBN 9788937473135</p>", "<p>ISBN 9788996991342</p>"
+    check("그 ISBN 이 적힌 후보", tp.verify_pick([("a", other), ("b", ours)], ["9788937473135"])[0], "b")
+    check("앞의 ISBN(그 도서관이 가진 판)이 먼저",
+          tp.verify_pick([("a", other), ("b", ours)], ["9788937473135", "9788996991342"])[0], "b")
+    check("어느 후보에도 없으면 첫 후보로 내려가지 않는다",
+          tp.verify_pick([("a", other), ("b", other)], ["9788937473135"])[0], None)
+    check("받지 못한 후보는 없다고 치지도 있다고 치지도 않는다",
+          tp.verify_pick([("a", None), ("b", ours)], ["9788937473135"])[0], "b")
+    check("확인할 ISBN 이 없으면 고르지 않는다", tp.verify_pick([("a", ours)], [])[0], None)
+    check("같은 ISBN 이 적힌 후보가 여럿이면 표기 없는 줄이 먼저",
+          tp.verify_pick([("a", ours, True), ("b", other, False), ("c", ours, False)], ["9788937473135"])[0], "c")
+    check("전부 표기 있는 줄이면 앞선 후보",
+          tp.verify_pick([("a", ours, True), ("b", ours, True)], ["9788937473135"])[0], "a")
+    check("표기 없는 줄에 그 ISBN 이 없으면 표기 있는 줄이라도 그 책이다",
+          tp.verify_pick([("a", ours, True), ("b", other, False)], ["9788937473135"])[0], "a")
+    check("같은 내용의 자리는 처음 것만 남긴다",
+          [s[2] for s in tp.distinct([(0, 1, "x"), (2, 3, "x"), (4, 5, "y"), (6, 7, "x")])], ["x", "y"])
+
+    print("\n새 규칙의 문법 (서버의 DetailRule.parse 와 같은 조건)")
+    for rule, fine in [
+        ("@verify:@onclick:fnDetail", True),
+        ('@verify:href="(/v/[^"]+)"', True),
+        ('@plain:href="(/v/[^"]+)"', True),
+        ("@plain:@onclick:viewDetail", True),
+        ("@plain:@anchor-after:@onclick:fnSearchResultDetail", True),
+        ('@frame:https://x.kr/l?isbn={isbn13} => @plain:@anchor:href="(/v/[^"]+)"', True),
+        ('@frame:https://x.kr/l?q={title} => @verify:@onclick:fnDetail', True),
+        ("@verify:@anchor:@onclick:fnDetail", False),      # 닻은 목록의 ISBN 으로 이미 한 줄을 골랐습니다
+        ("@verify:@plain:@onclick:fnDetail", True),       # 같은 ISBN 이 적힌 후보 가운데 표기 없는 줄을 먼저
+        ("@verify:@plain:@anchor:@onclick:fnDetail", False),
+        ("@verify:@plain:@plain:@onclick:fnDetail", False),
+        ("@plain:@verify:@onclick:fnDetail", False),
+        ("@plain:@plain:@onclick:fnDetail", False),
+        ("@anchor:@plain:@onclick:fnDetail", False),
+        ("@anchor:@verify:@onclick:fnDetail", False),
+        ("@verify:", False),
+        ("@plain:", False),
+    ]:
+        check(f"{rule} 는 {'받는다' if fine else '받지 않는다'}", tp.od.pattern_problem(rule) is None, fine)
+    check("ISBN 으로 줄을 고르는 규칙인가: @verify:", tp.picks_by_isbn("@verify:@onclick:f"), True)
+    check("ISBN 으로 줄을 고르는 규칙인가: @plain:@anchor:", tp.picks_by_isbn('@plain:@anchor:href="(/v/[^"]+)"'), True)
+    check("ISBN 으로 줄을 고르는 규칙인가: @plain:정규식 은 아니다", tp.picks_by_isbn('@plain:href="(/v/[^"]+)"'), False)
+    check("ISBN 으로 줄을 고르는 규칙인가: @frame: 은 안쪽을 따른다",
+          tp.picks_by_isbn("@frame:https://x.kr/l?q={title} => @verify:@onclick:f"), True)
 
     print("\n규칙 한 줄을 서버처럼 실행 (DetailResolverTest 와 같은 페이지)")
     url, how = tp.resolve(PLUS_TITLE_PAGE, BASE, "@anchor:@onclick:fnSearchResultDetail", "9788996991342", 5, {})

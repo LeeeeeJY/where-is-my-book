@@ -154,6 +154,33 @@ class OpacHostTallyTest {
     }
 
     @Test
+    @DisplayName("시간 상한에 닿아 그만둔 것은 받지 못한 것으로 세되 그 호스트의 실패 사유로는 적지 않는다")
+    void countsTimeLimitStopsWithoutBlamingTheHost(@TempDir Path dir) throws Exception {
+        // 상세 확인 규칙(@verify:)은 검색 화면과 후보 상세를 여러 번 받습니다. 하나하나는 받기 제한 안이어도
+        // 합쳐서 상한을 넘기면 그만둡니다. 그 호스트가 답하지 않은 것과는 다른 일이라 따로 셉니다.
+        var tally = tally();
+        tally.recordAnswered("lib.yuseong.go.kr", Event.RESOLVED, 6_400, null);
+        tally.record("lib.yuseong.go.kr", Event.TIME_LIMIT, null);
+        tally.record("lib.yuseong.go.kr", Event.TIME_LIMIT, null);
+        tally.recordAnswered("lib.fine.kr", Event.RESOLVED, 900, null);
+
+        var row = row(tally, "lib.yuseong.go.kr");
+        assertEquals(3L, row.get("attempts"));
+        assertEquals(2L, row.get("timeLimit"));
+        assertNull(row.get("lastFailure"), "그 호스트가 답하지 않은 것이 아닙니다");
+        assertEquals("lib.yuseong.go.kr", tally.snapshot().get(0).get("host"),
+                "상세로 가지 못한 횟수가 많은 호스트가 먼저입니다");
+
+        // 예전 서버가 적은 파일에는 이 칸이 없고, 새 서버가 적은 파일을 다시 읽어도 그대로 이어집니다.
+        Path file = dir.resolve("opac-host-tally.tsv");
+        tally.save(file);
+        var next = tally();
+        next.load(file);
+        assertEquals(2L, row(next, "lib.yuseong.go.kr").get("timeLimit"));
+        assertEquals(0L, row(next, "lib.fine.kr").get("timeLimit"));
+    }
+
+    @Test
     @DisplayName("우리 것이 아닌 파일은 읽지 않고, 깨진 줄은 그 줄만 건너뛴다")
     void ignoresForeignFilesAndSkipsBrokenCells(@TempDir Path dir) throws Exception {
         Path foreign = dir.resolve("foreign.tsv");
