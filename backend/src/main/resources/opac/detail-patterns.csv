@@ -303,3 +303,5 @@ library.cheongju.go.kr?manage_code%5B%5D=MI,@frame:https://library.cheongju.go.k
 www.danyang.go.kr?manageCode=MA,@frame:https://www.danyang.go.kr/lib/dls_lt/index.php?mod=wdDataSearch&act=searchResultList&deSearch=1&manageCode=MA&isbn={isbn13} => @plain:@anchor:href="(\./index\.php\?mod=wdDataSearch&act=searchResultDetail&dbType=dan&jongKey=[^"]*)"
 gjl.gimje.go.kr?manage_code=GG,@plain:@onclick:viewDetail
 lib.yuseong.go.kr?vLmt2,@verify:@plain:@template:<input type="checkbox" name="ctrlno" value="(\d+)" => /web/menu/10075/program/30005/searchResultDetail.do?vCtrl={1}
+library.geochang.go.kr?lib,@plain:href="(bookdetail\.asp\?search_type=reckey&search_val=\d+)"
+www.brcn.go.kr?manage_code_detail,@plain:name="bookCheck"[\s\S]*?class="book_name">\s*<a href="(\?g_page=search&m_page=search01&search_type=DETAIL&search_isbn_issn=\d+[^"]*?&recKey=\d+&bookKey=\d+&act=view)"
