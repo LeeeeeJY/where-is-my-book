@@ -334,7 +334,10 @@ public class WimbController {
      *
      * <p>한 번 누를 때 검색 화면을 받는 횟수의 상한이기도 합니다. ISBN 검색은 판마다 한 번씩 이 수까지,
      * 제목 검색은 화면의 표제와 권차를 뗀 표제로 두 번까지 받습니다. 상세 확인 규칙({@code @verify:})은
-     * 여기에 후보 상세 화면을 {@code DetailResolver.MAX_VERIFY_DETAILS} 개까지 더 받습니다.
+     * 여기에 후보 상세 화면을 {@code DetailResolver.MAX_VERIFY_DETAILS} 개까지 더 받습니다. 쿠키를 드는 규칙
+     * ({@code @frame:COOKIE})은 응답 머리로 온 쿠키를 들고 같은 주소를 한 번
+     * ({@code DetailResolver.MAX_COOKIE_REFETCHES}) 더 받습니다. 그래서 한 번 누를 때 그 호스트로 나가는
+     * 요청은 많아야 여섯입니다.
      */
     static final int MAX_DETAIL_ATTEMPTS = 2;
 
@@ -552,6 +555,9 @@ public class WimbController {
         // 그 호스트들은 예전처럼 검색 결과로 내려갑니다. opacChainCertsExpire 는 묶음에서 가장 먼저
         // 끝나는 인증서의 만료일이고, 그날이 지나면 그 인증서에 기대던 호스트가 조용히 내려갑니다.
         out.putAll(kr.wimb.opac.IntermediateCerts.stats());
+        // 서버가 응답 머리로 온 쿠키를 들고 한 번 더 받아도 되는 호스트(cookie-hosts.txt). 운영자가 허용한
+        // 곳뿐이고, 그 호스트의 규칙 줄이 @frame:COOKIE 로 적었을 때만 듭니다. 나머지 받기는 쿠키를 들지 않습니다.
+        out.put("opacCookieHosts", List.copyOf(new java.util.TreeSet<>(kr.wimb.opac.SessionCookies.hosts())));
         out.put("opacRuleLibraries", opacTemplates.size());
         out.put("opacDetailPatterns", opacTemplates.patternCount());
         out.putAll(detailResolver.stats());

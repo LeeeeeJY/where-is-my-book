@@ -190,6 +190,14 @@ public class DiagnoseController {
             // 서버가 실제로 받는 것은 위의 searchUrl 이 아니라 이 주소입니다. 닿지 않을 때 어느 출처를
             // 봐야 하는지가 여기서 갈립니다(검색 화면과 프레임은 포트가 다른 출처일 수 있습니다).
             out.put("fetchedUrl", DetailResolver.frameUrlFor(frame, context));
+            if (frame.bodyTemplate() != null) {
+                // 목록을 POST 로 받는 화면입니다(@frame:POST). 서버가 보내는 본문을 그대로 적습니다. 분관 부호와
+                // 그 책의 ISBN 이 들어 있고, 토큰이나 쿠키는 없습니다.
+                out.put("fetchedMethod", "POST");
+                out.put("fetchedBody", DetailResolver.frameBodyFor(frame, context));
+            }
+            // 응답 머리로 온 쿠키를 들고 한 번 더 받는 규칙인지(@frame:COOKIE). 쿠키의 이름과 값은 적지 않습니다.
+            if (frame.carriesCookies()) out.put("carriesCookies", true);
         }
         var outcome = detailResolver.probe(link.get().url(), pattern.get().rule(), context);
         out.put("status", outcome.status().name());

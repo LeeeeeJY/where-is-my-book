@@ -62,6 +62,10 @@ ISBN 이 없으면 **그 화면의 `<iframe src>` 가운데 검색어가 들어 
     ./scripts/opac-title-probe.py --run '<서버가 받는 주소>' --rule '@verify:@onclick:fnDetail' --isbn 9788937473135
     ./scripts/opac-title-probe.py --run '<ISBN 검색 주소>' --rule '@plain:href="(bookdetail[^"]*)"' --isbn 9788937473135
 
+`@frame:` 규칙은 주소 없이 통째로 줍니다. 받기부터 서버처럼 합니다(아래 「받기 방식 둘」).
+
+    ./scripts/opac-title-probe.py --rule '@frame:POST https://…/searchListAjax.do manageCode=AG&…&searchIsbnIssn={isbn13} => @plain:@anchor:…' --isbn 9788937473135
+
 `@plain:` 은 줄마다의 글자와 「표기 있음/없음」을 함께 적습니다. **넣기 전에 그 글자가 한 줄씩 제대로 갈려
 있는지 눈으로 보세요.** 줄의 글자는 규칙이 잡은 자리에서 다음 줄의 자리 앞까지라, 규칙이 줄의 맨 앞에서
 잡히지 않으면 줄 머리의 표기가 윗줄의 것으로 읽힙니다.
@@ -73,6 +77,28 @@ ISBN 이 없으면 **그 화면의 `<iframe src>` 가운데 검색어가 들어 
 
     ./scripts/opac-title-probe.py --run '<서버가 받는 주소>' --isbn 9788937473135 \
         --rule '@verify:@plain:@template:<input type="checkbox" name="ctrlno" value="(\\d+)" => /상세.do?vCtrl={1}'
+
+## 받기 방식 둘: 목록을 POST 로 받는 화면(`@frame:POST`), 쿠키를 들고 한 번 더 받는 화면(`@frame:COOKIE`)
+
+`@frame:` 의 주소 앞에 낱말을 적어 「어떻게 받는가」를 바꿉니다(2026-11-25. 서버의 `DetailRule.Frame`).
+
+- **`POST`**: 부산교육청(`home.pen.go.kr`)은 화면이 `POST /<사이트>/library/searchListAjax.do` 로 목록의 HTML 조각을
+  받아 끼웁니다. `@frame:POST 주소 본문틀 => 안쪽 규칙` 으로 적으면 본문틀을 채워 폼으로 보내고 HTML 을 받습니다.
+  `csrfToken` 같은 토큰 칸은 적지 않습니다.
+- **`COOKIE`**: 대전 서구(`lib.seogu.go.kr`)의 결과 프레임은 쿠키 없이 받으면 `<script>location.reload();</script>` 만
+  주고 응답 머리로 세션 쿠키를 줍니다. `@frame:COOKIE 주소 => 안쪽 규칙` 으로 적으면 그 쿠키를 **한 번 누르는 동안만**
+  들고 한 번 다시 받습니다. `@verify:` 의 후보 상세도 같은 출처면 그 쿠키를 들고 받습니다. **cookie-hosts.txt 에
+  적힌 호스트에만 적을 수 있고, 호스트를 더하는 것은 운영자가 정할 일입니다.** 스크립트가 값을 계산해 심는 쿠키는
+  얻지 않습니다. 다시 받고도 스크립트만 있는 화면이면 「받지 못함」입니다.
+
+이 도구의 `fetch_carrying`·`run_frame` 이 서버의 `DetailResolver.fetchPage` 와 같은 차례로 합니다. 양쪽 테스트가
+같은 사례 파일(`cases.json` 의 `frames`·`cookies`·`scriptOnly`·`sites`)을 읽습니다.
+
+    ./scripts/opac-title-probe.py --title '구름빵' --isbn 9791170283836 \\
+        --rule '@frame:COOKIE https://lib.seogu.go.kr/ilus/index.php?…&srchText={title}&thisLib=H0000017 => @verify:@plain:@template:… => …'
+
+**방문자의 브라우저에는 서버가 든 쿠키가 없습니다.** 이 도구가 뽑은 상세 주소가 쿠키 없는 새 창에서 스스로 새로
+고친 뒤 열리는지는 `opac-browse.py` 의 창으로 따로 봐야 합니다.
 
 서버와 같은 UA 로, 자바스크립트 없이 받습니다. robots.txt 가 검색 경로를 막는 호스트는 조사하지
 않습니다(서버도 받지 않으므로 규칙을 두어도 늘 검색 결과로 내려갑니다). 정보나루는 부르지 않습니다
@@ -370,6 +396,172 @@ def plain_choose(page: str, spans: list, mine: list, how: str):
     return first, how
 
 
+# ── 응답 머리로 온 쿠키를 들고 한 번 더 받기 (서버의 SessionCookies, `@frame:COOKIE`) ───────────
+#
+# 대전 서구의 결과 프레임은 쿠키 없이 받으면 `<script>location.reload();</script>` 만 주고 응답 머리로 세션
+# 쿠키를 줍니다. 서버는 그 쿠키를 **한 번 누르는 동안만** 들고 한 번 더 받습니다. 운영자가 허용한 호스트
+# (cookie-hosts.txt)에서, 규칙 줄이 `@frame:COOKIE` 로 적었을 때만입니다. 이 도구는 같은 일을 같은 차례로
+# 합니다. **서버의 `SessionCookies` 와 `DetailResolver.fetchPage` 를 고치면 여기도 고치세요.** 양쪽 테스트가
+# 같은 사례 파일을 읽습니다. 쿠키의 값은 어디에도 적지 않습니다.
+
+MAX_COOKIE_REFETCHES = 1        # 서버의 DetailResolver.MAX_COOKIE_REFETCHES 와 같아야 합니다
+MAX_COOKIES = 20                # 서버의 SessionCookies.MAX_COOKIES
+MAX_PAIR_LENGTH = 1024          # 서버의 SessionCookies.MAX_PAIR_LENGTH
+_COOKIE_NAME = re.compile(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")
+_COOKIE_VALUE = re.compile(r"[!#$%&'()*+\-./0-9:<=>?@A-Z\[\]^_`a-z{|}~]*")
+_MAX_AGE = re.compile(r";[ \t]*max-age[ \t]*=[ \t]*(-?[0-9]+)[ \t]*(?:;|$)", re.I | re.A)
+_SCRIPT_TAG = re.compile(r"<script\b", re.I | re.A)
+_ASCII_SPACE = " \t\n\x0b\x0c\r"
+
+
+def cookie_store(jar: dict, set_cookies: list[str] | None) -> bool:
+    """응답의 `Set-Cookie` 머리들을 통에 담습니다. 통이 달라졌으면 참. 서버의 `SessionCookies.store` 와 같습니다.
+
+    담는 것은 「이름=값」뿐입니다. 값이 비었거나 `Max-Age` 가 0 이하면 그 이름을 통에서 뺍니다. 이름이나 값에
+    받지 않는 글자가 있으면 그 쿠키는 담지 않습니다.
+    """
+    changed = False
+    for header in set_cookies or []:
+        if header is None:
+            continue
+        pair, semi, rest = header.partition(";")
+        pair = pair.strip(_ASCII_SPACE)
+        name, eq, value = pair.partition("=")
+        if not eq or not name or len(pair) > MAX_PAIR_LENGTH:
+            continue
+        name, value = name.strip(_ASCII_SPACE), value.strip(_ASCII_SPACE)
+        if not _COOKIE_NAME.fullmatch(name) or not _COOKIE_VALUE.fullmatch(value):
+            continue
+        age = _MAX_AGE.search(semi + rest) if semi else None
+        expired = age is not None and re.fullmatch(r"-[0-9]+|0+", age.group(1)) is not None
+        if not value or expired:
+            changed |= jar.pop(name, None) is not None
+        elif name in jar or len(jar) < MAX_COOKIES:
+            changed |= jar.get(name) != value
+            jar[name] = value
+    return changed
+
+
+def cookie_header(jar: dict | None) -> str | None:
+    """요청의 `Cookie` 머리 값. 받은 차례대로 `a=1; b=2` 이고 통이 비었으면 None. 서버의 `SessionCookies.header`."""
+    return "; ".join(f"{k}={v}" for k, v in jar.items()) if jar else None
+
+
+def script_only(page: str | None) -> bool:
+    """글자가 하나도 없고 스크립트만 있는 화면인지. 서버의 `SessionCookies.scriptOnly` 와 같습니다.
+
+    대전 서구가 쿠키 없는 요청에 주는 `<script>location.reload();</script>` 가 이것입니다. 「결과가 없다」가
+    아니라 「아직 화면을 받지 못했다」입니다.
+    """
+    return bool(page) and _SCRIPT_TAG.search(page) is not None and visible_text(page) == ""
+
+
+def origin_of(url: str) -> str:
+    """주소의 출처(스킴·호스트·포트). 쿠키의 통을 가르는 열쇠입니다. 서버의 `DetailResolver.originOf`."""
+    parsed = urllib.parse.urlsplit(url)
+    return f"{parsed.scheme}://{parsed.netloc}".lower()
+
+
+class Press:
+    """누름 한 번의 몫. 서버의 `DetailResolver.Budget` 가운데 쿠키에 관한 것입니다.
+
+    통은 출처마다 따로이고 이 몫과 함께 버려집니다. 쿠키를 얻으려고 다시 받는 것은 누름 한 번에 한 번입니다.
+    """
+
+    def __init__(self):
+        self.cookies: dict[str, dict] = {}
+        self.refetches_left = MAX_COOKIE_REFETCHES
+
+
+SCRIPT_ONLY_NOTE = " (스크립트가 쿠키를 심는 확인 화면은 넘지 않습니다)"
+
+
+def fetch_carrying(send, url: str, method: str, body: str | None, cookie_origin: str | None, press: Press):
+    """화면 하나를 받습니다. (본문 또는 None, 최종 주소, 받지 못한 사유). 서버의 `DetailResolver.fetchPage` 와 같습니다.
+
+    `send(url, method, body, cookie, session)` 이 (상태코드, 본문, 최종 주소, Set-Cookie 머리들)을 돌려줍니다.
+    `cookie_origin` 과 출처가 같은 요청만 쿠키를 듭니다(`session=True`). 받은 화면이 글자 없이 스크립트만 있고,
+    그 응답이 머리로 새 쿠키를 주었고, 이 누름에서 아직 다시 받지 않았으면 그 쿠키를 들고 한 번 다시 받습니다.
+    그래도 스크립트만 있는 화면이면 받지 못한 것입니다.
+    """
+    carries = cookie_origin is not None and cookie_origin == origin_of(url)
+    if not carries:
+        status, page, final, _ = send(url, method, body, None, False)
+        return (page, final or url, "") if status == 200 else (None, url, _why_not(status, page))
+    jar = press.cookies.setdefault(cookie_origin, {})
+    status, page, final, cookies = send(url, method, body, cookie_header(jar), True)
+    if status != 200:
+        return None, url, _why_not(status, page)
+    fresh = cookie_store(jar, cookies)
+    if not script_only(page):
+        return page, final or url, ""
+    if not fresh:
+        return None, url, "글자 없이 스크립트만 있는 화면인데 응답 머리로 온 새 쿠키가 없습니다" + SCRIPT_ONLY_NOTE
+    if press.refetches_left == 0:
+        return None, url, ("글자 없이 스크립트만 있는 화면입니다. 이번 누름에서 쿠키를 들고 다시 받는 것은 이미 한 번 "
+                           "했습니다" + SCRIPT_ONLY_NOTE)
+    press.refetches_left -= 1
+    status, page, final, cookies = send(url, method, body, cookie_header(jar), True)
+    if status != 200:
+        return None, url, _why_not(status, page)
+    cookie_store(jar, cookies)
+    if script_only(page):
+        return None, url, "응답 머리로 온 쿠키를 들고 다시 받아도 글자 없이 스크립트만 있는 화면입니다" + SCRIPT_ONLY_NOTE
+    return page, final or url, ""
+
+
+def _why_not(status: int, page: str) -> str:
+    return f"HTTP {status}" if status else (page or "받지 못했습니다")[:80]
+
+
+def frame_request(rule: str, title: str = "", isbn13: str = "", lib_code: str = "") -> dict | None:
+    """`@frame:` 규칙이 받는 요청. 서버가 내보내는 것과 같은 글자입니다(`frameUrlFor`·`frameBodyFor`).
+
+    {"method", "url", "body", "contentType", "cookie", "inner"} 이고 프레임 규칙이 아니면 None 입니다.
+    """
+    framed = od.parse_frame(rule)
+    if framed is None:
+        return None
+    url = od.fill_frame(framed.template, framed.encoding, title=title, isbn13=isbn13, lib_code=lib_code)
+    body = None if framed.body is None else od.fill_frame(framed.body, framed.encoding, title=title,
+                                                           isbn13=isbn13, lib_code=lib_code)
+    return {"method": "GET" if body is None else "POST", "url": url, "body": body,
+            "contentType": None if body is None else od.body_type_of(body), "cookie": framed.cookie,
+            "inner": framed.inner}
+
+
+def run_frame(rule: str, title: str, isbns: list[str], lib_code: str, send, search_url: str | None = None,
+              press: Press | None = None, timeout: float = 30.0, scripts: dict[str, str] | None = None):
+    """`@frame:` 규칙 한 줄을 **받기부터 서버처럼** 실행합니다. (상세 주소 또는 None, 어떻게, 상태).
+
+    상태는 서버의 `Status` 와 같은 낱말입니다. `RESOLVED`(상세로), `NO_MATCH`(화면은 받았는데 고를 줄이 없음),
+    `FETCH_FAILED`(화면을 받지 못함)입니다. `send` 는 `fetch_carrying` 이 쓰는 것과 같습니다. `@frame:COOKIE`
+    규칙이면 규칙이 받는 주소의 출처에 한해 응답 머리의 쿠키를 들고, `@verify:` 의 후보 상세도 같은 출처면 같은
+    쿠키를 들고 받습니다. `press` 를 넘기면 그 누름의 몫을 이어 씁니다(같은 누름의 두 번째 검색).
+    """
+    request = frame_request(rule, title, isbns[0] if isbns else "", lib_code)
+    if request is None:
+        return None, "@frame: 규칙이 아닙니다", "NO_MATCH"
+    press = press or Press()
+    cookie_origin = origin_of(request["url"]) if request["cookie"] else None
+    page, final, why = fetch_carrying(send, request["url"], request["method"], request["body"], cookie_origin, press)
+    if page is None:
+        return None, why, "FETCH_FAILED"
+    failed: list[str] = []
+
+    def fetch_detail(url: str):
+        detail, _, problem = fetch_carrying(send, ascii_url(url), "GET", None, cookie_origin, press)
+        if detail is None:
+            failed.append(problem)
+        return detail
+
+    detail, how = run_rule(page, final, request["inner"], isbns, timeout, scripts, fetch_detail,
+                           search_url or request["url"])
+    if detail:
+        return detail, how, "RESOLVED"
+    return None, how, "FETCH_FAILED" if failed else "NO_MATCH"
+
+
 def calls(page: str, fn: str) -> list[tuple[int, int, list[str]]]:
     """그 함수의 모든 호출과 놓인 자리. 서버의 `OnclickFormReader.allCalls` 와 같습니다."""
     out = []
@@ -406,10 +598,16 @@ def frame_template(page: str, base: str, title: str) -> tuple[str, str] | None:
     return None
 
 
-def frame_rule(encoding: str, template: str, inner: str) -> str:
-    """서버의 `DetailRule.Frame.describe` 와 같은 한 줄."""
+def frame_rule(encoding: str, template: str, inner: str, body: str | None = None, cookie: bool = False) -> str:
+    """서버의 `DetailRule.Frame.describe` 와 같은 한 줄. 주소 앞의 낱말은 인코딩·COOKIE·POST 차례입니다."""
     prefix = "" if encoding.upper().replace("_", "-") == "UTF-8" else encoding + " "
-    return f"{od.FRAME_PREFIX}{prefix}{template} {od.TEMPLATE_SEPARATOR} {inner}"
+    prefix += (od.FRAME_COOKIE + " " if cookie else "") + (od.FRAME_POST + " " if body is not None else "")
+    return f"{od.FRAME_PREFIX}{prefix}{template}{'' if body is None else ' ' + body} {od.TEMPLATE_SEPARATOR} {inner}"
+
+
+def frame_rule_of(framed) -> str:
+    """`od.parse_frame` 이 읽은 규칙을 한 줄로 되돌려 적습니다."""
+    return frame_rule(framed.encoding, framed.template, framed.inner, framed.body, framed.cookie)
 
 
 def split_rule(rule: str) -> tuple[str, bool] | None:
@@ -888,18 +1086,70 @@ def probe_host(host: str, members: list[tuple[dict, str, str]], probe: dict, pac
     return None, " / ".join(reasons[:4]) or "후보가 없습니다 (그 항목에 상세로 보이는 링크가 없습니다)"
 
 
-def run_once(url: str, rule: str, isbns: list[str], pacer, timeout: float) -> int:
+def run_frame_once(rule: str, title: str, isbns: list[str], lib_code: str, pacer, timeout: float,
+                   search_url: str | None) -> int:
+    """`--rule '@frame:…'`: 프레임 규칙 한 줄을 **받기부터** 서버처럼 한 번 실행하고, 나간 요청을 적습니다.
+
+    서버가 누를 때 하는 일입니다. `@frame:POST` 는 본문틀을 채워 POST 로 보내고, `@frame:COOKIE` 는 응답 머리로
+    온 쿠키를 들고 한 번 다시 받습니다(후보의 상세도 같은 출처면 그 쿠키를 들고 받습니다). 쿠키는 이름만 적고
+    값은 적지 않습니다. robots.txt 가 막는 경로는 받지 않습니다.
+    """
+    request = frame_request(rule, title, isbns[0] if isbns else "", lib_code)
+    if "{title}" in rule and not title.strip():
+        print("이 규칙은 --title 이 필요합니다 (검색에 넣은 표제).", file=sys.stderr)
+        return 1
+    if "{isbn13}" in od.parse_frame(rule).template + (od.parse_frame(rule).body or "") and not isbns:
+        print("이 규칙은 --isbn 이 필요합니다.", file=sys.stderr)
+        return 1
+    sent = [0]
+    first_page: list[str] = []
+
+    def send(url, method, body, cookie, session):
+        if od.blocked(url, disallows_for(url, pacer)):
+            print(f"#   robots.txt 가 막습니다  {url}")
+            return 0, "robots.txt 가 막은 경로입니다", url, []
+        began = time.time()
+        status, page, final, cookies = od.fetch_page(url, pacer, timeout, method, body, cookie, session)
+        sent[0] += 1
+        names = "+".join(c.split("=", 1)[0] for c in (cookie or "").split("; ") if c)
+        print(f"#   요청 {sent[0]}: {method} {url}" + (f"  본문 {body}" if body else "")
+              + (f"  [실은 쿠키: {names or '없음'}]" if session else ""))
+        print(f"#     → HTTP {status}, {len(page):,}자, {time.time() - began:.1f}초"
+              + (f", 받은 Set-Cookie {len(cookies)}개" if session else "")
+              + (", 글자 없이 스크립트만 있는 화면" if status == 200 and script_only(page) else ""))
+        if status == 200 and not first_page and not script_only(page):
+            first_page.append(page)
+        return status, page, final, cookies
+
+    started = time.time()
+    detail, how, status = run_frame(rule, title, isbns, lib_code, send, search_url, timeout=timeout)
+    inner = request["inner"]
+    shaped = inner[len(VERIFY_PREFIX):].strip() if inner.lower().startswith(VERIFY_PREFIX) else inner
+    if shaped.lower().startswith(PLAIN_PREFIX) and first_page:
+        shaped = shaped[len(PLAIN_PREFIX):].strip()
+        anchor = split_rule(shaped)
+        spans, _, _ = _base_rule(first_page[0], request["url"], anchor[0] if anchor else shaped, timeout, {})
+        for i, (span, text, marked) in enumerate(plain_rows(first_page[0], spans), 1):
+            print(f"#   줄 {i} [{'표기 있음' if marked else '표기 없음'}] {text[:150]}")
+    print(f"{detail or '—'}\n# {status}: {how}\n# 요청 {sent[0]}번, 쉰 시간을 넣어 {time.time() - started:.1f}초")
+    return 0
+
+
+def run_once(url: str | None, rule: str, isbns: list[str], pacer, timeout: float, title: str = "",
+             lib_code: str = "") -> int:
     """`--run`: 주소 하나를 서버 방식으로 받아 규칙을 서버처럼 실행하고, 본 것을 적습니다.
 
     서버가 누를 때 하는 일을 이 회선에서 한 번 해 보는 것입니다. `@verify:` 는 후보의 상세 화면을 앞의
     셋까지 받고, `@plain:` 은 줄마다의 글자와 판 표기를 함께 적습니다. robots.txt 가 막는 경로는 받지 않습니다.
     """
-    if od.split_frame(rule):
-        print("--run 에는 @frame: 의 안쪽 규칙을 주고, 주소로 프레임 주소(자리표를 채운 것)를 주세요.", file=sys.stderr)
-        return 1
     problem = od.pattern_problem(rule)
     if problem:
         print(f"규칙을 서버가 받아 주지 않습니다: {problem}", file=sys.stderr)
+        return 1
+    if od.parse_frame(rule):
+        return run_frame_once(rule, title, isbns, lib_code, pacer, timeout, url)
+    if not url:
+        print("--run 에 서버가 받는 주소를 주세요 (@frame: 규칙이면 주소 없이 --title·--isbn 만 줍니다).", file=sys.stderr)
         return 1
     if od.blocked(url, disallows_for(url, pacer)):
         print("robots.txt 가 그 경로를 막습니다. 받지 않았습니다.")
@@ -950,16 +1200,19 @@ def main() -> int:
     ap.add_argument("--run", metavar="URL",
                     help="이 주소(서버가 받는 화면. 자리표를 채운 것)를 서버 방식으로 받아 --rule 을 서버처럼 "
                          "한 번 실행합니다. @verify: 는 후보의 상세 화면까지 받습니다")
-    ap.add_argument("--rule", help="--run 에 쓸 규칙 한 줄 (@frame: 이면 그 안쪽 규칙)")
+    ap.add_argument("--rule", help="서버처럼 한 번 실행할 규칙 한 줄. @frame: 규칙이면 --run 없이 --title·--isbn 을 주면 "
+                                   "받기부터(POST, 쿠키를 든 다시 받기) 서버처럼 합니다. 그 밖의 규칙은 --run 에 주소를 줍니다")
     ap.add_argument("--isbn", action="append", default=[],
                     help="--run 에 쓸 ISBN. 여러 번 주면 앞의 것이 그 도서관이 가진 판입니다")
+    ap.add_argument("--title", default="", help="--rule 이 @frame: 규칙일 때 {title} 에 넣을 표제 (검색에 넣은 그대로)")
+    ap.add_argument("--lib", default="", help="--rule 이 @frame: 규칙일 때 {libCode} 에 넣을 정보나루 도서관부호")
     args = ap.parse_args()
 
-    if args.run:
+    if args.run or args.rule:
         if not args.rule:
             print("--run 에는 --rule 이 필요합니다.", file=sys.stderr)
             return 1
-        return run_once(args.run, args.rule, args.isbn, od.Pacer(args.host_delay), args.timeout)
+        return run_once(args.run, args.rule, args.isbn, od.Pacer(args.host_delay), args.timeout, args.title, args.lib)
 
     frames: dict[str, tuple[str, str]] = {}
     for item in args.frame:

@@ -1,0 +1,142 @@
+<!-- 대전 서구(lib.seogu.go.kr/ilus)의 상세 화면을 줄인 것입니다(서구어린이도서관, 「구름빵」, ctrl=000004097272,
+     2026-11-25). 응답 머리로 온 쿠키를 들고 받은 것이고, 책 정보와 소장정보만 남겼습니다. ISBN 이 13자리 그대로 글자로
+     적혀 있습니다. 쿠키 없이 받으면 이 화면도 <script>location.reload();</script> 만 옵니다. -->
+<div id="book_content">
+					<h2 class="tit01">도서 상세페이지 <a href="#back" onclick="history.go(-1); return false;" class="btn btn-gray btn_list">목록</a></h2>
+					<div class="data_info">
+						<div class="pic">
+							<p class="img">
+														<img src="./wdModules/wdDataSearch/skins/default/./img/common/big_img_no.gif" alt="" />
+													</p>
+							<p class="tar"><img class="qrcode" src="http://chart.apis.google.com/chart?cht=qr&chs=65x65&chl=http%3A%2F%2Flib.seogu.go.kr%2Filus%2Findex.php%3Fmod%3DwdDataSearch%26act%3DsearchResultDetail%26ctrl%3D000004097272%26thisLib%3DH0000017" title="" /></p>
+						</div>
+						<div class="data_detail">
+							<h3>
+							<p class="icon_bg icon_">단행본</p>
+							<span id="title_area">구름빵</span>
+							</h3>
+							<dl>
+																																								<dt>ISBN</dt>
+								<dd>
+									9791170283836&nbsp;
+								</dd>
+																																								<dt>개인저자</dt>
+								<dd>
+									<a href='./index.php?mod=wdDataSearch&act=searchResultList&srchKey=2&amp;vSType=KWRD&amp;srchText=백희나'>백희나</a>&nbsp;
+								</dd>
+																																								<dt>서명/저자사항</dt>
+								<dd>
+									구름빵 /백희나 지음&nbsp;
+								</dd>
+																																								<dt>발행사항</dt>
+								<dd>
+									서울 :한솔수북,2004&nbsp;
+								</dd>
+																																								<dt>형태사항</dt>
+								<dd>
+									[1책] :천연색삽화 ;29cm&nbsp;
+								</dd>
+																																								<dt>총서사항</dt>
+								<dd>
+									<a href='./index.php?mod=wdDataSearch&act=searchResultList&srchKey=1&amp;vSType=KWRD&amp;srchText=마음씨앗 그림책 ;'>마음씨앗 그림책 ;</a>2&nbsp;
+								</dd>
+																																								<dt>수상주기</dt>
+								<dd>
+									볼로냐 국제 어린이 도서전 픽션 부문 올해의 일러스트레이터, 2005&nbsp;
+								</dd>
+																																								<dt>비통어주제어</dt>
+								<dd>
+									<a href='./index.php?mod=wdDataSearch&act=searchResultList&srchKey=4&amp;vSType=KWRD&amp;srchText=구름빵'>구름빵</a>, <a href='./index.php?mod=wdDataSearch&act=searchResultList&srchKey=4&amp;vSType=KWRD&amp;srchText=창작그림책'>창작그림책</a>,&nbsp;
+								</dd>
+													</dl>
+							<div class="btn_wrap">
+								<a href="./index.php?mod=wdDataSearch&act=marcInfo&ctrl=000004097272" onclick="var target = window.open(this.href,'marcInfo','height=500,width=630,scrollbars=yes'); target.focus(); return false;" title="새창" target="_blank" class="btn-large btn-brown">Marc 보기</a>
+															</div>
+						</div>
+					</div>
+<form method="post" name="dataRegistForm" action="./index.php?mod=wdDataSearch&act=dataBasketRegist&regAct=insert">
+					<div class="data_info02">
+						<h3 class="title tit02">소장정보</h3>
+						<table summary="구분, 낱권정보, 소장처, 별치, 자료상태, 반납예정일, 예약, 상호대차를 안내하는 표입니다." class="tstyle responsive">
+							<caption>소장정보</caption>
+							<colgroup>
+								<col width="" />
+								<col width="" />
+								<col width="" />
+																<col width="" />
+								<col width="" />
+								<col width="" />
+								<col width="" />
+								<!--col width="" /-->
+							</colgroup>
+							<thead>
+								<tr>
+									<th scope="col">구분</th>
+									<th scope="col">낱권</th>
+									<th scope="col">소장처/자료실/서가</th>
+									<th scope="col">청구기호</th>
+									<th scope="col">자료상태</th>
+									<th scope="col">반납예정일</th>
+																	<th scope="col">예약</th>
+																									<th scope="col">상호대차</th>
+																</tr>
+							</thead>
+							<tbody>
+								<tr>
+									<td class="item"><!-- input class="list_check" type="checkbox" name="bookKey[]" value="" /--> CM060738</td>
+									<td>v.2</td>
+									<td>서구어린이도서관/그림책방/</td>
+									<td>
+									<strong>유 808.9 마211ㅎ v.2</strong>
+																</td>
+									<td>대출가능</td>
+									<td>-</td>
+																<td>
+																		<span class="btn-lightgray"><span class="btn btn-reserv">예약불가</span></span>
+																									</td>
+																<td>
+																											<a href="#" onclick="alert('로그인을 해주세요.'); return false;" class="btn-blue"><span class="btn btn-multi">신청가능</span></a>
+																										</td>
+								</tr>
+													</tbody>
+						</table>
+<!-- p class="data_words">안내문구 들어갈 부분(대출관련 또는 예약, 상호대차 등등)</p -->
+						</form>
+						<!-- div id="book_content">
+							<div class="wishbook_intro">
+								<h3>상호대차 이용안내</h3>
+								<ul>
+									<li>상호대차는 주로 이용하는 도서관에 소장하고 있지 않은 도서를 보유하고 있는 타관에서 대출 할 수 있도록 제공하는 서비스입니다.</li>
+									<li><strong>대상자료</strong> : 대출 가능한 도서
+										<ul>
+										<li>요청도서관 소장도서의 경우 자동으로 신청이 취소됩니다. <li>
+										<li>딸림자료는 상호대차서비스가 불가합니다. </li>
+										</ul>
+									</li>
+									<li><strong>소요시간</strong> : 신청접수일로부터 1주일가량 소요되며, 도착 시 SMS 발송
+										<ul>
+										<li>※공휴일 및 도서관 사정에 따라 수령가능일과 시간이 변동 될 수 있습니다.  </li>
+										</ul>
+									</li>
+									<li><strong>신청권수</strong> : 월별 1인 3권 (통합대출권수 5권에 포함)</li>
+									<li><strong>신청제한</strong> : 요청도서관 도착 후 3일 경과 후 자동반납처리(신청자료 미대출)
+										<ul>
+										<li>자동반납(신청자료 미대출) 횟수 2회 이상일 경우 1개월간 상호대차 이용정지<li>
+										</ul>
+									</li>
+									<li><strong>제공기관</strong> : 이진아기념도서관, 남가좌새롬어린이도서관, 홍은도담도서관</li>
+									<li><strong>수령시간</strong> : 주중)<span style="color:#aa17c0;font-weight:bold">09:00-18:00</span> | 주말)<span style="color:#aa17c0;font-weight:bold">09:00-17:00</span></li>
+									<li><strong>수령장소</strong>
+										<ul>
+											<li>도서관: 1층 어린이 열람실</li>
+											<li>도서관: 1층 정보데스크</li>
+											<li>도서관:1층 정보데스크</li>
+										</ul>
+									</li>
+								</ul>
+							</div>
+						</div -->
+						<h3 class="title"><img src="./wdModules/wdDataSearch/skins/default/./img/common/title05.gif" alt="상세정보" /></h3>
+						<div class="more_info">
+						<p>상세정보가 없습니다.</p>
+</div>

@@ -52,6 +52,13 @@ import java.util.regex.Pattern;
  * 않고 검색 결과로 보냅니다. {@code robots.txt} 가 막은 경로는 받지 않습니다. 실패는 기억하지
  * 않고(정보나루 소장 캐시와 같은 규칙), 「링크가 없었다」는 한 시간만 기억합니다.
  *
+ * <h2>쿠키를 들지 않습니다. 예외는 하나입니다</h2>
+ *
+ * <p>받기는 쿠키를 들지 않고 응답의 쿠키를 읽지도 않습니다. 운영자가 허용한 호스트({@code cookie-hosts.txt})의
+ * 규칙 줄이 {@code @frame:COOKIE} 로 적었을 때만, 그 주소의 출처에 한해, <b>한 번 누르는 동안</b> 응답 머리로
+ * 온 쿠키를 듭니다({@link SessionCookies}, {@link #fetchPage}). 드는 것은 도서관 사이트가 준 세션 쿠키이고
+ * 방문자의 것이 아닙니다. 값은 사유에도 집계에도 적지 않습니다.
+ *
  * <h2>서버는 자바스크립트를 돌리지 않습니다</h2>
  *
  * <p>여기서 받는 것은 HTML 원문입니다. 결과를 자바스크립트로 그리는 OPAC 은 원문에 링크가
@@ -81,7 +88,8 @@ public final class DetailResolver {
      * <p>그래서 {@code @verify:} 규칙으로 한 번 누를 때 그 호스트로 나가는 요청은 <b>많아야 다섯 번</b>입니다.
      * 검색 화면이 둘까지(부르는 쪽이 두 번까지만 찾습니다. {@code WimbController.MAX_DETAIL_ATTEMPTS}),
      * 후보 상세가 이 값까지입니다. 그 밖에 하루에 한 번 받는 robots.txt 와, {@code @onclick:} 의 함수 본문이
-     * 화면 밖에 있을 때 하루에 한 번 받는 스크립트 파일이 있습니다.
+     * 화면 밖에 있을 때 하루에 한 번 받는 스크립트 파일이 있습니다. 쿠키를 드는 규칙({@code @frame:COOKIE})은
+     * 여기에 한 번이 더해져 여섯 번입니다({@link #MAX_COOKIE_REFETCHES}).
      */
     static final int MAX_VERIFY_DETAILS = 3;
 
@@ -94,6 +102,22 @@ public final class DetailResolver {
      * 방식으로는 누른 사람이 얼마나 기다릴지 말할 수 없습니다. 그래서 본문까지 묶습니다.
      */
     static final Duration VERIFY_TIME_LIMIT = Duration.ofSeconds(8);
+
+    /**
+     * {@code @frame:COOKIE} 규칙이 <b>한 번 누를 때</b> 쿠키를 얻으려고 같은 주소를 다시 받는 횟수.
+     *
+     * <p>쿠키 없이 받은 첫 응답이 스크립트만 있는 화면이고 응답 머리로 새 쿠키가 왔을 때, 그 쿠키를 들고 한
+     * 번 다시 받습니다. 그 뒤로 이 누름의 받기(후보의 상세 화면, 권차를 뗀 표제로 다시 받는 검색 화면)는
+     * 처음부터 그 쿠키를 들고 나가므로 다시 받을 일이 없습니다. 다시 받고도 스크립트만 있는 화면이면
+     * 「받지 못함」입니다({@link SessionCookies}).
+     *
+     * <p>그래서 {@code @frame:COOKIE … => @verify:…} 규칙으로 한 번 누를 때 그 호스트로 나가는 요청은
+     * <b>많아야 여섯 번</b>입니다. 검색 화면 둘({@code WimbController.MAX_DETAIL_ATTEMPTS}), 쿠키를 들고 다시
+     * 받는 이 한 번, 후보 상세 셋({@link #MAX_VERIFY_DETAILS})입니다. 하루에 한 번 받는 robots.txt 는
+     * 따로입니다. 전부 {@link #gatedFetch} 를 지나고, 전부 누름 한 번의 시간 상한({@link #VERIFY_TIME_LIMIT})
+     * 안에서 합니다. 안쪽이 {@code @verify:} 가 아니어도 쿠키를 드는 규칙의 받기는 그 상한에 묶습니다.
+     */
+    static final int MAX_COOKIE_REFETCHES = 1;
 
     public enum Status {
         /** 상세 링크를 찾았습니다. */
@@ -119,8 +143,21 @@ public final class DetailResolver {
         }
     }
 
-    /** 받은 페이지. {@code finalUri} 는 리다이렉트를 따라간 뒤의 주소라 상대 링크의 기준입니다. */
-    public record Page(int status, String body, URI finalUri) {}
+    /**
+     * 받은 페이지. {@code finalUri} 는 리다이렉트를 따라간 뒤의 주소라 상대 링크의 기준입니다.
+     *
+     * <p>{@code setCookies} 는 응답의 {@code Set-Cookie} 머리 값들이고, <b>쿠키를 드는 규칙의 요청
+     * ({@link Fetcher.Request#session})에만</b> 채웁니다. 나머지 받기에서는 늘 비어 있습니다. 읽지 않습니다.
+     */
+    public record Page(int status, String body, URI finalUri, List<String> setCookies) {
+        public Page {
+            setCookies = setCookies == null ? List.of() : List.copyOf(setCookies);
+        }
+
+        public Page(int status, String body, URI finalUri) {
+            this(status, body, finalUri, List.of());
+        }
+    }
 
     /** 실제 HTTP. 테스트는 가짜를 끼웁니다. */
     @FunctionalInterface
@@ -139,6 +176,60 @@ public final class DetailResolver {
          */
         default Page fetch(URI url, Duration within) throws IOException, InterruptedException {
             return fetch(url);
+        }
+
+        /**
+         * 요청 하나를 통째로 적은 것. 해석기가 문({@link DetailResolver#gatedFetch})을 지나 내보내는 받기는 전부
+         * 이 모양입니다.
+         *
+         * @param body        POST 로 보내는 본문. GET 이면 없습니다.
+         * @param contentType 본문의 종류. 본문이 없으면 없습니다.
+         * @param wantsJson   받는 것이 JSON 인지({@code @json:}). 아니면 HTML 입니다. {@code @frame:POST} 는 폼을
+         *                    보내고 HTML 을 받습니다.
+         * @param within      본문까지 이 시간 안에 받습니다. 없으면 응답 머리까지만 {@link #FETCH_TIMEOUT} 입니다.
+         * @param session     쿠키를 드는 규칙({@code @frame:COOKIE})의 요청인지. 참이면 <b>넘겨 주는 응답(3xx)을
+         *                    따라가지 않고</b> 응답의 {@code Set-Cookie} 를 {@link Page#setCookies} 로 돌려줍니다.
+         *                    따라가면 요청에 실은 쿠키가 다른 호스트로 실려 갑니다.
+         * @param cookie      요청에 실을 {@code Cookie} 머리 값. 없으면 싣지 않습니다. {@code session} 이 참일 때만
+         *                    있습니다.
+         */
+        record Request(URI url, String method, String body, String contentType, boolean wantsJson, Duration within,
+                       boolean session, String cookie) {
+            public static Request get(URI url) {
+                return new Request(url, "GET", null, null, false, null, false, null);
+            }
+
+            /** 폼이나 JSON 본문을 보내고 HTML 을 받습니다({@code @frame:POST}). */
+            public static Request post(URI url, String body, String contentType) {
+                return new Request(url, "POST", body, contentType, false, null, false, null);
+            }
+
+            /** JSON 검색({@code @json:}). 본문이 없으면 GET 입니다. */
+            public static Request json(URI url, String method, String body, String contentType) {
+                return new Request(url, method, body, contentType, true, null, false, null);
+            }
+
+            public Request within(Duration limit) {
+                return new Request(url, method, body, contentType, wantsJson, limit, session, cookie);
+            }
+
+            /** 쿠키를 드는 규칙의 요청으로. {@code cookie} 가 없으면(통이 비었으면) 싣지 않고 받기만 합니다. */
+            public Request carrying(String cookie) {
+                return new Request(url, method, body, contentType, wantsJson, within, true, cookie);
+            }
+        }
+
+        /**
+         * 요청 하나를 받습니다. 기본은 위의 세 갈래로 나눠 보내는 것이라, 주소만 받는 가짜 서버가 그대로
+         * 씁니다. 실제 받기({@link DetailResolver#httpFetcher()})와 POST·쿠키를 보는 가짜 서버는 이것을
+         * 고쳐 씁니다.
+         */
+        default Page fetch(Request request) throws IOException, InterruptedException {
+            if (request.wantsJson()) {
+                return fetch(request.url(), request.method(), request.body(), request.contentType());
+            }
+            if (request.within() != null) return fetch(request.url(), request.within());
+            return fetch(request.url());
         }
     }
 
@@ -201,7 +292,8 @@ public final class DetailResolver {
     private record Robots(List<String> disallows, Instant expiresAt) {}
 
     /**
-     * 누름 한 번의 몫. {@code @verify:} 규칙만 씁니다. 다른 규칙은 이 몫을 보지도 쓰지도 않습니다.
+     * 누름 한 번의 몫. {@code @verify:} 규칙과 {@code @frame:COOKIE} 규칙만 씁니다. 다른 규칙은 이 몫을 보지도
+     * 쓰지도 않습니다.
      *
      * <p>부르는 쪽({@code /api/go})이 누름 한 번에 하나를 만들어, 그 누름에서 부르는 {@link #resolve} 에 전부
      * 같은 것을 넘깁니다. 그래야 두 번째 찾기(다음 판, 권차를 뗀 표제)가 후보 상세를 처음부터 다시 세지
@@ -212,6 +304,13 @@ public final class DetailResolver {
         private int detailsLeft = MAX_VERIFY_DETAILS;
         private final long deadline;
         private final Map<String, String> pages = new java.util.HashMap<>();
+        /**
+         * {@code @frame:COOKIE} 규칙이 이 누름에서 응답 머리로 받은 쿠키. 출처(스킴·호스트·포트)마다 따로이고
+         * 받은 출처로만 다시 보냅니다. <b>이 몫과 함께 버려집니다.</b> 파일에도 캐시에도 남기지 않고 다른
+         * 누름과 나눠 쓰지 않습니다({@link SessionCookies}).
+         */
+        private final Map<String, Map<String, String>> cookies = new java.util.HashMap<>();
+        private int cookieRefetchesLeft = MAX_COOKIE_REFETCHES;
 
         private Budget(long deadline) {
             this.deadline = deadline;
@@ -370,8 +469,8 @@ public final class DetailResolver {
 
     private Outcome fetchAndRemember(String searchUrl, DetailRule stated, Context context, boolean honourBreaker,
                                      Budget budget) {
-        // @frame: 은 「어느 주소를 받는가」만 바꿉니다. 받은 HTML 에 적용하는 것은 안쪽 규칙입니다.
-        DetailRule rule = stated instanceof DetailRule.Frame frame ? frame.inner() : stated;
+        // @frame: 은 「어느 주소를 어떻게 받는가」만 바꿉니다. 받은 HTML 에 적용하는 것은 안쪽 규칙입니다.
+        DetailRule rule = stated instanceof DetailRule.Frame framed ? framed.inner() : stated;
         URI search;
         try {
             search = URI.create(searchUrl);
@@ -401,14 +500,18 @@ public final class DetailResolver {
             return Outcome.of(Status.NO_MATCH, (verifying ? DetailRule.VERIFY_PREFIX : DetailRule.ANCHOR_PREFIX)
                     + " 규칙은 어느 책인지(ISBN) 알아야 합니다");
         }
+        String frameBody = null;
+        boolean session = false;
         if (stated instanceof DetailRule.Frame frame) {
             // 검색 화면이 아니라 결과가 든 프레임을 받습니다. 검색 화면의 HTML 에는 책이 없습니다.
             // 채울 것이 없으면 받아 보지 않습니다. 빈 검색어로 남의 서버를 두드리게 됩니다.
-            if (frame.urlTemplate().contains("{title}") && (context.title() == null || context.title().isBlank())) {
+            String templates = frame.bodyTemplate() == null ? frame.urlTemplate()
+                    : frame.urlTemplate() + " " + frame.bodyTemplate();
+            if (templates.contains("{title}") && (context.title() == null || context.title().isBlank())) {
                 missed.incrementAndGet();
                 return Outcome.of(Status.NO_MATCH, "@frame: 규칙은 검색에 넣은 표제를 알아야 합니다");
             }
-            if (frame.urlTemplate().contains("{isbn13}") && context.isbn13() == null) {
+            if (templates.contains("{isbn13}") && context.isbn13() == null) {
                 missed.incrementAndGet();
                 return Outcome.of(Status.NO_MATCH, "@frame: 규칙은 어느 책인지(ISBN) 알아야 합니다");
             }
@@ -419,6 +522,8 @@ public final class DetailResolver {
                 failed.incrementAndGet();
                 return Outcome.of(Status.FETCH_FAILED, "주소가 아닙니다: " + frameUrl);
             }
+            frameBody = frame.bodyTemplate() == null ? null : fillFrameBody(frame, context);
+            session = frame.carriesCookies();
         }
         String host = search.getHost();
         if (host == null) {
@@ -429,20 +534,29 @@ public final class DetailResolver {
         // 빗장을 지키는 길이 곧 방문자의 길입니다. 호스트별 집계는 그 길만 셉니다. 진단으로 잰 것이
         // 섞이면 누르는 사람이 적은 호스트의 숫자가 운영자가 잰 것으로 채워집니다.
         boolean tallied = honourBreaker;
-        if (verifying) {
+        // 쿠키를 드는 것은 규칙이 받는 주소의 출처 하나뿐입니다. 후보 상세가 다른 출처에 있으면 그쪽은 들지 않습니다.
+        String cookieOrigin = session ? originOf(search) : null;
+        // 받기가 여러 번인 규칙은 누름 한 번의 시간 상한에 묶습니다. 후보 상세를 받는 규칙과, 쿠키를 얻으려고
+        // 한 번 더 받는 규칙입니다.
+        boolean timed = verifying || session;
+        if (verifying && budget.detailsLeft == 0) {
             // 받아 보기 전에 끝냅니다. 후보 상세를 볼 몫이나 시간이 없으면 검색 화면만 받고 버리게 됩니다.
             // 받아 본 것이 없으므로 세지도 기억하지도 않습니다.
-            if (budget.detailsLeft == 0) {
-                return Outcome.of(Status.NO_MATCH, "이번 누름에서 받아 볼 후보 상세 화면 " + MAX_VERIFY_DETAILS
-                        + "개를 이미 다 받아 봤습니다");
-            }
-            if (budget.left().isZero()) return Outcome.of(Status.FETCH_FAILED, timeLimitNote());
+            return Outcome.of(Status.NO_MATCH, "이번 누름에서 받아 볼 후보 상세 화면 " + MAX_VERIFY_DETAILS
+                    + "개를 이미 다 받아 봤습니다");
         }
+        if (timed && budget.left().isZero()) return Outcome.of(Status.FETCH_FAILED, timeLimitNote());
 
         long started = ticker.getAsLong();
-        Got got = verifying
-                ? gatedFetch(search, null, null, honourBreaker, true, shorter(FETCH_TIMEOUT, budget.left()))
-                : gatedFetch(search, rule instanceof DetailRule.Json json ? json : null, jsonBody, honourBreaker, true, null);
+        int refetchesBefore = budget.cookieRefetchesLeft;
+        Fetcher.Request request = rule instanceof DetailRule.Json json
+                ? Fetcher.Request.json(search, json.method(), jsonBody, bodyTypeOf(jsonBody))
+                : frameBody != null ? Fetcher.Request.post(search, frameBody, bodyTypeOf(frameBody))
+                : Fetcher.Request.get(search);
+        Got got = fetchPage(request, timed, cookieOrigin, budget, honourBreaker, true);
+        // 진단이 읽는 사유에 한 줄 보탭니다. 쿠키의 이름도 값도 적지 않습니다.
+        String refetched = budget.cookieRefetchesLeft < refetchesBefore
+                ? " (응답 머리로 온 쿠키를 들고 한 번 다시 받았습니다)" : "";
         if (got.cutShort()) {
             // 검색 화면을 받는 도중에 누름 한 번의 시간 상한에 닿았습니다(앞선 찾기가 시간을 거의 다 썼습니다).
             failed.incrementAndGet();
@@ -455,11 +569,11 @@ public final class DetailResolver {
         if (verifying) {
             Verdict verdict;
             try {
-                verdict = verify(page, (DetailRule.Verified) rule, search, context, honourBreaker, budget);
+                verdict = verify(page, (DetailRule.Verified) rule, search, context, honourBreaker, budget, cookieOrigin);
             } catch (RuntimeException e) {
                 return couldNotRead(hostKey, tallied, e);
             }
-            Outcome outcome = verdict.outcome();
+            Outcome outcome = noted(verdict.outcome(), refetched);
             (outcome.status() == Status.RESOLVED ? resolved : outcome.status() == Status.NO_MATCH ? missed : failed)
                     .incrementAndGet();
             if (tallied) {
@@ -477,9 +591,9 @@ public final class DetailResolver {
         }
         Outcome outcome;
         try {
-            outcome = rule instanceof DetailRule.Json json
+            outcome = noted(rule instanceof DetailRule.Json json
                     ? extractFromJson(page, json, search, context)
-                    : extract(page, rule, search, context);
+                    : extract(page, rule, search, context), refetched);
         } catch (RuntimeException e) {
             return couldNotRead(hostKey, tallied, e);
         }
@@ -535,6 +649,88 @@ public final class DetailResolver {
         }
     }
 
+    /** 사유 끝에 한 마디를 보탠 사본. 보탤 것이 없으면 그대로입니다. */
+    private static Outcome noted(Outcome outcome, String suffix) {
+        if (suffix.isEmpty()) return outcome;
+        return new Outcome(outcome.status(), outcome.detailUrl(), outcome.note() + suffix, outcome.fromCache());
+    }
+
+    /** 주소의 출처(스킴·호스트·포트). 쿠키의 통을 가르는 열쇠입니다. */
+    static String originOf(URI url) {
+        return (url.getScheme() + "://" + url.getRawAuthority()).toLowerCase(Locale.ROOT);
+    }
+
+    /**
+     * 화면 하나를 받습니다. 보통은 {@link #gatedFetch} 한 번이고, {@code @frame:COOKIE} 규칙이 받는 출처에서는
+     * <b>응답 머리로 온 쿠키를 들고 한 번 더</b> 받을 수 있습니다.
+     *
+     * <ul>
+     *   <li>{@code cookieOrigin} 과 출처가 같은 요청만 쿠키를 듭니다. 나머지는 지금처럼 쿠키 없이 받고
+     *       응답의 쿠키도 읽지 않습니다.</li>
+     *   <li>그 출처로 가는 요청에는 이 누름에서 받아 둔 쿠키를 처음부터 싣습니다. 그래서 다시 받는 일은
+     *       누름의 첫 받기에서만 생깁니다.</li>
+     *   <li>받은 화면이 <b>글자 없이 스크립트만 있는 화면</b>이고, 그 응답이 머리로 새 쿠키를 주었고, 이
+     *       누름에서 아직 다시 받지 않았으면 그 쿠키를 들고 한 번 다시 받습니다
+     *       ({@link #MAX_COOKIE_REFETCHES}). 다시 받는 것도 같은 문을 지나고 같은 시간 상한에 듭니다.</li>
+     *   <li>그래도 스크립트만 있는 화면이면 「받지 못함」입니다. 머리로 온 새 쿠키가 없을 때도 그렇습니다.
+     *       <b>스크립트가 값을 계산해 쿠키를 심는 확인 화면은 넘지 않습니다.</b> 「결과 없음」으로 기억하지도
+     *       않습니다. 화면을 받지 못한 것이지 그 책이 없는 것이 아닙니다.</li>
+     * </ul>
+     *
+     * @param timed 누름 한 번의 시간 상한에 묶는 받기인지. 묶으면 본문까지 남은 시간 안에 받습니다.
+     */
+    private Got fetchPage(Fetcher.Request request, boolean timed, String cookieOrigin, Budget budget,
+                          boolean honourBreaker, boolean countFailure) {
+        boolean carries = cookieOrigin != null && cookieOrigin.equals(originOf(request.url()));
+        if (!timed && !carries) return gatedFetch(request, honourBreaker, countFailure);
+        // 남은 시간은 여기서 한 번 읽습니다. 부르는 쪽이 본 뒤에 0 이 됐을 수 있고, 0 을 받기 제한으로 넘기면
+        // 요청을 만들다가 예외가 납니다.
+        Duration first = shorter(FETCH_TIMEOUT, budget.left());
+        if (first.isZero()) return new Got(null, 0, Outcome.of(Status.FETCH_FAILED, timeLimitNote()), true);
+        if (!carries) return gatedFetch(request.within(first), honourBreaker, countFailure);
+        Map<String, String> jar = budget.cookies.computeIfAbsent(cookieOrigin, k -> new LinkedHashMap<>());
+        Got got = gatedFetch(request.within(first).carrying(SessionCookies.header(jar)), honourBreaker, countFailure);
+        if (got.page() == null) return got;
+        boolean fresh = SessionCookies.store(jar, got.page().setCookies());
+        if (!SessionCookies.scriptOnly(got.page().body())) return got;
+        String hostKey = request.url().getHost().toLowerCase(Locale.ROOT);
+        if (!fresh) {
+            return scriptOnly(hostKey, honourBreaker, countFailure,
+                    "글자 없이 스크립트만 있는 화면인데 응답 머리로 온 새 쿠키가 없습니다");
+        }
+        if (budget.cookieRefetchesLeft == 0) {
+            return scriptOnly(hostKey, honourBreaker, countFailure,
+                    "글자 없이 스크립트만 있는 화면입니다. 이번 누름에서 쿠키를 들고 다시 받는 것은 이미 한 번 했습니다");
+        }
+        Duration left = budget.left();
+        if (left.isZero()) return new Got(null, got.millis(), Outcome.of(Status.FETCH_FAILED, timeLimitNote()), true);
+        budget.cookieRefetchesLeft--;
+        Got again = gatedFetch(request.within(shorter(FETCH_TIMEOUT, left)).carrying(SessionCookies.header(jar)),
+                honourBreaker, countFailure);
+        if (again.page() == null) return again;
+        SessionCookies.store(jar, again.page().setCookies());
+        if (SessionCookies.scriptOnly(again.page().body())) {
+            return scriptOnly(hostKey, honourBreaker, countFailure,
+                    "응답 머리로 온 쿠키를 들고 다시 받아도 글자 없이 스크립트만 있는 화면입니다");
+        }
+        // 누른 사람이 기다린 것은 두 번을 합친 시간입니다.
+        return new Got(again.page(), got.millis() + again.millis(), null, false);
+    }
+
+    /**
+     * 쿠키를 드는 규칙이 끝내 스크립트만 있는 화면을 받았습니다. 「받지 못함」으로 끝냅니다.
+     *
+     * <p>그 호스트의 빗장에는 세지 않습니다. 호스트는 답을 했습니다. 호스트별 집계에는 {@code otherFailure} 로
+     * 적고 사유는 「스크립트만 있는 화면」입니다. 이 숫자가 쌓이는 호스트는 그 사이트가 쿠키를 주는 방식을
+     * 바꾼 것입니다(머리로 주던 것을 스크립트로 심게 바꿨거나, 준 쿠키를 받아 주지 않습니다).
+     */
+    private Got scriptOnly(String hostKey, boolean tallied, boolean countFailure, String why) {
+        if (countFailure) failed.incrementAndGet();
+        if (tallied) hostTally.record(hostKey, OpacHostTally.Event.OTHER_FAILURE, "스크립트만 있는 화면");
+        return Got.failed(Outcome.of(Status.FETCH_FAILED, why
+                + " (스크립트가 쿠키를 심는 확인 화면은 넘지 않습니다)"));
+    }
+
     /**
      * 그 호스트의 문을 지나 한 번 받습니다. 검색 화면도 {@code @verify:} 의 후보 상세도 이 문을 지납니다.
      *
@@ -542,13 +738,14 @@ public final class DetailResolver {
      * {@value #PER_HOST_IN_FLIGHT}개까지라는 제한, 그리고 받은 뒤에 빗장과 호스트별 집계에 적는 일입니다.
      * 호스트는 받는 주소의 것입니다. 후보 상세가 검색 화면과 다른 호스트에 있으면 그 호스트의 문을 지납니다.
      *
+     * @param request      받을 것. {@code within} 이 있으면 본문까지 그 시간 안에 받고, 없으면 평소대로 응답
+     *                     머리까지만 {@link #FETCH_TIMEOUT} 이 걸립니다.
      * @param countFailure 받지 못한 것을 {@code /api/status} 의 합계에 세는지. 후보 상세는 세지 않습니다.
      *                     그 찾기의 끝을 부르는 쪽이 한 번 셉니다.
-     * @param within       본문까지 이 시간 안에 받습니다. 없으면 평소대로 응답 머리까지만
-     *                     {@link #FETCH_TIMEOUT} 이 걸립니다.
      */
-    private Got gatedFetch(URI url, DetailRule.Json json, String jsonBody, boolean honourBreaker,
-                           boolean countFailure, Duration within) {
+    private Got gatedFetch(Fetcher.Request request, boolean honourBreaker, boolean countFailure) {
+        URI url = request.url();
+        Duration within = request.within();
         String host = url.getHost();
         if (host == null) {
             if (countFailure) failed.incrementAndGet();
@@ -586,9 +783,7 @@ public final class DetailResolver {
         }
         long started = ticker.getAsLong();
         try {
-            Page page = json != null ? fetcher.fetch(url, json.method(), jsonBody, bodyTypeOf(jsonBody))
-                    : within != null ? fetcher.fetch(url, within)
-                    : fetcher.fetch(url);
+            Page page = fetcher.fetch(request);
             // 본문까지 다 받는 데 걸린 시간입니다. 받기 제한은 응답 머리가 올 때까지만 걸리므로 이 값은
             // 제한을 넘을 수 있고, 그동안 누른 사람은 기다립니다.
             long took = elapsedMillis(started);
@@ -653,7 +848,7 @@ public final class DetailResolver {
      * 합계와 호스트별 집계에 찾기의 끝을 적는 일은 부르는 쪽이 합니다.
      */
     private Verdict verify(Page page, DetailRule.Verified rule, URI search, Context context,
-                           boolean honourBreaker, Budget budget) {
+                           boolean honourBreaker, Budget budget, String cookieOrigin) {
         String body = page.body() == null ? "" : page.body();
         URI base = page.finalUri() != null ? page.finalUri() : search;
         // @verify:@plain: 이면 목록의 줄에 큰글자책·점자책 표기가 있는지를 후보마다 함께 듭니다.
@@ -675,7 +870,8 @@ public final class DetailResolver {
                 Duration left = budget.left();
                 if (left.isZero()) { timeUp = true; break; }
                 budget.detailsLeft--;
-                Got got = gatedFetch(URI.create(url), null, null, honourBreaker, false, shorter(FETCH_TIMEOUT, left));
+                // 후보가 규칙이 받는 주소와 같은 출처에 있으면 이 누름에서 받은 쿠키를 함께 듭니다(@frame:COOKIE).
+                Got got = fetchPage(Fetcher.Request.get(URI.create(url)), true, cookieOrigin, budget, honourBreaker, false);
                 if (got.cutShort()) { timeUp = true; break; }
                 if (got.page() == null) { stopped = got.failure(); break; }
                 html = got.page().body() == null ? "" : got.page().body();
@@ -1111,11 +1307,27 @@ public final class DetailResolver {
     }
 
     static String fillFrame(DetailRule.Frame frame, Context context) {
+        return fillFrameText(frame.urlTemplate(), frame, context);
+    }
+
+    private static String fillFrameText(String template, DetailRule.Frame frame, Context context) {
         String title = context.title() == null ? "" : context.title().strip();
-        return frame.urlTemplate()
+        return template
                 .replace("{title}", java.net.URLEncoder.encode(title, frame.encoding()).replace("+", "%20"))
                 .replace("{isbn13}", context.isbn13() == null ? "" : context.isbn13())
                 .replace("{libCode}", context.libCode() == null ? "" : context.libCode());
+    }
+
+    /**
+     * {@code @frame:POST} 의 본문틀을 채웁니다. 주소틀과 같은 글자를 냅니다(표제는 규칙의 글자 집합으로
+     * 퍼센트 부호를 쓰고 공백은 {@code %20} 입니다). 조사 도구의 {@code fill_frame} 과 같습니다.
+     */
+    public static String frameBodyFor(DetailRule.Frame frame, Context context) {
+        return frame.bodyTemplate() == null ? null : fillFrameBody(frame, context);
+    }
+
+    static String fillFrameBody(DetailRule.Frame frame, Context context) {
+        return fillFrameText(frame.bodyTemplate(), frame, context);
     }
 
     static String fillRequest(String text, Context context) {
@@ -1400,17 +1612,50 @@ public final class DetailResolver {
                 .sslContext(IntermediateCerts.context())
                 .sslParameters(LegacyTls.strictParameters())
                 .build();
+        // 쿠키를 드는 규칙의 요청(Request.session)만 이쪽으로 나갑니다. 넘겨 주는 응답(3xx)을 따라가지 않습니다.
+        // 따라가면 요청에 실은 쿠키가 넘겨받은 호스트로 그대로 실려 갑니다. 3xx 는 「HTTP 302」로 끝납니다.
+        HttpClient strictStay = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(3))
+                .followRedirects(HttpClient.Redirect.NEVER)
+                .sslParameters(LegacyTls.strictParameters())
+                .build();
+        HttpClient legacyStay = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(3))
+                .followRedirects(HttpClient.Redirect.NEVER)
+                .sslParameters(LegacyTls.legacyParameters())
+                .build();
+        HttpClient chainStay = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(3))
+                .followRedirects(HttpClient.Redirect.NEVER)
+                .sslContext(IntermediateCerts.context())
+                .sslParameters(LegacyTls.strictParameters())
+                .build();
         return new Fetcher() {
             @Override public Page fetch(URI url) throws IOException, InterruptedException {
-                return fetch(url, "GET", null, null);
+                return fetch(Request.get(url));
             }
 
             @Override public Page fetch(URI url, Duration within) throws IOException, InterruptedException {
+                return fetch(Request.get(url).within(within));
+            }
+
+            @Override public Page fetch(URI url, String method, String body, String contentType)
+                    throws IOException, InterruptedException {
+                return fetch(Request.json(url, method, body, contentType));
+            }
+
+            @Override public Page fetch(Request request) throws IOException, InterruptedException {
+                HttpClient client = clientFor(request.url(), request.session());
+                Duration within = request.within();
+                if (within == null) {
+                    return page(client.send(build(request, FETCH_TIMEOUT), HttpResponse.BodyHandlers.ofByteArray()),
+                            request.session());
+                }
                 // 응답 머리의 제한도 그 시간으로 줄이고, 본문까지는 아래의 get 이 묶습니다.
-                HttpRequest request = request(url, "GET", null, null, shorter(FETCH_TIMEOUT, within));
-                var pending = clientFor(url).sendAsync(request, HttpResponse.BodyHandlers.ofByteArray());
+                var pending = client.sendAsync(build(request, shorter(FETCH_TIMEOUT, within)),
+                        HttpResponse.BodyHandlers.ofByteArray());
                 try {
-                    return page(pending.get(Math.max(1, within.toMillis()), TimeUnit.MILLISECONDS));
+                    return page(pending.get(Math.max(1, within.toMillis()), TimeUnit.MILLISECONDS), request.session());
                 } catch (java.util.concurrent.TimeoutException e) {
                     pending.cancel(true);                    // 받던 것을 버립니다. 연결도 놓습니다.
                     throw new java.net.http.HttpTimeoutException("받기가 " + within.toMillis() + "ms 안에 끝나지 않았습니다");
@@ -1421,41 +1666,43 @@ public final class DetailResolver {
                 }
             }
 
-            @Override public Page fetch(URI url, String method, String body, String contentType)
-                    throws IOException, InterruptedException {
-                return page(clientFor(url).send(request(url, method, body, contentType, FETCH_TIMEOUT),
-                        HttpResponse.BodyHandlers.ofByteArray()));
-            }
-
-            private HttpClient clientFor(URI url) {
+            private HttpClient clientFor(URI url, boolean stay) {
+                if (stay) {
+                    return LegacyTls.isLegacyHost(url.getHost()) ? legacyStay
+                            : IntermediateCerts.isChainHost(url.getHost()) ? chainStay : strictStay;
+                }
                 return LegacyTls.isLegacyHost(url.getHost()) ? legacy
                         : IntermediateCerts.isChainHost(url.getHost()) ? chain : strict;
             }
 
-            private HttpRequest request(URI url, String method, String body, String contentType, Duration timeout) {
+            private HttpRequest build(Request request, Duration timeout) {
                 // JSON 검색은 GET 이어도 Accept 가 JSON 이어야 합니다. 시흥의 Pyxis 는 text/html 을
                 // 받겠다고 하면 406 을 돌려주었습니다(2026-11-06 배포 서버 진단).
-                // contentType 이 있으면 @json: 규칙입니다. 본문이 폼이어도(수원) 받는 것은 JSON 입니다.
-                boolean wantsJson = contentType != null;
-                HttpRequest.Builder builder = HttpRequest.newBuilder(url)
+                // 본문이 폼이어도(수원) @json: 이 받는 것은 JSON 이고, @frame:POST 가 받는 것은 HTML 입니다.
+                HttpRequest.Builder builder = HttpRequest.newBuilder(request.url())
                         .timeout(timeout)
                         .header("User-Agent", USER_AGENT)
-                        .header("Accept", wantsJson ? "application/json" : "text/html,application/xhtml+xml")
+                        .header("Accept", request.wantsJson() ? "application/json" : "text/html,application/xhtml+xml")
                         .header("Accept-Language", "ko");
-                if ("POST".equals(method)) {
-                    builder.header("Content-Type", contentType == null ? "application/json" : contentType)
-                           .POST(HttpRequest.BodyPublishers.ofString(body == null ? "" : body, StandardCharsets.UTF_8));
+                // 쿠키는 쿠키를 드는 규칙의 요청에만 싣습니다. 값은 SessionCookies 가 받을 때 글자를 걸렀습니다.
+                if (request.session() && request.cookie() != null) builder.header("Cookie", request.cookie());
+                if ("POST".equals(request.method())) {
+                    String body = request.body() == null ? "" : request.body();
+                    builder.header("Content-Type", request.contentType() == null ? "application/json" : request.contentType())
+                           .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8));
                 } else {
                     builder.GET();
                 }
                 return builder.build();
             }
 
-            private Page page(HttpResponse<byte[]> response) {
+            private Page page(HttpResponse<byte[]> response, boolean session) {
                 byte[] raw = response.body();
                 if (raw.length > MAX_BODY_BYTES) raw = java.util.Arrays.copyOf(raw, MAX_BODY_BYTES);
                 String ct = response.headers().firstValue("Content-Type").orElse("");
-                return new Page(response.statusCode(), decode(raw, ct), response.uri());
+                // 쿠키를 드는 규칙의 응답에서만 Set-Cookie 를 읽습니다. 나머지 받기는 예전처럼 보지 않습니다.
+                List<String> cookies = session ? response.headers().allValues("Set-Cookie") : List.of();
+                return new Page(response.statusCode(), decode(raw, ct), response.uri(), cookies);
             }
         };
     }

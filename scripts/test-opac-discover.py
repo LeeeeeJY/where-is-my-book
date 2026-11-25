@@ -450,6 +450,19 @@ def check_import_patterns(work: str) -> list[str]:
         # 정규식 안의 | 는 칸 구분이 아닙니다. 넷째 칸부터는 전부 정규식입니다.
         ("정규식에 | 포함", 'www.lib.example.go.kr | DETAIL_PATTERN | www.lib.example.go.kr | href=["\'](/book/[^"\']*|/detail/[^"\']*)["\']', 1),
         ("검색 규칙 줄은 건너뜀", "www.lib.example.go.kr | ISBN_SEARCH | UTF-8 | https://www.lib.example.go.kr/s?q={isbn13}", 0),
+        # 목록을 POST 로 받는 화면(@frame:POST 주소 본문틀 => 안쪽 규칙). 본문틀까지 글자 그대로 나가야 합니다.
+        ("POST 로 받는 프레임", "www.lib.example.go.kr | DETAIL_PATTERN | www.lib.example.go.kr/site | "
+         "@frame:POST https://www.lib.example.go.kr/site/listAjax.do manageCode=AG&searchIsbnIssn={isbn13}&display=10 => "
+         "@plain:@anchor:@template:onclick=\"goView\\('(\\d+)' => /site/view.do?reckey={1}&manageCode=AG", 1),
+        ("POST 프레임이 다른 기관", "www.lib.example.go.kr | DETAIL_PATTERN | www.lib.example.go.kr | "
+         f"@frame:POST https://vendor.example.com/listAjax.do isbn={{isbn13}} => @anchor:{good}", 0),
+        ("POST 인데 본문틀이 없음", "www.lib.example.go.kr | DETAIL_PATTERN | www.lib.example.go.kr | "
+         f"@frame:POST https://www.lib.example.go.kr/listAjax.do?isbn={{isbn13}} => @anchor:{good}", 0),
+        ("본문틀이 있는데 POST 가 없음", "www.lib.example.go.kr | DETAIL_PATTERN | www.lib.example.go.kr | "
+         f"@frame:https://www.lib.example.go.kr/listAjax.do isbn={{isbn13}} => @anchor:{good}", 0),
+        # 쿠키를 드는 호스트는 운영자가 허용한 곳(cookie-hosts.txt)뿐입니다. 규칙 줄만으로는 넓어지지 않습니다.
+        ("COOKIE 는 허용된 호스트만", "www.lib.example.go.kr | DETAIL_PATTERN | www.lib.example.go.kr | "
+         f"@frame:COOKIE https://www.lib.example.go.kr/frame?t={{title}} => @verify:{good}", 0),
     ]
     failures = []
     for label, line, want in cases:

@@ -1,5 +1,5 @@
 {
- "about": "서버(kr.wimb.opac)와 조사 도구(scripts/opac-title-probe.py)가 같은 화면에 같은 답을 내는지 보는 사례입니다. SharedPickCasesTest 와 test-opac-title-probe.py 가 이 파일을 함께 읽습니다. 사례를 더하면 양쪽이 함께 돕니다. HTML 은 같은 폴더의 파일이고, 받아 본 화면을 줄인 것인지 지어낸 것인지는 파일 머리의 주석에 적혀 있습니다.",
+ "about": "서버(kr.wimb.opac)와 조사 도구(scripts/opac-title-probe.py)가 같은 화면에 같은 답을 내는지 보는 사례입니다. SharedPickCasesTest 와 test-opac-title-probe.py 가 이 파일을 함께 읽습니다. 사례를 더하면 양쪽이 함께 돕니다. HTML 은 같은 폴더의 파일이고, 받아 본 화면을 줄인 것인지 지어낸 것인지는 파일 머리의 주석에 적혀 있습니다. frames·frameProblems·cookies·scriptOnly·sites 는 2026-11-25 에 더한 받기 방식 둘(@frame:POST, @frame:COOKIE)의 사례입니다. sites 는 가짜 사이트를 사례에 적어 두고, 규칙 한 줄이 내보내는 요청의 차례(쿠키를 실었는지까지)와 끝을 양쪽이 견줍니다. 쿠키의 값은 지어낸 것입니다.",
  "detailSets": {
   "yuseong": {
    "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000004923523": "yuseong-detail-1.html",
@@ -698,6 +698,609 @@
    "fetched": [
     "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000004923523",
     "https://lib.yuseong.go.kr/web/menu/10075/program/30005/searchResultDetail.do?vCtrl=000004907136"
+   ]
+  }
+ ],
+ "frames": [
+  {
+   "name": "부산교육청: POST 로 받는 목록. 본문틀의 {isbn13} 을 채우고 폼으로 보낸다",
+   "rule": "@frame:POST https://home.pen.go.kr/joonganglib/library/searchListAjax.do manageCode=AK&pageNo=1&subType=joonganglib&searchType=search_title&searchText=&searchAuthor=search_author&searchAuthorTxt=&orderByItem=&orderBy=ASC&bookType=booksearch&searchShelf=&searchIsbnIssn={isbn13}&subjectCode=&searchYearStart=&searchYearEnd=&display=10 => @plain:@anchor:@template:onclick=\"goLibView\\('(\\d+)' => /joonganglib/library/searchView.do?reckey={1}&manageCode=AK&subType=joonganglib",
+   "title": "채식주의자",
+   "isbn": "9788936433598",
+   "libCode": "121012",
+   "expect": {
+    "method": "POST",
+    "url": "https://home.pen.go.kr/joonganglib/library/searchListAjax.do",
+    "body": "manageCode=AK&pageNo=1&subType=joonganglib&searchType=search_title&searchText=&searchAuthor=search_author&searchAuthorTxt=&orderByItem=&orderBy=ASC&bookType=booksearch&searchShelf=&searchIsbnIssn=9788936433598&subjectCode=&searchYearStart=&searchYearEnd=&display=10",
+    "contentType": "application/x-www-form-urlencoded",
+    "cookie": false
+   },
+   "describe": "@frame:POST https://home.pen.go.kr/joonganglib/library/searchListAjax.do manageCode=AK&pageNo=1&subType=joonganglib&searchType=search_title&searchText=&searchAuthor=search_author&searchAuthorTxt=&orderByItem=&orderBy=ASC&bookType=booksearch&searchShelf=&searchIsbnIssn={isbn13}&subjectCode=&searchYearStart=&searchYearEnd=&display=10 => @plain:@anchor:@template:onclick=\"goLibView\\('(\\d+)' => /joonganglib/library/searchView.do?reckey={1}&manageCode=AK&subType=joonganglib"
+  },
+  {
+   "name": "대전 서구: COOKIE 를 적은 프레임. 받는 것은 GET 이고 표제를 채운다",
+   "rule": "@frame:COOKIE https://lib.seogu.go.kr/ilus/index.php?mod=wdDataSearch&act=searchResultList&srchKey=allitem&srchText={title}&thisLib=H0000017 => @verify:@plain:@template:<div class=\"pic\">\\s*<a href=\"\\./index\\.php\\?mod=wdDataSearch&act=searchResultDetail&ctrl=(\\d+)& => ./index.php?mod=wdDataSearch&act=searchResultDetail&ctrl={1}&thisLib=H0000017",
+   "title": "구름빵",
+   "isbn": "9791170283836",
+   "libCode": "130007",
+   "expect": {
+    "method": "GET",
+    "url": "https://lib.seogu.go.kr/ilus/index.php?mod=wdDataSearch&act=searchResultList&srchKey=allitem&srchText=%EA%B5%AC%EB%A6%84%EB%B9%B5&thisLib=H0000017",
+    "body": null,
+    "contentType": null,
+    "cookie": true
+   },
+   "describe": "@frame:COOKIE https://lib.seogu.go.kr/ilus/index.php?mod=wdDataSearch&act=searchResultList&srchKey=allitem&srchText={title}&thisLib=H0000017 => @verify:@plain:@template:<div class=\"pic\">\\s*<a href=\"\\./index\\.php\\?mod=wdDataSearch&act=searchResultDetail&ctrl=(\\d+)& => ./index.php?mod=wdDataSearch&act=searchResultDetail&ctrl={1}&thisLib=H0000017"
+  },
+  {
+   "name": "인코딩과 POST 를 함께 적으면 본문의 표제도 그 글자 집합으로 채운다 (공백은 %20)",
+   "rule": "@frame:EUC-KR POST https://lib.example.kr/list.do q={title}&lib={libCode} => @anchor:href=\"(/view[^\"]+)\"",
+   "title": "마의 산",
+   "isbn": "9788937460883",
+   "libCode": "141234",
+   "expect": {
+    "method": "POST",
+    "url": "https://lib.example.kr/list.do",
+    "body": "q=%B8%B6%C0%C7%20%BB%EA&lib=141234",
+    "contentType": "application/x-www-form-urlencoded",
+    "cookie": false
+   },
+   "describe": "@frame:EUC-KR POST https://lib.example.kr/list.do q={title}&lib={libCode} => @anchor:href=\"(/view[^\"]+)\""
+  },
+  {
+   "name": "주소 앞의 낱말은 차례와 대소문자를 가리지 않고 읽고, 되돌려 말할 때는 인코딩·COOKIE·POST 차례다",
+   "rule": "@frame:post cookie https://lib.seogu.go.kr/x.php t={title} => @verify:href=\"(/d[^\"]+)\"",
+   "title": "C++ 입문 a~b",
+   "isbn": "9788937460883",
+   "libCode": "125010",
+   "expect": {
+    "method": "POST",
+    "url": "https://lib.seogu.go.kr/x.php",
+    "body": "t=C%2B%2B%20%EC%9E%85%EB%AC%B8%20a%7Eb",
+    "contentType": "application/x-www-form-urlencoded",
+    "cookie": true
+   },
+   "describe": "@frame:COOKIE POST https://lib.seogu.go.kr/x.php t={title} => @verify:href=\"(/d[^\"]+)\""
+  },
+  {
+   "name": "예전부터 있던 GET 프레임은 그대로다 (충북교육청)",
+   "rule": "@frame:https://www.cbelib.go.kr:7443/dls_le/index.php?mod=wdDataSearch&act=searchIList&word={title}&searchType=&manageCode=MA&siteId=SITE_000000000000003 => @anchor:href=\"(index\\.php\\?mod=wdDataSearch&amp;act=dataView[^\"]*)\"",
+   "title": "이방인",
+   "isbn": "9788937462665",
+   "libCode": "143013",
+   "expect": {
+    "method": "GET",
+    "url": "https://www.cbelib.go.kr:7443/dls_le/index.php?mod=wdDataSearch&act=searchIList&word=%EC%9D%B4%EB%B0%A9%EC%9D%B8&searchType=&manageCode=MA&siteId=SITE_000000000000003",
+    "body": null,
+    "contentType": null,
+    "cookie": false
+   },
+   "describe": "@frame:https://www.cbelib.go.kr:7443/dls_le/index.php?mod=wdDataSearch&act=searchIList&word={title}&searchType=&manageCode=MA&siteId=SITE_000000000000003 => @anchor:href=\"(index\\.php\\?mod=wdDataSearch&amp;act=dataView[^\"]*)\""
+  }
+ ],
+ "frameProblems": [
+  {
+   "name": "COOKIE 는 cookie-hosts.txt 에 적힌 호스트에만 적을 수 있다",
+   "rule": "@frame:COOKIE https://lib.example.kr/list?t={title} => @anchor:href=\"(/view[^\"]+)\""
+  },
+  {
+   "name": "cookie-hosts.txt 의 호스트와 이름이 비슷한 다른 호스트도 안 된다",
+   "rule": "@frame:COOKIE https://lib.seogu.go.kr.example.kr/list?t={title} => @anchor:href=\"(/view[^\"]+)\""
+  },
+  {
+   "name": "POST 에는 본문틀이 있어야 한다",
+   "rule": "@frame:POST https://lib.example.kr/list.do?t={title} => @anchor:href=\"(/view[^\"]+)\""
+  },
+  {
+   "name": "본문틀은 POST 일 때만 적는다 (주소에 공백이 섞인 줄을 막는다)",
+   "rule": "@frame:https://lib.example.kr/list.do t={title} => @anchor:href=\"(/view[^\"]+)\""
+  },
+  {
+   "name": "POST 를 두 번 적을 수 없다",
+   "rule": "@frame:POST POST https://lib.example.kr/list.do t={title} => @anchor:href=\"(/view[^\"]+)\""
+  },
+  {
+   "name": "인코딩은 하나만 적는다",
+   "rule": "@frame:EUC-KR UTF-8 https://lib.example.kr/list?t={title} => @anchor:href=\"(/view[^\"]+)\""
+  },
+  {
+   "name": "본문틀에도 모르는 자리표는 쓸 수 없다",
+   "rule": "@frame:POST https://lib.example.kr/list.do t={title}&m={manageCode} => @anchor:href=\"(/view[^\"]+)\""
+  },
+  {
+   "name": "주소틀에도 본문틀에도 자리표가 없으면 어느 책을 눌러도 같은 화면이다",
+   "rule": "@frame:POST https://lib.example.kr/list.do t=fixed => @anchor:href=\"(/view[^\"]+)\""
+  },
+  {
+   "name": "안쪽에 @json: 은 올 수 없다",
+   "rule": "@frame:POST https://lib.example.kr/list.do t={isbn13} => @json:GET https://lib.example.kr/api?q={isbn13} => list => /d/{id}"
+  }
+ ],
+ "cookies": [
+  {
+   "name": "대전 서구: 이름=값만 담고 path 같은 속성은 버린다",
+   "steps": [
+    [
+     "PHPSESSID=uptrl0qfgm41; path=/",
+     "skin=default",
+     "locaInfo=H0000014"
+    ]
+   ],
+   "changed": [
+    true
+   ],
+   "header": "PHPSESSID=uptrl0qfgm41; skin=default; locaInfo=H0000014"
+  },
+  {
+   "name": "대전 서구: 둘째 응답이 같은 값을 다시 주면 달라진 것이 없다",
+   "steps": [
+    [
+     "PHPSESSID=uptrl0qfgm41; path=/",
+     "skin=default",
+     "locaInfo=H0000014"
+    ],
+    [
+     "skin=default",
+     "locaInfo=H0000014"
+    ]
+   ],
+   "changed": [
+    true,
+    false
+   ],
+   "header": "PHPSESSID=uptrl0qfgm41; skin=default; locaInfo=H0000014"
+  },
+  {
+   "name": "값이 바뀌면 자리는 그대로 두고 값만 바꾼다",
+   "steps": [
+    [
+     "a=1",
+     "b=2"
+    ],
+    [
+     "a=3"
+    ]
+   ],
+   "changed": [
+    true,
+    true
+   ],
+   "header": "a=3; b=2"
+  },
+  {
+   "name": "값이 비었거나 Max-Age 가 0 이하면 그 이름을 지운다",
+   "steps": [
+    [
+     "a=1",
+     "b=2",
+     "c=3"
+    ],
+    [
+     "a=; path=/",
+     "b=deleted; expires=Thu, 01-Jan-1970 00:00:01 GMT; Max-Age=0",
+     "c=9; max-age=-1"
+    ]
+   ],
+   "changed": [
+    true,
+    true
+   ],
+   "header": null
+  },
+  {
+   "name": "Max-Age 가 양수면 담고, Expires 는 읽지 않는다",
+   "steps": [
+    [
+     "a=1; Max-Age=3600; Path=/",
+     "b=2; expires=Thu, 01-Jan-1970 00:00:01 GMT"
+    ]
+   ],
+   "changed": [
+    true
+   ],
+   "header": "a=1; b=2"
+  },
+  {
+   "name": "받지 않는 글자가 든 쿠키와 모양이 틀린 머리는 담지 않는다",
+   "steps": [
+    [
+     "a=1 2",
+     "b=\"q\"",
+     "c d=1",
+     "e=1,2",
+     "=x",
+     "noequals",
+     "한글=1",
+     "g=값",
+     "f=ok; HttpOnly"
+    ]
+   ],
+   "changed": [
+    true
+   ],
+   "header": "f=ok"
+  },
+  {
+   "name": "양 끝의 공백은 떼고 읽는다",
+   "steps": [
+    [
+     "  a = 1 ; Path=/"
+    ]
+   ],
+   "changed": [
+    true
+   ],
+   "header": "a=1"
+  },
+  {
+   "name": "스무 개까지만 담는다. 이미 든 이름의 값은 상한에 닿아도 바꾼다",
+   "steps": [
+    [
+     "c1=1",
+     "c2=1",
+     "c3=1",
+     "c4=1",
+     "c5=1",
+     "c6=1",
+     "c7=1",
+     "c8=1",
+     "c9=1",
+     "c10=1",
+     "c11=1",
+     "c12=1",
+     "c13=1",
+     "c14=1",
+     "c15=1",
+     "c16=1",
+     "c17=1",
+     "c18=1",
+     "c19=1",
+     "c20=1",
+     "c21=1",
+     "c22=1",
+     "c23=1",
+     "c24=1",
+     "c25=1"
+    ],
+    [
+     "c1=2",
+     "c30=1"
+    ]
+   ],
+   "changed": [
+    true,
+    true
+   ],
+   "header": "c1=2; c2=1; c3=1; c4=1; c5=1; c6=1; c7=1; c8=1; c9=1; c10=1; c11=1; c12=1; c13=1; c14=1; c15=1; c16=1; c17=1; c18=1; c19=1; c20=1"
+  },
+  {
+   "name": "머리가 없으면 통은 비어 있고 Cookie 머리도 없다",
+   "steps": [
+    []
+   ],
+   "changed": [
+    false
+   ],
+   "header": null
+  }
+ ],
+ "scriptOnly": [
+  {
+   "name": "대전 서구가 쿠키 없는 요청에 준 화면",
+   "html": "<script>location.reload();</script>",
+   "expect": true
+  },
+  {
+   "name": "스크립트가 쿠키를 심고 새로 고치는 화면 (지어낸 것)",
+   "html": " \n<SCRIPT type=\"text/javascript\">document.cookie='a=1';location.reload();</SCRIPT>\n<!-- wait -->",
+   "expect": true
+  },
+  {
+   "name": "글자가 있으면 아니다",
+   "html": "<p>검색 결과가 없습니다.</p><script>track()</script>",
+   "expect": false
+  },
+  {
+   "name": "noscript 의 안내도 글자다",
+   "html": "<script>go()</script><noscript>자바스크립트를 켜 주세요</noscript>",
+   "expect": false
+  },
+  {
+   "name": "스크립트가 없는 빈 화면은 아니다",
+   "html": "<html><body>  </body></html>",
+   "expect": false
+  },
+  {
+   "name": "빈 응답은 아니다",
+   "html": "",
+   "expect": false
+  },
+  {
+   "name": "부산교육청의 결과 없는 목록 조각은 글자가 있다",
+   "file": "pen-none.html",
+   "expect": false
+  },
+  {
+   "name": "대전 서구의 목록은 글자가 있다",
+   "file": "seogu-list.html",
+   "expect": false
+  }
+ ],
+ "sites": [
+  {
+   "name": "부산교육청 중앙: 목록을 POST 로 받아, 그 ISBN 의 줄 가운데 대활자본 줄을 빼고 고른다",
+   "rule": "@frame:POST https://home.pen.go.kr/joonganglib/library/searchListAjax.do manageCode=AK&pageNo=1&subType=joonganglib&searchType=search_title&searchText=&searchAuthor=search_author&searchAuthorTxt=&orderByItem=&orderBy=ASC&bookType=booksearch&searchShelf=&searchIsbnIssn={isbn13}&subjectCode=&searchYearStart=&searchYearEnd=&display=10 => @plain:@anchor:@template:onclick=\"goLibView\\('(\\d+)' => /joonganglib/library/searchView.do?reckey={1}&manageCode=AK&subType=joonganglib",
+   "searchUrl": "https://home.pen.go.kr/joonganglib/library/searchList.do?mi=10773&subType=joonganglib&searchText=%EC%B1%84%EC%8B%9D%EC%A3%BC%EC%9D%98%EC%9E%90",
+   "title": "채식주의자",
+   "isbns": [
+    "9788936433598"
+   ],
+   "libCode": "121012",
+   "site": {
+    "cookie": null,
+    "pages": [
+     {
+      "method": "POST",
+      "url": "https://home.pen.go.kr/joonganglib/library/searchListAjax.do",
+      "body": "manageCode=AK&pageNo=1&subType=joonganglib&searchType=search_title&searchText=&searchAuthor=search_author&searchAuthorTxt=&orderByItem=&orderBy=ASC&bookType=booksearch&searchShelf=&searchIsbnIssn=9788936433598&subjectCode=&searchYearStart=&searchYearEnd=&display=10",
+      "file": "pen-joongang.html"
+     }
+    ]
+   },
+   "expect": {
+    "status": "RESOLVED",
+    "url": "https://home.pen.go.kr/joonganglib/library/searchView.do?reckey=11075899049&manageCode=AK&subType=joonganglib"
+   },
+   "requests": [
+    "POST https://home.pen.go.kr/joonganglib/library/searchListAjax.do body=manageCode=AK&pageNo=1&subType=joonganglib&searchType=search_title&searchText=&searchAuthor=search_author&searchAuthorTxt=&orderByItem=&orderBy=ASC&bookType=booksearch&searchShelf=&searchIsbnIssn=9788936433598&subjectCode=&searchYearStart=&searchYearEnd=&display=10"
+   ]
+  },
+  {
+   "name": "부산교육청: 결과가 없는 조각에서는 아무것도 고르지 않는다",
+   "rule": "@frame:POST https://home.pen.go.kr/siminlib/library/searchListAjax.do manageCode=AG&pageNo=1&subType=library&searchType=search_title&searchText=&searchAuthor=search_author&searchAuthorTxt=&orderByItem=&orderBy=ASC&bookType=booksearch&searchShelf=&searchIsbnIssn={isbn13}&subjectCode=&searchYearStart=&searchYearEnd=&display=10 => @plain:@anchor:@template:onclick=\"goLibView\\('(\\d+)' => /siminlib/library/searchView.do?reckey={1}&manageCode=AG&subType=library",
+   "searchUrl": "https://home.pen.go.kr/siminlib/library/searchList.do?mi=13190&subType=library&searchText=x",
+   "title": "없는 책",
+   "isbns": [
+    "9799999999999"
+   ],
+   "libCode": "121008",
+   "site": {
+    "cookie": null,
+    "pages": [
+     {
+      "method": "POST",
+      "url": "https://home.pen.go.kr/siminlib/library/searchListAjax.do",
+      "body": "manageCode=AG&pageNo=1&subType=library&searchType=search_title&searchText=&searchAuthor=search_author&searchAuthorTxt=&orderByItem=&orderBy=ASC&bookType=booksearch&searchShelf=&searchIsbnIssn=9799999999999&subjectCode=&searchYearStart=&searchYearEnd=&display=10",
+      "file": "pen-none.html"
+     }
+    ]
+   },
+   "expect": {
+    "status": "NO_MATCH",
+    "url": null
+   },
+   "requests": [
+    "POST https://home.pen.go.kr/siminlib/library/searchListAjax.do body=manageCode=AG&pageNo=1&subType=library&searchType=search_title&searchText=&searchAuthor=search_author&searchAuthorTxt=&orderByItem=&orderBy=ASC&bookType=booksearch&searchShelf=&searchIsbnIssn=9799999999999&subjectCode=&searchYearStart=&searchYearEnd=&display=10"
+   ]
+  },
+  {
+   "name": "부산교육청: 같은 주소를 GET 으로만 주는 사이트에서는 받지 못한 것이다 (POST 로 보낸다)",
+   "rule": "@frame:POST https://home.pen.go.kr/joonganglib/library/searchListAjax.do manageCode=AK&pageNo=1&subType=joonganglib&searchType=search_title&searchText=&searchAuthor=search_author&searchAuthorTxt=&orderByItem=&orderBy=ASC&bookType=booksearch&searchShelf=&searchIsbnIssn={isbn13}&subjectCode=&searchYearStart=&searchYearEnd=&display=10 => @plain:@anchor:@template:onclick=\"goLibView\\('(\\d+)' => /joonganglib/library/searchView.do?reckey={1}&manageCode=AK&subType=joonganglib",
+   "searchUrl": "https://home.pen.go.kr/joonganglib/library/searchList.do?mi=10773&subType=joonganglib&searchText=%EC%B1%84%EC%8B%9D%EC%A3%BC%EC%9D%98%EC%9E%90",
+   "title": "채식주의자",
+   "isbns": [
+    "9788936433598"
+   ],
+   "libCode": "121012",
+   "site": {
+    "cookie": null,
+    "pages": [
+     {
+      "method": "GET",
+      "url": "https://home.pen.go.kr/joonganglib/library/searchListAjax.do",
+      "body": null,
+      "file": "pen-joongang.html"
+     }
+    ]
+   },
+   "expect": {
+    "status": "FETCH_FAILED",
+    "url": null
+   },
+   "requests": [
+    "POST https://home.pen.go.kr/joonganglib/library/searchListAjax.do body=manageCode=AK&pageNo=1&subType=joonganglib&searchType=search_title&searchText=&searchAuthor=search_author&searchAuthorTxt=&orderByItem=&orderBy=ASC&bookType=booksearch&searchShelf=&searchIsbnIssn=9788936433598&subjectCode=&searchYearStart=&searchYearEnd=&display=10"
+   ]
+  },
+  {
+   "name": "대전 서구어린이: 첫 응답의 쿠키를 들고 한 번 다시 받고, 후보의 상세도 그 쿠키를 들고 받는다",
+   "rule": "@frame:COOKIE https://lib.seogu.go.kr/ilus/index.php?mod=wdDataSearch&act=searchResultList&srchKey=allitem&srchText={title}&thisLib=H0000017 => @verify:@plain:@template:<div class=\"pic\">\\s*<a href=\"\\./index\\.php\\?mod=wdDataSearch&act=searchResultDetail&ctrl=(\\d+)& => ./index.php?mod=wdDataSearch&act=searchResultDetail&ctrl={1}&thisLib=H0000017",
+   "searchUrl": "https://www.seogu.go.kr/library/childlib/contents/learning/lib/07/lib.07.001.motion?mnucd=MENU0500019&loca=H0000017&searchCnd=allitem&searchWrd=%EA%B5%AC%EB%A6%84%EB%B9%B5",
+   "title": "구름빵",
+   "isbns": [
+    "9791170283836"
+   ],
+   "libCode": "130007",
+   "site": {
+    "cookie": {
+     "need": "PHPSESSID=0fake0session0",
+     "set": [
+      "PHPSESSID=0fake0session0; path=/",
+      "skin=default",
+      "locaInfo=H0000017"
+     ],
+     "stub": "<script>location.reload();</script>"
+    },
+    "pages": [
+     {
+      "method": "GET",
+      "url": "https://lib.seogu.go.kr/ilus/index.php?mod=wdDataSearch&act=searchResultList&srchKey=allitem&srchText=%EA%B5%AC%EB%A6%84%EB%B9%B5&thisLib=H0000017",
+      "body": null,
+      "file": "seogu-list.html"
+     },
+     {
+      "method": "GET",
+      "url": "https://lib.seogu.go.kr/ilus/index.php?mod=wdDataSearch&act=searchResultDetail&ctrl=000004097272&thisLib=H0000017",
+      "body": null,
+      "file": "seogu-detail-1.html"
+     }
+    ]
+   },
+   "expect": {
+    "status": "RESOLVED",
+    "url": "https://lib.seogu.go.kr/ilus/index.php?mod=wdDataSearch&act=searchResultDetail&ctrl=000004097272&thisLib=H0000017"
+   },
+   "requests": [
+    "GET https://lib.seogu.go.kr/ilus/index.php?mod=wdDataSearch&act=searchResultList&srchKey=allitem&srchText=%EA%B5%AC%EB%A6%84%EB%B9%B5&thisLib=H0000017",
+    "GET https://lib.seogu.go.kr/ilus/index.php?mod=wdDataSearch&act=searchResultList&srchKey=allitem&srchText=%EA%B5%AC%EB%A6%84%EB%B9%B5&thisLib=H0000017 cookie=PHPSESSID=0fake0session0; skin=default; locaInfo=H0000017",
+    "GET https://lib.seogu.go.kr/ilus/index.php?mod=wdDataSearch&act=searchResultDetail&ctrl=000004097272&thisLib=H0000017 cookie=PHPSESSID=0fake0session0; skin=default; locaInfo=H0000017"
+   ]
+  },
+  {
+   "name": "대전 서구어린이: 후보 하나를 받지 못하면 거기서 그만둔다 (첫 후보에는 그 ISBN 이 없고 둘째 후보는 404)",
+   "rule": "@frame:COOKIE https://lib.seogu.go.kr/ilus/index.php?mod=wdDataSearch&act=searchResultList&srchKey=allitem&srchText={title}&thisLib=H0000017 => @verify:@plain:@template:<div class=\"pic\">\\s*<a href=\"\\./index\\.php\\?mod=wdDataSearch&act=searchResultDetail&ctrl=(\\d+)& => ./index.php?mod=wdDataSearch&act=searchResultDetail&ctrl={1}&thisLib=H0000017",
+   "searchUrl": "https://www.seogu.go.kr/library/childlib/contents/learning/lib/07/lib.07.001.motion?mnucd=MENU0500019&loca=H0000017&searchCnd=allitem&searchWrd=%EA%B5%AC%EB%A6%84%EB%B9%B5",
+   "title": "구름빵",
+   "isbns": [
+    "9799999999999"
+   ],
+   "libCode": "130007",
+   "site": {
+    "cookie": {
+     "need": "PHPSESSID=0fake0session0",
+     "set": [
+      "PHPSESSID=0fake0session0; path=/",
+      "skin=default",
+      "locaInfo=H0000017"
+     ],
+     "stub": "<script>location.reload();</script>"
+    },
+    "pages": [
+     {
+      "method": "GET",
+      "url": "https://lib.seogu.go.kr/ilus/index.php?mod=wdDataSearch&act=searchResultList&srchKey=allitem&srchText=%EA%B5%AC%EB%A6%84%EB%B9%B5&thisLib=H0000017",
+      "body": null,
+      "file": "seogu-list.html"
+     },
+     {
+      "method": "GET",
+      "url": "https://lib.seogu.go.kr/ilus/index.php?mod=wdDataSearch&act=searchResultDetail&ctrl=000004097272&thisLib=H0000017",
+      "body": null,
+      "file": "seogu-detail-1.html"
+     }
+    ]
+   },
+   "expect": {
+    "status": "FETCH_FAILED",
+    "url": null
+   },
+   "requests": [
+    "GET https://lib.seogu.go.kr/ilus/index.php?mod=wdDataSearch&act=searchResultList&srchKey=allitem&srchText=%EA%B5%AC%EB%A6%84%EB%B9%B5&thisLib=H0000017",
+    "GET https://lib.seogu.go.kr/ilus/index.php?mod=wdDataSearch&act=searchResultList&srchKey=allitem&srchText=%EA%B5%AC%EB%A6%84%EB%B9%B5&thisLib=H0000017 cookie=PHPSESSID=0fake0session0; skin=default; locaInfo=H0000017",
+    "GET https://lib.seogu.go.kr/ilus/index.php?mod=wdDataSearch&act=searchResultDetail&ctrl=000004097272&thisLib=H0000017 cookie=PHPSESSID=0fake0session0; skin=default; locaInfo=H0000017",
+    "GET https://lib.seogu.go.kr/ilus/index.php?mod=wdDataSearch&act=searchResultDetail&ctrl=000004129065&thisLib=H0000017 cookie=PHPSESSID=0fake0session0; skin=default; locaInfo=H0000017"
+   ]
+  },
+  {
+   "name": "스크립트가 쿠키를 심는 확인 화면은 넘지 않는다: 머리로 온 쿠키가 없으면 다시 받지 않고 받지 못한 것으로 끝낸다 (사이트의 동작은 지어낸 것)",
+   "rule": "@frame:COOKIE https://lib.seogu.go.kr/ilus/index.php?mod=wdDataSearch&act=searchResultList&srchKey=allitem&srchText={title}&thisLib=H0000017 => @verify:@plain:@template:<div class=\"pic\">\\s*<a href=\"\\./index\\.php\\?mod=wdDataSearch&act=searchResultDetail&ctrl=(\\d+)& => ./index.php?mod=wdDataSearch&act=searchResultDetail&ctrl={1}&thisLib=H0000017",
+   "searchUrl": "https://www.seogu.go.kr/library/childlib/contents/learning/lib/07/lib.07.001.motion?mnucd=MENU0500019&loca=H0000017&searchCnd=allitem&searchWrd=%EA%B5%AC%EB%A6%84%EB%B9%B5",
+   "title": "구름빵",
+   "isbns": [
+    "9791170283836"
+   ],
+   "libCode": "130007",
+   "site": {
+    "cookie": {
+     "need": "challenge=passed",
+     "set": [],
+     "stub": "<script>document.cookie='challenge='+solve();location.reload();</script>"
+    },
+    "pages": [
+     {
+      "method": "GET",
+      "url": "https://lib.seogu.go.kr/ilus/index.php?mod=wdDataSearch&act=searchResultList&srchKey=allitem&srchText=%EA%B5%AC%EB%A6%84%EB%B9%B5&thisLib=H0000017",
+      "body": null,
+      "file": "seogu-list.html"
+     }
+    ]
+   },
+   "expect": {
+    "status": "FETCH_FAILED",
+    "url": null
+   },
+   "requests": [
+    "GET https://lib.seogu.go.kr/ilus/index.php?mod=wdDataSearch&act=searchResultList&srchKey=allitem&srchText=%EA%B5%AC%EB%A6%84%EB%B9%B5&thisLib=H0000017"
+   ]
+  },
+  {
+   "name": "머리로 온 쿠키를 들고 다시 받아도 스크립트만 있는 화면이면 받지 못한 것이다. 다시 받는 것은 한 번뿐이다 (사이트의 동작은 지어낸 것)",
+   "rule": "@frame:COOKIE https://lib.seogu.go.kr/ilus/index.php?mod=wdDataSearch&act=searchResultList&srchKey=allitem&srchText={title}&thisLib=H0000017 => @verify:@plain:@template:<div class=\"pic\">\\s*<a href=\"\\./index\\.php\\?mod=wdDataSearch&act=searchResultDetail&ctrl=(\\d+)& => ./index.php?mod=wdDataSearch&act=searchResultDetail&ctrl={1}&thisLib=H0000017",
+   "searchUrl": "https://www.seogu.go.kr/library/childlib/contents/learning/lib/07/lib.07.001.motion?mnucd=MENU0500019&loca=H0000017&searchCnd=allitem&searchWrd=%EA%B5%AC%EB%A6%84%EB%B9%B5",
+   "title": "구름빵",
+   "isbns": [
+    "9791170283836"
+   ],
+   "libCode": "130007",
+   "site": {
+    "cookie": {
+     "need": "PHPSESSID=never",
+     "set": [
+      "PHPSESSID=0fake0session0; path=/"
+     ],
+     "stub": "<script>location.reload();</script>"
+    },
+    "pages": [
+     {
+      "method": "GET",
+      "url": "https://lib.seogu.go.kr/ilus/index.php?mod=wdDataSearch&act=searchResultList&srchKey=allitem&srchText=%EA%B5%AC%EB%A6%84%EB%B9%B5&thisLib=H0000017",
+      "body": null,
+      "file": "seogu-list.html"
+     }
+    ]
+   },
+   "expect": {
+    "status": "FETCH_FAILED",
+    "url": null
+   },
+   "requests": [
+    "GET https://lib.seogu.go.kr/ilus/index.php?mod=wdDataSearch&act=searchResultList&srchKey=allitem&srchText=%EA%B5%AC%EB%A6%84%EB%B9%B5&thisLib=H0000017",
+    "GET https://lib.seogu.go.kr/ilus/index.php?mod=wdDataSearch&act=searchResultList&srchKey=allitem&srchText=%EA%B5%AC%EB%A6%84%EB%B9%B5&thisLib=H0000017 cookie=PHPSESSID=0fake0session0"
+   ]
+  },
+  {
+   "name": "COOKIE 를 적지 않은 줄은 쿠키를 들지 않는다: 같은 사이트에서 한 번만 받고, 스크립트만 있는 화면에서 고를 줄이 없다",
+   "rule": "@frame:https://lib.seogu.go.kr/ilus/index.php?mod=wdDataSearch&act=searchResultList&srchKey=allitem&srchText={title}&thisLib=H0000017 => @verify:@plain:@template:<div class=\"pic\">\\s*<a href=\"\\./index\\.php\\?mod=wdDataSearch&act=searchResultDetail&ctrl=(\\d+)& => ./index.php?mod=wdDataSearch&act=searchResultDetail&ctrl={1}&thisLib=H0000017",
+   "searchUrl": "https://www.seogu.go.kr/library/childlib/contents/learning/lib/07/lib.07.001.motion?mnucd=MENU0500019&loca=H0000017&searchCnd=allitem&searchWrd=%EA%B5%AC%EB%A6%84%EB%B9%B5",
+   "title": "구름빵",
+   "isbns": [
+    "9791170283836"
+   ],
+   "libCode": "130007",
+   "site": {
+    "cookie": {
+     "need": "PHPSESSID=0fake0session0",
+     "set": [
+      "PHPSESSID=0fake0session0; path=/",
+      "skin=default",
+      "locaInfo=H0000017"
+     ],
+     "stub": "<script>location.reload();</script>"
+    },
+    "pages": [
+     {
+      "method": "GET",
+      "url": "https://lib.seogu.go.kr/ilus/index.php?mod=wdDataSearch&act=searchResultList&srchKey=allitem&srchText=%EA%B5%AC%EB%A6%84%EB%B9%B5&thisLib=H0000017",
+      "body": null,
+      "file": "seogu-list.html"
+     }
+    ]
+   },
+   "expect": {
+    "status": "NO_MATCH",
+    "url": null
+   },
+   "requests": [
+    "GET https://lib.seogu.go.kr/ilus/index.php?mod=wdDataSearch&act=searchResultList&srchKey=allitem&srchText=%EA%B5%AC%EB%A6%84%EB%B9%B5&thisLib=H0000017"
    ]
   }
  ]
