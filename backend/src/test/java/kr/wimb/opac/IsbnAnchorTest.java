@@ -143,6 +143,29 @@ class IsbnAnchorTest {
     }
 
     @Test
+    @DisplayName("그 ISBN 의 줄 전부를 달라고 해도 첫 자리는 닻 규칙이 고르는 줄과 같다")
+    void pickAllStartsWhereThePickIs() {
+        // @plain: 은 pickAll 로 그 ISBN 의 줄을 모아 그 가운데서 고릅니다. 표기가 섞여 있지 않으면 첫 자리로
+        // 가므로, 첫 자리가 pick 과 다르면 @plain: 을 붙인 것만으로 다른 줄로 갑니다.
+        record Case(String html, String isbn, boolean linkFirst) {}
+        String covers = """
+                <li><img src="/cover/9788996991342"><a href="/detail/1">미움받을 용기</a><span>ISBN: 9788996991342</span></li>
+                <li><img src="/cover/9791186560136"><a href="/detail/2">미움받을 용기 2</a><span>ISBN: 9791186560136</span></li>
+                """;
+        for (Case c : List.of(
+                new Case(LINK_THEN_ISBN, "9788996991342", true), new Case(LINK_THEN_ISBN, "9791186560136", true),
+                new Case(LINK_THEN_ISBN, "9788901222127", true), new Case(LINK_THEN_ISBN, "9788937473135", true),
+                new Case(ISBN_THEN_LINK, "9791186560136", false), new Case(ISBN_THEN_LINK, "9788901222127", false),
+                new Case(ISBN_THEN_LINK, "9791186560136", true), new Case(LINK_THEN_ISBN, "9788996991342", false),
+                new Case(covers, "9791186560136", true), new Case(covers, "9788996991342", false))) {
+            var one = IsbnAnchor.pick(c.html(), links(c.html()), c.isbn(), c.linkFirst());
+            var all = IsbnAnchor.pickAll(c.html(), links(c.html()), c.isbn(), c.linkFirst());
+            assertEquals(one.payload(), all.found() ? all.spans().get(0).payload() : null, c.toString());
+            assertEquals(one.how(), all.how(), c.toString());
+        }
+    }
+
+    @Test
     @DisplayName("ISBN-13 이 아닌 값으로는 찾지 않는다")
     void rejectsNonIsbn() {
         assertFalse(IsbnAnchor.pick(LINK_THEN_ISBN, links(LINK_THEN_ISBN), "미움받을 용기", true).found());

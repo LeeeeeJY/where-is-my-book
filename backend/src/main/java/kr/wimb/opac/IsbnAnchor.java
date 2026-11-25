@@ -92,6 +92,65 @@ final class IsbnAnchor {
         return new Pick<>(null, "그 ISBN 이 적힌 항목에서 링크를 찾지 못했습니다");
     }
 
+    /** 그 ISBN 의 줄로 본 자리들(문서에서 찾은 차례)과 어떻게 찾았는지. 없으면 비어 있고 {@code how} 가 사유입니다. */
+    record Picks<T>(List<Span<T>> spans, String how) {
+        boolean found() { return !spans.isEmpty(); }
+    }
+
+    /**
+     * <b>그 ISBN 의 줄 전부.</b> {@link #pick} 은 그 가운데 첫 줄 하나만 돌려주는데, 한 ISBN 에 줄이 여럿일 때
+     * 그 가운데서 다시 골라야 하는 규칙({@code @plain:})이 이것을 씁니다. 도서관이 큰글자판을 보통 판의
+     * ISBN 으로 등록해 두면 같은 ISBN 의 줄이 둘 이상 나옵니다.
+     *
+     * <p><b>첫 자리는 {@link #pick} 이 고르는 것과 같습니다.</b> 차례도 같습니다.
+     * <ol>
+     *   <li>링크 글자 안에 그 ISBN 이 든 자리가 있으면 <b>그런 자리 전부</b>입니다.</li>
+     *   <li>아니면 ISBN 이 적힌 자리마다 규칙이 말한 쪽의 가장 가까운 링크입니다. 그 사이에 다른 ISBN 이
+     *       끼어 있으면 버립니다.</li>
+     *   <li>「뒤」 방향에서는 그 가까운 링크 <b>뒤로 다른 ISBN 이 나오기 전까지의 링크도</b> 그 ISBN 의
+     *       줄입니다. 남양주의 ISBN 검색 화면은 목록 앞에 「요청하신 'ISBN:…'」이 한 번 적히고 줄에는
+     *       ISBN 이 없어서, 그 글자 뒤의 줄이 전부 그 ISBN 의 줄입니다(2026-11-25 에 받아 본 화면).
+     *       줄마다 ISBN 이 적힌 목록에서는 다음 줄의 ISBN 이 사이에 끼므로 한 줄만 남습니다.</li>
+     * </ol>
+     * 「앞」 방향은 넓히지 않습니다. 그런 화면을 본 적이 없고, 넓히면 첫 자리가 {@link #pick} 과 달라집니다.
+     */
+    static <T> Picks<T> pickAll(String html, List<Span<T>> spans, String isbn, boolean linkBeforeIsbn) {
+        if (isbn == null || !ISBN_TOKEN.matcher(isbn).matches()) {
+            return new Picks<>(List.of(), "ISBN-13 이 아닙니다: " + isbn);
+        }
+        List<Span<T>> carrying = new ArrayList<>();
+        for (Span<T> span : spans) {
+            if (html.substring(span.start(), span.end()).contains(isbn)) carrying.add(span);
+        }
+        if (!carrying.isEmpty()) return new Picks<>(carrying, "링크 안에 그 ISBN 이 있습니다");
+        List<Integer> others = new ArrayList<>();
+        List<int[]> ours = new ArrayList<>();
+        Matcher m = ISBN_TOKEN.matcher(html);
+        while (m.find()) {
+            if (m.group().equals(isbn)) ours.add(new int[] {m.start(), m.end()});
+            else others.add(m.start());
+        }
+        if (ours.isEmpty()) return new Picks<>(List.of(), "결과에 그 ISBN 이 적혀 있지 않습니다");
+        List<Span<T>> found = new ArrayList<>();
+        for (int[] at : ours) {
+            if (linkBeforeIsbn) {
+                Span<T> near = null;
+                for (Span<T> span : spans) {
+                    if (span.end() <= at[0]) near = span; else break;
+                }
+                if (near != null && clean(others, near.end(), at[0]) && !found.contains(near)) found.add(near);
+            } else {
+                for (Span<T> span : spans) {
+                    if (span.start() < at[1]) continue;
+                    if (!clean(others, at[1], span.start())) break;      // 여기부터는 다른 책의 줄입니다
+                    if (!found.contains(span)) found.add(span);
+                }
+            }
+        }
+        if (found.isEmpty()) return new Picks<>(List.of(), "그 ISBN 이 적힌 항목에서 링크를 찾지 못했습니다");
+        return new Picks<>(found, linkBeforeIsbn ? "그 ISBN 바로 앞의 링크입니다" : "그 ISBN 바로 뒤의 링크입니다");
+    }
+
     /** {@code [from, to)} 사이에 다른 책의 ISBN 이 없는지. */
     private static boolean clean(List<Integer> others, int from, int to) {
         for (int at : others) {

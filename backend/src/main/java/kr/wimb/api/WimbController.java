@@ -329,7 +329,13 @@ public class WimbController {
                 result.unreadable(), asOf);
     }
 
-    /** 상세를 찾으려고 검색 결과를 받아 볼 ISBN 수의 상한. 한 번에 몇 초씩이라 둘까지입니다. */
+    /**
+     * 상세를 찾으려고 검색 결과를 받아 볼 ISBN 수의 상한. 한 번에 몇 초씩이라 둘까지입니다.
+     *
+     * <p>한 번 누를 때 검색 화면을 받는 횟수의 상한이기도 합니다. ISBN 검색은 판마다 한 번씩 이 수까지,
+     * 제목 검색은 화면의 표제와 권차를 뗀 표제로 두 번까지 받습니다. 상세 확인 규칙({@code @verify:})은
+     * 여기에 후보 상세 화면을 {@code DetailResolver.MAX_VERIFY_DETAILS} 개까지 더 받습니다.
+     */
     static final int MAX_DETAIL_ATTEMPTS = 2;
 
     /**
@@ -388,9 +394,14 @@ public class WimbController {
      * 표제는 0건인 OPAC 이 있습니다. 닻 규칙이 있으면 권차를 붙인 표제로 먼저 찾습니다. 전집은 그쪽이
      * 찾는 권을 첫 쪽에 올려 주기 때문입니다. 그 판이 목록에 없을 때만 뗀 표제로 한 번 더 찾고,
      * <b>페이지를 아예 못 받았으면 다시 두드리지 않습니다.</b>
+     *
+     * <p><b>이 누름에서 부르는 찾기는 전부 같은 몫({@code DetailResolver.Budget})을 씁니다.</b> 상세 확인
+     * 규칙({@code @verify:})은 후보의 상세 화면을 받아 보는데, 두 번째 찾기가 그 수와 시간을 처음부터 다시
+     * 세면 한 번 누를 때 나가는 요청과 기다리는 시간이 두 배가 됩니다.
      */
     private String detailOrSame(String libCode, OpacLink link, List<String> isbns, String firstIsbn,
                                 String title, String coreTitle) {
+        var budget = detailResolver.newBudget();
         if (link.kind() == OpacLink.Kind.TITLE_SEARCH) {
             String broad = opacTemplates.bestFor(libCode, firstIsbn, coreTitle)
                     .filter(l -> l.kind() == OpacLink.Kind.TITLE_SEARCH)
@@ -403,10 +414,10 @@ public class WimbController {
             // 검색 주소를 만든 표제를 함께 넘깁니다. 결과를 프레임으로 보여 주는 OPAC(@frame:)은 서버가
             // 검색 화면이 아니라 프레임을 받는데, 그 프레임 주소에 같은 표제가 들어가야 합니다.
             var context = new DetailResolver.Context(anchors.get(0), libCode, anchors).withTitle(title);
-            var outcome = detailResolver.resolve(link.url(), anchored.get().rule(), context);
+            var outcome = detailResolver.resolve(link.url(), anchored.get().rule(), context, budget);
             if (outcome.status() == DetailResolver.Status.RESOLVED) return outcome.detailUrl();
             if (outcome.status() == DetailResolver.Status.NO_MATCH && !broad.equals(link.url())) {
-                var again = detailResolver.resolve(broad, anchored.get().rule(), context.withTitle(coreTitle));
+                var again = detailResolver.resolve(broad, anchored.get().rule(), context.withTitle(coreTitle), budget);
                 if (again.status() == DetailResolver.Status.RESOLVED) return again.detailUrl();
             }
             return broad;
@@ -418,7 +429,8 @@ public class WimbController {
             String searchUrl = candidate.equals(isbns.get(0)) ? link.url()
                     : opacTemplates.bestFor(libCode, candidate, null).map(OpacLink::url).orElse(null);
             if (searchUrl == null) continue;
-            var outcome = detailResolver.resolve(searchUrl, pattern.get().rule(), new DetailResolver.Context(candidate, libCode));
+            var outcome = detailResolver.resolve(searchUrl, pattern.get().rule(),
+                    new DetailResolver.Context(candidate, libCode), budget);
             if (outcome.status() == DetailResolver.Status.RESOLVED) return outcome.detailUrl();
             if (outcome.status() != DetailResolver.Status.NO_MATCH) break;
         }
